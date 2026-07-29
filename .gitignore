@@ -1,0 +1,11 @@
+# 构建产物
+iptest-web.exe
+iptest-web.exe~
+
+# 运行时自动下载的数据文件
+GeoLite2-ASN.mmdb
+locations.json
+
+# Go
+*.test
+*.out

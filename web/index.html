@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloudflare IP 测速工具</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header class="app-header">
+        <h1>Cloudflare IP 测速工具</h1>
+        <span class="version" id="app-version">…</span>
+        <span id="res-status" class="res-status">资源加载中…</span>
+    </header>
+
+    <main class="pipeline">
+        <!-- ========== 阶段 1：输入整理 ========== -->
+        <section id="stage-input" class="card">
+            <h2><span class="stage-num">1</span>输入整理</h2>
+            <textarea id="ip-input" rows="7" placeholder="粘贴 IP 列表，每行一个。支持格式：
+1.1.1.1:443 / 1.1.1.1 / 1.1.1.1 443 / [2606:4700::1]:443 / 1.1.1.1:443#注释 / 1.1.1.1:443,US,AS13335"></textarea>
+            <div class="toolbar">
+                <button id="btn-normalize" class="primary">整理</button>
+                <button id="btn-dedupe">仅去重</button>
+                <input type="text" id="filter-expr" placeholder="筛选：port:443,8443 country:JP 关键词（空格=且 | =或）" style="flex:1;min-width:260px">
+                <button id="btn-filter-keep">保留匹配</button>
+                <button id="btn-filter-remove">剔除匹配</button>
+            </div>
+            <div class="stats-line" id="input-stats">
+                <span>有效 <b id="stat-valid">0</b> 条</span>
+                <span>IPv4 <b id="stat-v4">0</b></span>
+                <span>IPv6 <b id="stat-v6">0</b></span>
+                <span id="stat-ports"></span>
+            </div>
+            <textarea id="ip-cleaned" rows="5" readonly placeholder="整理结果会显示在这里，测试时将使用这份列表"></textarea>
+        </section>
+
+        <!-- ========== 阶段 2：测试配置与执行 ========== -->
+        <section id="stage-test" class="card">
+            <h2><span class="stage-num">2</span>测试配置与执行</h2>
+            <div class="config-grid">
+                <div class="config-panel">
+                    <h3>延迟测试（验证 Cloudflare 节点）</h3>
+                    <div class="field"><label>并发数</label><input type="number" id="lat-concurrency" min="1" max="1000"></div>
+                    <div class="field"><label>超时 (ms)</label><input type="number" id="lat-timeout" min="200" max="10000"></div>
+                    <div class="field"><label>延迟过滤 (ms)</label><input type="number" id="lat-maxlatency" min="0" max="10000" title="超过此延迟的 IP 直接丢弃，0=不过滤"></div>
+                    <div class="field">
+                        <label class="checkbox"><input type="checkbox" id="lat-tls"> 使用 TLS</label>
+                        <label class="checkbox"><input type="checkbox" id="lat-ipapi"> 检测 IPS 类型</label>
+                    </div>
+                </div>
+                <div class="config-panel">
+                    <h3>下载测速（对勾选/筛选的结果）</h3>
+                    <div class="field"><label>测速并发数</label><input type="number" id="spd-concurrency" min="1" max="100"></div>
+                    <div class="field"><label>单 IP 时限 (秒)</label><input type="number" id="spd-duration" min="1" max="30"></div>
+                    <div class="field"><label>速度过滤 (kB/s)</label><input type="number" id="spd-minspeed" min="0" title="低于此速度的结果不回填，0=不过滤"></div>
+                    <div class="field"><label>测速地址</label><input type="text" id="spd-url" class="wide"></div>
+                    <div class="field">
+                        <label class="checkbox"><input type="checkbox" id="spd-tls"> 使用 TLS</label>
+                    </div>
+                </div>
+            </div>
+            <div class="action-bar">
+                <button id="btn-start-latency" class="primary">开始延迟测试</button>
+                <button id="btn-start-speed" disabled>对勾选结果测速</button>
+                <button id="btn-speed-filtered" disabled>对筛选结果测速</button>
+                <button id="btn-stop" class="danger" disabled>停止</button>
+            </div>
+            <div class="progress-wrap" id="progress-wrap">
+                <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+                <div class="progress-text">
+                    <span id="progress-label">准备中…</span>
+                    <span id="progress-pct">0%</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- ========== 阶段 3：结果表格 ========== -->
+        <section id="stage-results" class="card">
+            <h2><span class="stage-num">3</span>结果 <span id="result-count" style="font-size:12px;color:var(--text-secondary);font-weight:400"></span></h2>
+            <div class="toolbar" style="margin-top:0">
+                <input type="text" id="result-filter" placeholder="过滤结果（IP / 国家 / 城市 / ASN）" style="flex:1;min-width:220px">
+                <button id="btn-quota-toggle">国家配额选择</button>
+                <button id="btn-append" class="primary" disabled>追加到结果框 →</button>
+            </div>
+            <div class="quota-box" id="quota-box">
+                <div class="quota-title">按国家取前 N 个（跟随当前排序，留空/0 = 不取）</div>
+                <div class="quota-grid" id="quota-grid"></div>
+                <button id="btn-quota-apply" class="small primary">应用配额</button>
+                <button id="btn-quota-clear" class="small">清除配额</button>
+            </div>
+            <div id="result-table-container"></div>
+        </section>
+
+        <!-- ========== 阶段 4：结果框与导出 ========== -->
+        <section id="stage-export" class="card">
+            <h2><span class="stage-num">4</span>结果框与导出</h2>
+            <div class="format-bar">
+                <label style="font-size:13px;color:var(--text-secondary)">格式模板</label>
+                <input type="text" id="format-template" class="template" value="{ip}:{port}#{emoji}{country}">
+                <select id="format-presets"></select>
+            </div>
+            <div class="placeholder-help" id="placeholder-help"></div>
+            <textarea id="output-box" class="output-box" rows="8" placeholder="从结果表格勾选后点「追加到结果框」，内容会按模板格式化追加到这里。也可以直接手动编辑。"></textarea>
+            <div class="toolbar">
+                <button id="btn-output-dedupe" class="small">结果框去重</button>
+                <button id="btn-output-clear" class="small">清空</button>
+                <span class="spacer"></span>
+                <button id="btn-copy">复制</button>
+                <button id="btn-download-txt">下载 TXT</button>
+                <button id="btn-download-csv" class="primary">下载 CSV</button>
+            </div>
+            <details style="margin-top:10px">
+                <summary style="font-size:13px;color:var(--text-secondary);cursor:pointer">CSV 列选择（默认全选，共 27 列）</summary>
+                <div class="csv-columns" id="csv-columns"></div>
+            </details>
+        </section>
+    </main>
+
+    <div id="toast"></div>
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>
