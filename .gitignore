@@ -6,6 +6,9 @@ iptest-web.exe~
 GeoLite2-ASN.mmdb
 locations.json
 
+# 运行时生成的配置（每台机器自己的换源设置）
+config.json
+
 # Go
 *.test
 *.out

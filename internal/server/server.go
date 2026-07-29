@@ -63,6 +63,7 @@ func (s *Server) Handler() http.Handler { return s.mux }
 func (s *Server) registerRoutes() {
 	s.mux.Handle("/", http.FileServer(http.FS(s.assets)))
 	s.mux.HandleFunc("GET /api/config", s.handleConfig)
+	s.mux.HandleFunc("GET /api/official-ranges", s.handleOfficialRanges)
 	s.mux.HandleFunc("POST /api/task/latency", s.handleStartLatency)
 	s.mux.HandleFunc("POST /api/task/speed", s.handleStartSpeed)
 	s.mux.HandleFunc("POST /api/task/stop", s.handleStop)

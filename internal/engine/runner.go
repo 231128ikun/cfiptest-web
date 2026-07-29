@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -71,11 +72,18 @@ func (r *Runner) ASNLoaded() bool { return r.asnDB != nil }
 // LocationCount 返回已加载的地理位置条目数。
 func (r *Runner) LocationCount() int { return len(r.locations) }
 
+// ErrResultLimitReached 表示测试因达到 MaxResults 而提前结束。
+// 这是正常收工而非故障，上层不应作为错误展示给用户。
+var ErrResultLimitReached = errors.New("已达到最大结果数")
+
 // RunLatencyTest 并发执行延迟测试 + CF 节点验证，流式回调事件。
 //
 // 并发模型：每阶段独立的信号量 channel + WaitGroup，进度用 atomic 计数，
 // 结果经带缓冲 channel 收集——避免了旧版共享信号量导致的死锁与数据竞争。
 // ctx 取消时进行中的连接会中断，函数尽早返回已收集的部分结果。
+//
+// opts.MaxResults > 0 时，凑够该数量的有效结果就取消剩余任务并返回
+// ErrResultLimitReached；为 0 则测完全部目标（默认行为）。
 func (r *Runner) RunLatencyTest(ctx context.Context, targets []Target, opts LatencyOptions, cb EventCallback) ([]Result, error) {
 	if opts.MaxConcurrency < 1 {
 		opts.MaxConcurrency = 1
@@ -85,6 +93,12 @@ func (r *Runner) RunLatencyTest(ctx context.Context, targets []Target, opts Late
 	sem := make(chan struct{}, opts.MaxConcurrency)
 	resultCh := make(chan Result, total)
 
+	// 用于「凑够就停」：派生一个可取消的子 ctx，达到上限时取消它。
+	// 注意它与用户停止共用 context.Canceled，故另设 hitLimit 标志区分。
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var hitLimit atomic.Bool
+
 	var completed int64
 	var validCount int64
 	var wg sync.WaitGroup
@@ -92,7 +106,7 @@ func (r *Runner) RunLatencyTest(ctx context.Context, targets []Target, opts Late
 loop:
 	for _, t := range targets {
 		select {
-		case <-ctx.Done():
+		case <-runCtx.Done():
 			break loop
 		case sem <- struct{}{}:
 		}
@@ -110,11 +124,21 @@ loop:
 				}})
 			}()
 
-			res := r.testSingleIP(ctx, target, opts)
-			if res != nil {
-				atomic.AddInt64(&validCount, 1)
-				resultCh <- *res
-				cb(Event{Type: EventResult, Result: res})
+			res := r.testSingleIP(runCtx, target, opts)
+			if res == nil {
+				return
+			}
+			n := atomic.AddInt64(&validCount, 1)
+			// 超出上限的结果直接丢弃：并发下可能有多个协程同时越过阈值，
+			// 若都收下就会返回比用户要求更多的条目。
+			if opts.MaxResults > 0 && int(n) > opts.MaxResults {
+				return
+			}
+			resultCh <- *res
+			cb(Event{Type: EventResult, Result: res})
+			if opts.MaxResults > 0 && int(n) >= opts.MaxResults {
+				hitLimit.Store(true)
+				cancel()
 			}
 		}(t)
 	}
@@ -127,16 +151,25 @@ loop:
 		results = append(results, res)
 	}
 
-	if ctx.Err() != nil {
-		cb(Event{Type: EventDone, Message: fmt.Sprintf("已停止，保留 %d 个有效结果", len(results))})
+	switch {
+	case hitLimit.Load():
+		cb(Event{Type: EventDone, Reason: DoneLimit,
+			Message: fmt.Sprintf("已达到最大结果数，找到 %d 个有效 IP（剩余目标未测试）", len(results))})
+		return results, ErrResultLimitReached
+	case ctx.Err() != nil:
+		cb(Event{Type: EventDone, Reason: DoneStopped,
+			Message: fmt.Sprintf("已停止，保留 %d 个有效结果", len(results))})
 		return results, ctx.Err()
 	}
-	cb(Event{Type: EventDone, Message: fmt.Sprintf("延迟测试完成，共 %d 个有效 IP", len(results))})
+	cb(Event{Type: EventDone, Reason: DoneCompleted,
+		Message: fmt.Sprintf("延迟测试完成，共 %d 个有效 IP", len(results))})
 	return results, nil
 }
 
 // RunSpeedTest 对给定目标子集并发测速，逐条回调速度结果。
 // 使用独立的信号量池，与延迟测试互不干扰。
+//
+// opts.MaxResults 语义同 RunLatencyTest：0=测完全部，>0=凑够达标结果即停。
 func (r *Runner) RunSpeedTest(ctx context.Context, targets []Target, opts SpeedOptions, cb EventCallback) error {
 	if opts.MaxConcurrency < 1 {
 		opts.MaxConcurrency = 1
@@ -145,6 +178,10 @@ func (r *Runner) RunSpeedTest(ctx context.Context, targets []Target, opts SpeedO
 	total := len(targets)
 	sem := make(chan struct{}, opts.MaxConcurrency)
 
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var hitLimit atomic.Bool
+
 	var completed int64
 	var validCount int64
 	var wg sync.WaitGroup
@@ -152,7 +189,7 @@ func (r *Runner) RunSpeedTest(ctx context.Context, targets []Target, opts SpeedO
 loop:
 	for _, t := range targets {
 		select {
-		case <-ctx.Done():
+		case <-runCtx.Done():
 			break loop
 		case sem <- struct{}{}:
 		}
@@ -170,28 +207,42 @@ loop:
 				}})
 			}()
 
-			speed := testSingleSpeed(ctx, target, opts)
+			speed := testSingleSpeed(runCtx, target, opts)
 			if speed <= 0 {
 				return
 			}
 			if opts.MinSpeedKBs > 0 && speed < opts.MinSpeedKBs {
 				return
 			}
-			atomic.AddInt64(&validCount, 1)
+			n := atomic.AddInt64(&validCount, 1)
+			if opts.MaxResults > 0 && int(n) > opts.MaxResults {
+				return
+			}
 			cb(Event{Type: EventSpeed, Result: &Result{
 				IP:               target.IP,
 				Port:             target.Port,
 				DownloadSpeedKBs: speed,
 			}})
+			if opts.MaxResults > 0 && int(n) >= opts.MaxResults {
+				hitLimit.Store(true)
+				cancel()
+			}
 		}(t)
 	}
 
 	wg.Wait()
 
-	if ctx.Err() != nil {
-		cb(Event{Type: EventDone, Message: "测速已停止"})
+	valid := atomic.LoadInt64(&validCount)
+	switch {
+	case hitLimit.Load():
+		cb(Event{Type: EventDone, Reason: DoneLimit,
+			Message: fmt.Sprintf("已达到最大结果数，%d 个 IP 达标（剩余未测速）", opts.MaxResults)})
+		return ErrResultLimitReached
+	case ctx.Err() != nil:
+		cb(Event{Type: EventDone, Reason: DoneStopped, Message: "测速已停止"})
 		return ctx.Err()
 	}
-	cb(Event{Type: EventDone, Message: fmt.Sprintf("测速完成，%d/%d 个达标", atomic.LoadInt64(&validCount), total)})
+	cb(Event{Type: EventDone, Reason: DoneCompleted,
+		Message: fmt.Sprintf("测速完成，%d/%d 个达标", valid, total)})
 	return nil
 }

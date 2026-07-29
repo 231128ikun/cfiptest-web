@@ -44,6 +44,63 @@ func TestParseTargets(t *testing.T) {
 	}
 }
 
+// TestParseTargetsCIDR 覆盖 CIDR 与普通 IP 混写——用户粘贴的列表里
+// 两者常常并存，不能因为出现一行网段就丢掉其余行。
+func TestParseTargetsCIDR(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  int // 期望目标数（IP 是随机抽的，只能校验数量与端口）
+		port  int // 期望端口，0 表示不校验
+	}{
+		{"裸网段默认 443", "1.2.0.0/16", 256, 443},
+		{"单 IP 网段", "1.2.3.4/32", 1, 443},
+		{"网段带端口", "10.0.0.0/16:2053", 256, 2053},
+		{"网段带中文冒号端口", "10.0.0.0/16：8443", 256, 8443},
+		{"网段带注释", "10.0.0.0/24 # 测试段", 1, 443},
+		{"IPv6 网段", "2606:4700::/32", 1, 443},
+		{"IPv6 网段带端口", "[2606:4700::/32]:8443", 1, 8443},
+		{"CIDR 与普通 IP 混写", "1.1.1.1:443\n10.0.0.0/16\n2.2.2.2:2053", 258, 0},
+		{"非法网段被跳过但保留其余行", "1.2.3.0/99\n1.1.1.1:443", 1, 443},
+		{"网段的 CSV 行取首列", "10.0.0.0/24,JP,AS13335", 1, 443},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ParseTargets(tt.input)
+			if len(got) != tt.want {
+				t.Fatalf("ParseTargets(%q) 得到 %d 条, 期望 %d 条", tt.input, len(got), tt.want)
+			}
+			if tt.port != 0 {
+				for _, g := range got {
+					if g.Port != tt.port {
+						t.Errorf("目标 %+v 端口应为 %d", g, tt.port)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestParseTargetsCIDRDedupes 确认展开后的目标仍会去重：
+// 重叠网段（/16 覆盖其中的 /24）不应产出重复目标。
+func TestParseTargetsCIDRDedupes(t *testing.T) {
+	got := ParseTargetsWithCIDR("10.0.0.0/24\n10.0.0.0/24", SampleAll, 0)
+	if len(got) != 256 {
+		t.Errorf("同一网段写两遍得到 %d 条，期望 256（应去重）", len(got))
+	}
+}
+
+// TestParseTargetsWithCIDRMode 确认抽样模式能穿透到解析层。
+func TestParseTargetsWithCIDRMode(t *testing.T) {
+	if got := ParseTargetsWithCIDR("10.0.0.0/24", SampleNPerSubnet, 7); len(got) != 7 {
+		t.Errorf("每 /24 取 7 个得到 %d 条，期望 7", len(got))
+	}
+	if got := ParseTargetsWithCIDR("10.0.0.0/24", SampleAll, 0); len(got) != 256 {
+		t.Errorf("全取得到 %d 条，期望 256", len(got))
+	}
+}
+
 func TestParseTraceResponse(t *testing.T) {
 	body := "fl=123f45\nh=speed.cloudflare.com\nip=104.16.0.1\nts=1720000000.123\ncolo=NRT\nloc=JP\nuag=Mozilla/5.0\n\nwarp=off\n"
 	got := parseTraceResponse(body)

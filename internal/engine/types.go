@@ -61,6 +61,7 @@ type LatencyOptions struct {
 	MaxConcurrency int  `json:"maxConcurrency"` // 并发数，默认 100
 	TimeoutMs      int  `json:"timeoutMs"`      // 单连接超时（毫秒），默认 1000
 	MaxLatencyMs   int  `json:"maxLatencyMs"`   // 延迟过滤阈值，0=不过滤
+	MaxResults     int  `json:"maxResults"`     // 达到该数量的合格结果即停止，0=不限制（全部测完）
 	EnableTLS      bool `json:"enableTLS"`      // 是否 HTTPS，默认 true
 	EnableIPAPI    bool `json:"enableIPAPI"`    // 是否调用 ipapi.is 检测 IPS 类型，默认 false
 }
@@ -71,6 +72,7 @@ func DefaultLatencyOptions() LatencyOptions {
 		MaxConcurrency: 100,
 		TimeoutMs:      1000,
 		MaxLatencyMs:   0,
+		MaxResults:     0,
 		EnableTLS:      true,
 		EnableIPAPI:    false,
 	}
@@ -81,6 +83,7 @@ type SpeedOptions struct {
 	MaxConcurrency int     `json:"maxConcurrency"` // 测速并发数，默认 5
 	DurationSec    int     `json:"durationSec"`    // 单 IP 测速时限（秒），默认 5
 	MinSpeedKBs    float64 `json:"minSpeedKBs"`    // 速度过滤阈值，0=不过滤
+	MaxResults     int     `json:"maxResults"`     // 达到该数量的达标结果即停止，0=不限制
 	DownloadURL    string  `json:"downloadURL"`    // 测速文件地址（不含协议头）
 	EnableTLS      bool    `json:"enableTLS"`
 }
@@ -91,6 +94,7 @@ func DefaultSpeedOptions() SpeedOptions {
 		MaxConcurrency: 5,
 		DurationSec:    5,
 		MinSpeedKBs:    0,
+		MaxResults:     0,
 		DownloadURL:    "speed.cloudflare.com/__down?bytes=500000000",
 		EnableTLS:      true,
 	}
@@ -107,12 +111,26 @@ const (
 	EventError    EventType = "error"    // 错误/取消
 )
 
+// DoneReason 说明一个阶段为何结束。
+//
+// 存在的必要：达到最大结果数是通过 context 取消实现的，而用户点「停止」
+// 也是取消 context——两者的 ctx.Err() 都是 context.Canceled，无法区分。
+// 若不显式区分，「凑够 N 个正常收工」会被上层当成错误报给用户。
+type DoneReason string
+
+const (
+	DoneCompleted DoneReason = "completed" // 全部目标测试完毕
+	DoneStopped   DoneReason = "stopped"   // 用户主动停止
+	DoneLimit     DoneReason = "limit"     // 达到最大结果数，提前收工
+)
+
 // Event 是流式回调的统一事件载体，直接序列化为 SSE data。
 type Event struct {
-	Type     EventType `json:"type"`
-	Result   *Result   `json:"result,omitempty"`
-	Progress *Progress `json:"progress,omitempty"`
-	Message  string    `json:"message,omitempty"`
+	Type     EventType  `json:"type"`
+	Result   *Result    `json:"result,omitempty"`
+	Progress *Progress  `json:"progress,omitempty"`
+	Message  string     `json:"message,omitempty"`
+	Reason   DoneReason `json:"reason,omitempty"` // 仅 EventDone 携带
 }
 
 // Progress 表示一次进度快照。

@@ -17,6 +17,7 @@ type latencyOptionsDTO struct {
 	MaxConcurrency *int  `json:"maxConcurrency"`
 	TimeoutMs      *int  `json:"timeoutMs"`
 	MaxLatencyMs   *int  `json:"maxLatencyMs"`
+	MaxResults     *int  `json:"maxResults"`
 	EnableTLS      *bool `json:"enableTLS"`
 	EnableIPAPI    *bool `json:"enableIPAPI"`
 }
@@ -36,6 +37,10 @@ func (d *latencyOptionsDTO) apply(def engine.LatencyOptions) engine.LatencyOptio
 	if d.MaxLatencyMs != nil {
 		opts.MaxLatencyMs = *d.MaxLatencyMs
 	}
+	// 显式传 0 表示「不限制」，故这里不做 > 0 判断
+	if d.MaxResults != nil {
+		opts.MaxResults = *d.MaxResults
+	}
 	if d.EnableTLS != nil {
 		opts.EnableTLS = *d.EnableTLS
 	}
@@ -50,6 +55,7 @@ type speedOptionsDTO struct {
 	MaxConcurrency *int     `json:"maxConcurrency"`
 	DurationSec    *int     `json:"durationSec"`
 	MinSpeedKBs    *float64 `json:"minSpeedKBs"`
+	MaxResults     *int     `json:"maxResults"`
 	DownloadURL    *string  `json:"downloadURL"`
 	EnableTLS      *bool    `json:"enableTLS"`
 }
@@ -68,6 +74,9 @@ func (d *speedOptionsDTO) apply(def engine.SpeedOptions) engine.SpeedOptions {
 	if d.MinSpeedKBs != nil {
 		opts.MinSpeedKBs = *d.MinSpeedKBs
 	}
+	if d.MaxResults != nil {
+		opts.MaxResults = *d.MaxResults
+	}
 	if d.DownloadURL != nil && *d.DownloadURL != "" {
 		opts.DownloadURL = *d.DownloadURL
 	}
@@ -82,6 +91,10 @@ type latencyRequest struct {
 	Targets []engine.Target    `json:"targets"`
 	RawText string             `json:"rawText"` // 可选：直接传原始文本，后端代为解析
 	Options *latencyOptionsDTO `json:"options"`
+
+	// rawText 中的 CIDR 网段如何抽样。缺省为「每 /24 取 1 个」。
+	SampleMode string `json:"sampleMode"` // "one"(默认) | "n" | "all"
+	SampleN    int    `json:"sampleN"`    // sampleMode="n" 时每个 /24 取几个
 }
 
 // speedRequest 对应 POST /api/task/speed。targets 是前端从延迟结果中挑选的子集。
@@ -100,6 +113,19 @@ type taskResponse struct {
 	TotalTargets int    `json:"totalTargets"`
 }
 
+// isTaskFailure 判断一次任务的返回错误是否需要作为 error 事件推给前端。
+//
+// 两种「正常结束」不算失败：用户点停止（context.Canceled）与
+// 达到最大结果数（ErrResultLimitReached，内部同样以取消实现）。
+// 这两种情况 engine 已经发过带 reason 的 done 事件，再报错只会让界面
+// 弹出一个莫名的失败提示。
+func isTaskFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	return !errors.Is(err, context.Canceled) && !errors.Is(err, engine.ErrResultLimitReached)
+}
+
 func (s *Server) handleStartLatency(w http.ResponseWriter, r *http.Request) {
 	var req latencyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -109,7 +135,8 @@ func (s *Server) handleStartLatency(w http.ResponseWriter, r *http.Request) {
 
 	targets := req.Targets
 	if len(targets) == 0 && req.RawText != "" {
-		targets = engine.ParseTargets(req.RawText)
+		targets = engine.ParseTargetsWithCIDR(req.RawText,
+			engine.ParseSampleMode(req.SampleMode), req.SampleN)
 	}
 	if len(targets) == 0 {
 		writeError(w, http.StatusBadRequest, "没有可测试的目标（IP 列表为空或格式无法识别）")
@@ -127,7 +154,7 @@ func (s *Server) handleStartLatency(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer s.finishTask(taskID)
 		_, err := s.runner.RunLatencyTest(ctx, targets, opts, s.broadcast)
-		if err != nil && !errors.Is(err, context.Canceled) {
+		if isTaskFailure(err) {
 			s.broadcast(engine.Event{Type: engine.EventError, Message: err.Error()})
 		}
 	}()
@@ -156,7 +183,7 @@ func (s *Server) handleStartSpeed(w http.ResponseWriter, r *http.Request) {
 	opts := req.Options.apply(s.speedDefaults)
 	go func() {
 		defer s.finishTask(taskID)
-		if err := s.runner.RunSpeedTest(ctx, req.Targets, opts, s.broadcast); err != nil && !errors.Is(err, context.Canceled) {
+		if err := s.runner.RunSpeedTest(ctx, req.Targets, opts, s.broadcast); isTaskFailure(err) {
 			s.broadcast(engine.Event{Type: engine.EventError, Message: err.Error()})
 		}
 	}()

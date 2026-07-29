@@ -63,9 +63,17 @@ func testSingleSpeed(ctx context.Context, target Target, opts SpeedOptions) floa
 	defer resp.Body.Close()
 
 	written, _ := io.Copy(io.Discard, resp.Body)
-	duration := time.Since(startTime)
-	if duration <= 0 || written <= 0 {
+	if written <= 0 {
 		return 0
+	}
+
+	// Windows 的计时器分辨率约为 1ms，环回或局域网下小文件可能快到
+	// time.Since 返回 0。此时不能按「duration<=0 就返回 0」处理：0 在调用方
+	// 表示测速失败、该目标会被过滤掉——最快的目标反而被当成不可用，方向正好相反。
+	// 这里用一个时钟分辨率量级的下限兜底：既避免除零，也只是略微低估极快的速度。
+	duration := time.Since(startTime)
+	if duration < time.Millisecond {
+		duration = time.Millisecond
 	}
 	return float64(written) / duration.Seconds() / 1024
 }
