@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sync"
 
+	"iptest-web/internal/config"
 	"iptest-web/internal/engine"
 )
 
@@ -18,6 +19,12 @@ type Server struct {
 	assets  fs.FS
 	mux     *http.ServeMux
 	version string
+	cfg     config.Config
+
+	// 参数默认值：内置默认值叠加 config.json 的覆盖后的结果。
+	// 前端 /api/config 读它做表单初值，请求里缺省的字段也回落到它。
+	latencyDefaults engine.LatencyOptions
+	speedDefaults   engine.SpeedOptions
 
 	// 任务生命周期
 	mu         sync.Mutex
@@ -25,18 +32,26 @@ type Server struct {
 	taskCancel context.CancelFunc
 
 	// SSE 订阅者
-	sseMu     sync.Mutex
+	sseMu      sync.Mutex
 	sseClients map[chan engine.Event]struct{}
 }
 
 // New 创建 Server 并注册全部路由。assets 为嵌入的前端静态资源。
-func New(runner *engine.Runner, assets fs.FS, version string) *Server {
+func New(runner *engine.Runner, assets fs.FS, version string, cfg config.Config) *Server {
+	speedDefaults := engine.DefaultSpeedOptions()
+	if cfg.SpeedTestURL != "" {
+		speedDefaults.DownloadURL = cfg.SpeedTestURL
+	}
+
 	s := &Server{
-		runner:     runner,
-		assets:     assets,
-		mux:        http.NewServeMux(),
-		version:    version,
-		sseClients: make(map[chan engine.Event]struct{}),
+		runner:          runner,
+		assets:          assets,
+		mux:             http.NewServeMux(),
+		version:         version,
+		cfg:             cfg,
+		latencyDefaults: engine.DefaultLatencyOptions(),
+		speedDefaults:   speedDefaults,
+		sseClients:      make(map[chan engine.Event]struct{}),
 	}
 	s.registerRoutes()
 	return s

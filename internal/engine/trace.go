@@ -12,7 +12,9 @@ import (
 	"time"
 )
 
-const traceURLHost = "speed.cloudflare.com/cdn-cgi/trace"
+// DefaultTraceURL 是验证 Cloudflare 节点用的 trace 接口（不含协议头）。
+// 可在 config.json 中覆盖，例如换成自建 Worker 的 /cdn-cgi/trace。
+const DefaultTraceURL = "speed.cloudflare.com/cdn-cgi/trace"
 
 var reColoLoc = regexp.MustCompile(`colo=([A-Z]+)[\s\S]*?loc=([A-Z]+)`)
 
@@ -52,7 +54,7 @@ func (r *Runner) testSingleIP(ctx context.Context, target Target, opts LatencyOp
 	if !opts.EnableTLS {
 		scheme = "http://"
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, scheme+traceURLHost, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, scheme+r.traceURL, nil)
 	if err != nil {
 		return nil
 	}

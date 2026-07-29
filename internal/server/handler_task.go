@@ -21,8 +21,9 @@ type latencyOptionsDTO struct {
 	EnableIPAPI    *bool `json:"enableIPAPI"`
 }
 
-func (d *latencyOptionsDTO) apply() engine.LatencyOptions {
-	opts := engine.DefaultLatencyOptions()
+// apply 把 DTO 叠加到 def 上；def 由 Server 持有（已含 config.json 的覆盖）。
+func (d *latencyOptionsDTO) apply(def engine.LatencyOptions) engine.LatencyOptions {
+	opts := def
 	if d == nil {
 		return opts
 	}
@@ -53,8 +54,8 @@ type speedOptionsDTO struct {
 	EnableTLS      *bool    `json:"enableTLS"`
 }
 
-func (d *speedOptionsDTO) apply() engine.SpeedOptions {
-	opts := engine.DefaultSpeedOptions()
+func (d *speedOptionsDTO) apply(def engine.SpeedOptions) engine.SpeedOptions {
+	opts := def
 	if d == nil {
 		return opts
 	}
@@ -122,7 +123,7 @@ func (s *Server) handleStartLatency(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	opts := req.Options.apply()
+	opts := req.Options.apply(s.latencyDefaults)
 	go func() {
 		defer s.finishTask(taskID)
 		_, err := s.runner.RunLatencyTest(ctx, targets, opts, s.broadcast)
@@ -152,7 +153,7 @@ func (s *Server) handleStartSpeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	opts := req.Options.apply()
+	opts := req.Options.apply(s.speedDefaults)
 	go func() {
 		defer s.finishTask(taskID)
 		if err := s.runner.RunSpeedTest(ctx, req.Targets, opts, s.broadcast); err != nil && !errors.Is(err, context.Canceled) {

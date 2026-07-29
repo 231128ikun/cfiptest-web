@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"iptest-web/internal/config"
 	"iptest-web/internal/engine"
 	"iptest-web/internal/server"
 
@@ -40,9 +41,15 @@ func main() {
 	flag.Parse()
 
 	dataDir := exeDir()
+	cfg := config.Load(dataDir)
 
 	fmt.Println("正在加载地理位置与 ASN 数据库（首次运行需下载）...")
-	runner, err := engine.NewRunner(dataDir)
+	runner, err := engine.NewRunner(engine.RunnerConfig{
+		DataDir:         dataDir,
+		LocationSources: cfg.Sources.Locations,
+		ASNSources:      cfg.Sources.ASNDatabase,
+		TraceURL:        cfg.TraceURL,
+	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "初始化失败: %v\n", err)
 		os.Exit(1)
@@ -56,7 +63,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "加载内嵌页面失败: %v\n", err)
 		os.Exit(1)
 	}
-	srv := server.New(runner, sub, version)
+	srv := server.New(runner, sub, version, cfg)
 
 	addr := fmt.Sprintf("127.0.0.1:%d", *port)
 	httpServer := &http.Server{Addr: addr, Handler: srv.Handler()}

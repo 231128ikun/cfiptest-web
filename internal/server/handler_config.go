@@ -2,8 +2,6 @@ package server
 
 import (
 	"net/http"
-
-	"iptest-web/internal/engine"
 )
 
 // configResponse 对应 GET /api/config 的响应。
@@ -22,8 +20,8 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		LocationCount:   s.runner.LocationCount(),
 		ASNLoaded:       s.runner.ASNLoaded(),
 		Defaults: map[string]any{
-			"latency": engine.DefaultLatencyOptions(),
-			"speed":   engine.DefaultSpeedOptions(),
+			"latency": s.latencyDefaults,
+			"speed":   s.speedDefaults,
 		},
 	})
 }

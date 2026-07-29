@@ -14,23 +14,48 @@ import (
 type Runner struct {
 	locations map[string]Location
 	asnDB     *geoip2.Reader
+	traceURL  string
+}
+
+// RunnerConfig 是创建 Runner 所需的外部资源配置。
+//
+// 这里用朴素的结构体而非直接引用 config.Config：config 包依赖 engine 取默认值，
+// engine 若反向依赖 config 就成了循环导入。由 main 负责把两者接起来。
+type RunnerConfig struct {
+	DataDir         string   // 数据文件目录（exe 同目录）
+	LocationSources []string // locations.json 下载源，依次尝试
+	ASNSources      []string // GeoLite2-ASN.mmdb 下载源，依次尝试
+	TraceURL        string   // CF 节点验证接口（不含协议头），空则用 DefaultTraceURL
 }
 
 // NewRunner 加载 dataDir 下的 locations.json 与 GeoLite2-ASN.mmdb（缺失时自动下载）。
 // locations 加载失败是致命错误；ASN 加载失败仅降级（ASN 信息留空）。
-func NewRunner(dataDir string) (*Runner, error) {
-	locations, err := loadLocations(dataDir)
+func NewRunner(rc RunnerConfig) (*Runner, error) {
+	locSources := rc.LocationSources
+	if len(locSources) == 0 {
+		locSources = DefaultLocationSources
+	}
+	asnSources := rc.ASNSources
+	if len(asnSources) == 0 {
+		asnSources = DefaultASNSources
+	}
+	traceURL := rc.TraceURL
+	if traceURL == "" {
+		traceURL = DefaultTraceURL
+	}
+
+	locations, err := loadLocations(rc.DataDir, locSources)
 	if err != nil {
 		return nil, err
 	}
 
-	asnDB, err := loadASN(dataDir)
+	asnDB, err := loadASN(rc.DataDir, asnSources)
 	if err != nil {
 		fmt.Printf("警告: %v（ASN 信息将不可用）\n", err)
 		asnDB = nil
 	}
 
-	return &Runner{locations: locations, asnDB: asnDB}, nil
+	return &Runner{locations: locations, asnDB: asnDB, traceURL: traceURL}, nil
 }
 
 // Close 释放 ASN 数据库等资源。
