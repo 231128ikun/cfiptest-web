@@ -1,5 +1,7 @@
 // exporter.js —— 导出模块：TXT/CSV 下载（Blob）、剪贴板复制
 
+import { csvValue } from './columns.js';
+
 function escapeCSV(value) {
     const str = String(value ?? '');
     if (str.includes(',') || str.includes('"') || str.includes('\n')) {
@@ -25,20 +27,29 @@ export function downloadAsText(content, filename = 'iptest-result.txt') {
 }
 
 /**
+ * 把结果序列化为指定格式的字符串（纯函数，不碰 DOM）。
+ *
+ * 与「如何投递」（浏览器下载 / 将来上传云端）解耦：下载路径只负责把
+ * 这里的返回值包进 Blob，未来要上传就直接复用同一个字符串。
+ *
+ * columns: [{key, label}]；ctx 提供结果对象之外的上下文（如 enableTLS）。
+ */
+export function serialize(results, format, { columns = [], ...ctx } = {}) {
+    if (format !== 'csv') throw new Error(`不支持的导出格式: ${format}`);
+    const header = columns.map(c => escapeCSV(c.label)).join(',');
+    const rows = results.map(r =>
+        columns.map(c => escapeCSV(csvValue(c, r, ctx))).join(','));
+    return [header, ...rows].join('\r\n');
+}
+
+/**
  * 下载 CSV。
  * columns: [{key, label}]；带 BOM 头确保 Excel 打开中文不乱码。
- * 特殊取值：enableTLS 来自当前配置；downloadSpeedKBs 格式化为 "N kB/s"；tcpLatencyMs 为 "N ms"。
+ * 各列的取值规则（TLS 来自配置、速度/延迟带单位）由 columns.js 的注册表定义。
  */
 export function downloadAsCSV(results, columns, { enableTLS = true, filename = 'iptest-result.csv' } = {}) {
     const BOM = '﻿';
-    const header = columns.map(c => escapeCSV(c.label)).join(',');
-    const rows = results.map(r => columns.map(c => {
-        if (c.key === 'enableTLS') return String(enableTLS);
-        if (c.key === 'downloadSpeedKBs') return r.downloadSpeedKBs ? `${r.downloadSpeedKBs.toFixed(0)} kB/s` : '';
-        if (c.key === 'tcpLatencyMs') return r.tcpLatencyMs != null ? `${r.tcpLatencyMs} ms` : '';
-        return escapeCSV(r[c.key]);
-    }).join(','));
-    const content = BOM + [header, ...rows].join('\r\n');
+    const content = BOM + serialize(results, 'csv', { columns, enableTLS });
     triggerDownload(new Blob([content], { type: 'text/csv;charset=utf-8' }), filename);
 }
 

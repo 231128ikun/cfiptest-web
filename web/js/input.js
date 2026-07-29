@@ -165,8 +165,10 @@ export function lineMatchesFilter(line, criteria) {
         if (criteria.asns.length && !criteria.asns.some(a => upper.includes(a))) return false;
     }
     if (criteria.text.length) {
+        // 裸关键词之间是「且」：占位符与文档都写明「空格=且」，
+        // 改造前这里用 .some() 实际是「或」，"东京 443" 会匹配只含 443 的行。
         const lower = line.toLowerCase();
-        if (!criteria.text.some(t => lower.includes(t))) return false;
+        if (!criteria.text.every(t => lower.includes(t))) return false;
     }
     return true;
 }

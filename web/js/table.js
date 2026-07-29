@@ -1,54 +1,36 @@
-// table.js —— 结果表格模块：渲染、排序、过滤、选择、国家配额
+// table.js —— 结果表格模块：渲染、排序、过滤、选择、分组配额
 
-const COLUMNS = [
-    { key: '_sel', label: '', sortable: false },
-    { key: 'ip', label: 'IP 地址', sortable: true },
-    { key: 'port', label: '端口', sortable: true, type: 'number' },
-    { key: 'tcpLatencyMs', label: '延迟', sortable: true, type: 'number', render: r => latencyBadge(r.tcpLatencyMs) },
-    { key: 'downloadSpeedKBs', label: '速度', sortable: true, type: 'number', render: r => speedText(r.downloadSpeedKBs) },
-    { key: 'dataCenter', label: '数据中心', sortable: true },
-    { key: 'emoji', label: '国旗', sortable: false },
-    { key: 'country', label: '国家', sortable: true },
-    { key: 'cityZh', label: '城市', sortable: true, render: r => r.cityZh || r.city || '' },
-    { key: 'ipType', label: '出站', sortable: true },
-    { key: 'asnOrg', label: 'ASN 组织', sortable: true },
+import { TABLE_COLUMNS, columnByKey, escapeHTML } from './columns.js';
+
+/** 可用于配额分组的维度（B3 会在界面暴露；此处先支持泛化调用） */
+export const GROUP_DIMENSIONS = [
+    { key: 'country', label: '国家' },
+    { key: 'asnOrg', label: 'ASN 组织' },
+    { key: 'dataCenter', label: '数据中心' },
+    { key: 'ipType', label: '出站类型' },
 ];
-
-function latencyBadge(ms) {
-    const cls = ms <= 150 ? 'fast' : ms <= 400 ? 'mid' : 'slow';
-    return `<span class="badge ${cls}">${ms} ms</span>`;
-}
-
-function speedText(kbs) {
-    if (!kbs) return '<span class="badge none">未测</span>';
-    const cls = kbs >= 1000 ? 'fast' : kbs >= 100 ? 'mid' : 'slow';
-    const text = kbs >= 1024 ? `${(kbs / 1024).toFixed(1)} MB/s` : `${kbs.toFixed(0)} kB/s`;
-    return `<span class="badge ${cls}">${text}</span>`;
-}
-
-function escapeHTML(s) {
-    return String(s ?? '').replace(/[&<>"']/g, c =>
-        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
 
 /** 结果表格：持有全部结果，支持逐条追加、排序、过滤、勾选、配额选择 */
 export class ResultTable {
     constructor(containerEl) {
         this.container = containerEl;
-        this.results = [];            // 全部结果（原始顺序 = 到达顺序）
-        this.selectedKeys = new Set(); // 勾选集合 "ip|port"
+        this.results = [];             // 全部结果（原始顺序 = 到达顺序）
+        this.selectedKeys = new Set(); // 唯一的勾选集合 "ip|port"
         this.sortKey = 'tcpLatencyMs';
         this.sortAsc = true;
         this.filterText = '';
-        this.quotaPicks = null;        // 国家配额选中的 key 集合（与勾选并集）
         this._renderScheduled = false; // 渲染节流：SSE 高频事件时合并重绘
+        this._sortedCache = null;      // _sortedResults 的缓存
         this._buildSkeleton();
     }
 
     static keyOf(r) { return `${r.ip}|${r.port}`; }
 
+    /** 结果集/排序变化后调用：让派生缓存失效。 */
+    _invalidate() { this._sortedCache = null; }
+
     _buildSkeleton() {
-        const thead = COLUMNS.map(col => {
+        const thead = TABLE_COLUMNS.map(col => {
             if (col.key === '_sel') {
                 return `<th class="no-sort"><input type="checkbox" id="sel-all" title="全选"></th>`;
             }
@@ -60,7 +42,7 @@ export class ResultTable {
                 <table class="results">
                     <thead><tr>${thead}</tr></thead>
                     <tbody id="result-tbody">
-                        <tr class="empty-row"><td colspan="${COLUMNS.length}">暂无结果 —— 请先运行延迟测试</td></tr>
+                        <tr class="empty-row"><td colspan="${TABLE_COLUMNS.length}">暂无结果 —— 请先运行延迟测试</td></tr>
                     </tbody>
                 </table>
             </div>`;
@@ -70,10 +52,11 @@ export class ResultTable {
         this.container.querySelectorAll('thead th[data-key]').forEach(th => {
             th.addEventListener('click', () => {
                 const key = th.dataset.key;
-                const col = COLUMNS.find(c => c.key === key);
+                const col = columnByKey(key);
                 if (!col?.sortable) return;
                 if (this.sortKey === key) this.sortAsc = !this.sortAsc;
                 else { this.sortKey = key; this.sortAsc = true; }
+                this._invalidate();
                 this.render();
             });
         });
@@ -84,19 +67,44 @@ export class ResultTable {
             else visible.forEach(r => this.selectedKeys.delete(ResultTable.keyOf(r)));
             this.render();
         });
+
+        // 勾选用事件委托：只绑一次，勾选时不重建 DOM。
+        // 改造前每次勾选都 tbody.innerHTML 全量重建并重绑所有监听——
+        // 等于「点一下勾选框就把你刚点的那一行销毁重建」，行数一多就明显卡顿。
+        this.tbody.addEventListener('change', e => {
+            const cb = e.target;
+            if (cb.type !== 'checkbox' || !cb.dataset.key) return;
+            if (cb.checked) this.selectedKeys.add(cb.dataset.key);
+            else this.selectedKeys.delete(cb.dataset.key);
+            // 只切换本行样式，不重绘整表
+            cb.closest('tr')?.classList.toggle('selected', cb.checked);
+            this._syncSelectAll();
+            this.container.dispatchEvent(new CustomEvent('selectionchange', { bubbles: true }));
+        });
+    }
+
+    /** 全选框状态跟随可见行：全选/部分选/未选。 */
+    _syncSelectAll() {
+        const box = this.container.querySelector('#sel-all');
+        if (!box) return;
+        const visible = this._visibleResults();
+        const selected = visible.filter(r => this.selectedKeys.has(ResultTable.keyOf(r))).length;
+        box.checked = visible.length > 0 && selected === visible.length;
+        box.indeterminate = selected > 0 && selected < visible.length;
     }
 
     /** 清空所有结果（新任务开始时调用） */
     clear() {
         this.results = [];
         this.selectedKeys.clear();
-        this.quotaPicks = null;
+        this._invalidate();
         this.render();
     }
 
     /** SSE result 事件：追加一条 */
     appendResult(result) {
         this.results.push(result);
+        this._invalidate();
         this.render();
     }
 
@@ -105,6 +113,7 @@ export class ResultTable {
         const found = this.results.find(x => x.ip === r.ip && x.port === r.port);
         if (found) {
             found.downloadSpeedKBs = r.downloadSpeedKBs;
+            this._invalidate();
             this.render();
         }
     }
@@ -114,11 +123,11 @@ export class ResultTable {
         this.render();
     }
 
-    /** 返回国家统计 [{name, emoji, count}]，按数量降序 */
-    getCountryStats() {
+    /** 返回分组统计 [{name, emoji, count}]，按数量降序。 */
+    getGroupStats(groupBy = 'country') {
         const stats = new Map();
         for (const r of this.results) {
-            const name = r.country || '未知';
+            const name = r[groupBy] || '未知';
             const cur = stats.get(name) || { name, emoji: r.emoji || '', count: 0 };
             cur.count++;
             stats.set(name, cur);
@@ -126,26 +135,64 @@ export class ResultTable {
         return [...stats.values()].sort((a, b) => b.count - a.count);
     }
 
+    /** 兼容旧调用名。 */
+    getCountryStats() { return this.getGroupStats('country'); }
+
+    /**
+     * 按分组配额选择：每组取前 N 个。
+     *
+     * 语义（本次明确）：在【当前筛选后】的结果集上，按【当前排序】分组取前 N。
+     * 改造前用的是 _sortedResults()，忽略了筛选——用户先筛日本再配额，
+     * 配额却从全量里挑，是个静默的 quirk。
+     *
+     * 配额只是「批量写入 selectedKeys」的一种手段，不再是独立的第二个集合：
+     * 改造前 getSelectedResults() 取 selectedKeys ∪ quotaPicks，导致
+     * 取消勾选某个配额行时它仍留在 quotaPicks 里，界面上取消不掉。
+     */
+    applyGroupQuota(groupBy, n, { replace = true } = {}) {
+        if (replace) this.selectedKeys.clear();
+        const limit = Number(n);
+        if (!Number.isInteger(limit) || limit <= 0) { this.render(); return 0; }
+
+        const taken = new Map();
+        let added = 0;
+        for (const r of this._visibleResults()) {
+            const group = r[groupBy] || '未知';
+            const used = taken.get(group) || 0;
+            if (used >= limit) continue;
+            taken.set(group, used + 1);
+            this.selectedKeys.add(ResultTable.keyOf(r));
+            added++;
+        }
+        this.render();
+        return added;
+    }
+
     /**
      * 按国家配额选择：{ "日本": 5, "美国": 10 }。
-     * 每国取当前排序下的前 N 个；quotas 为空对象/null 时清除配额选择。
+     * 保留此方法供现有界面调用；同样只写 selectedKeys。
      */
     applyCountryQuotas(quotas) {
-        this.quotaPicks = new Set();
+        this.selectedKeys.clear();
         if (quotas) {
-            const sorted = this._sortedResults();
             const taken = {};
-            for (const r of sorted) {
+            for (const r of this._visibleResults()) {
                 const country = r.country || '未知';
                 const quota = quotas[country];
                 if (!quota) continue;
-                taken[country] = (taken[country] || 0);
+                taken[country] = taken[country] || 0;
                 if (taken[country] < quota) {
                     taken[country]++;
-                    this.quotaPicks.add(ResultTable.keyOf(r));
+                    this.selectedKeys.add(ResultTable.keyOf(r));
                 }
             }
         }
+        this.render();
+    }
+
+    /** 清除全部勾选。 */
+    clearSelection() {
+        this.selectedKeys.clear();
         this.render();
     }
 
@@ -156,10 +203,12 @@ export class ResultTable {
                 .some(v => String(v ?? '').toLowerCase().includes(this.filterText)));
     }
 
+    /** 排序结果（带缓存：改造前每次 render 要重算 3–4 次）。 */
     _sortedResults() {
-        const col = COLUMNS.find(c => c.key === this.sortKey);
+        if (this._sortedCache) return this._sortedCache;
+        const col = columnByKey(this.sortKey);
         const arr = [...this.results];
-        if (!col?.sortable) return arr;
+        if (!col?.sortable) { this._sortedCache = arr; return arr; }
         arr.sort((a, b) => {
             const va = a[this.sortKey], vb = b[this.sortKey];
             let cmp;
@@ -167,16 +216,17 @@ export class ResultTable {
             else cmp = String(va ?? '').localeCompare(String(vb ?? ''), 'zh-CN');
             return this.sortAsc ? cmp : -cmp;
         });
+        this._sortedCache = arr;
         return arr;
     }
 
-    /** 当前勾选（手动勾选 ∪ 配额选择）的结果 */
+    /** 当前勾选的结果（唯一来源 selectedKeys，按当前排序返回）。 */
     getSelectedResults() {
-        const union = new Set([...this.selectedKeys, ...(this.quotaPicks || [])]);
-        return this._sortedResults().filter(r => union.has(ResultTable.keyOf(r)));
+        return this._sortedResults().filter(r => this.selectedKeys.has(ResultTable.keyOf(r)));
     }
 
-    getAllResults() { return this._sortedResults(); }
+    /** 当前筛选可见的全部结果。 */
+    getAllResults() { return this._visibleResults(); }
 
     /** 请求重绘：用 rAF 合并高频调用（SSE 事件风暴时避免 O(n²) 卡顿） */
     render() {
@@ -199,15 +249,15 @@ export class ResultTable {
         });
 
         if (!visible.length) {
-            this.tbody.innerHTML = `<tr class="empty-row"><td colspan="${COLUMNS.length}">${this.results.length ? '没有匹配过滤条件的结果' : '暂无结果 —— 请先运行延迟测试'}</td></tr>`;
+            this.tbody.innerHTML = `<tr class="empty-row"><td colspan="${TABLE_COLUMNS.length}">${this.results.length ? '没有匹配过滤条件的结果' : '暂无结果 —— 请先运行延迟测试'}</td></tr>`;
+            this._syncSelectAll();
             return;
         }
 
-        const union = new Set([...this.selectedKeys, ...(this.quotaPicks || [])]);
         this.tbody.innerHTML = visible.map(r => {
             const key = ResultTable.keyOf(r);
-            const checked = union.has(key) ? 'checked' : '';
-            const cells = COLUMNS.map(col => {
+            const checked = this.selectedKeys.has(key) ? 'checked' : '';
+            const cells = TABLE_COLUMNS.map(col => {
                 if (col.key === '_sel') return `<td><input type="checkbox" data-key="${escapeHTML(key)}" ${checked}></td>`;
                 const val = col.render ? col.render(r) : escapeHTML(r[col.key]);
                 const cls = col.type === 'number' ? 'num' : (col.key === 'ip' ? 'mono' : '');
@@ -216,43 +266,10 @@ export class ResultTable {
             return `<tr class="${checked ? 'selected' : ''}">${cells}</tr>`;
         }).join('');
 
-        this.tbody.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-            cb.addEventListener('change', () => {
-                if (cb.checked) this.selectedKeys.add(cb.dataset.key);
-                else this.selectedKeys.delete(cb.dataset.key);
-                this.render();
-            });
-        });
+        this._syncSelectAll();
     }
 }
 
-/** 全部可导出的 CSV 列（与 CLI 版 27 列对齐） */
-export const CSV_COLUMNS = [
-    { key: 'ip', label: 'IP地址' },
-    { key: 'port', label: '端口号' },
-    { key: 'enableTLS', label: 'TLS' },
-    { key: 'dataCenter', label: '数据中心' },
-    { key: 'locCode', label: 'IP位置' },
-    { key: 'region', label: '地区' },
-    { key: 'city', label: '城市' },
-    { key: 'regionZh', label: '地区(中文)' },
-    { key: 'country', label: '出站IP位置' },
-    { key: 'cityZh', label: '城市(中文)' },
-    { key: 'emoji', label: '国旗' },
-    { key: 'tcpLatencyMs', label: '网络延迟' },
-    { key: 'downloadSpeedKBs', label: '下载速度' },
-    { key: 'outboundIP', label: '出站IP' },
-    { key: 'ipType', label: '出站IP类型' },
-    { key: 'ipsType', label: 'IPS类型' },
-    { key: 'asn', label: 'ASN号码' },
-    { key: 'asnOrg', label: 'ASN组织' },
-    { key: 'visitScheme', label: '访问协议' },
-    { key: 'tlsVersion', label: 'TLS版本' },
-    { key: 'sni', label: 'SNI' },
-    { key: 'httpVersion', label: 'HTTP版本' },
-    { key: 'warp', label: 'WARP' },
-    { key: 'gateway', label: 'Gateway' },
-    { key: 'rbi', label: 'RBI' },
-    { key: 'kex', label: '密钥交换' },
-    { key: 'timestamp', label: '时间戳' },
-];
+// CSV 列定义已移入 columns.js（与表格列合并为单一注册表）。
+// 这里重新导出，避免调用方需要同时 import 两个模块。
+export { CSV_COLUMNS } from './columns.js';

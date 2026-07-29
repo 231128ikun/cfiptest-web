@@ -195,6 +195,13 @@ function bindEvents() {
             }
         },
     });
+
+    // 关页面时收掉 SSE 连接：EventSource 不关会自动重连，
+    // 刷新页面时后端会短暂多出一个订阅者。
+    window.addEventListener('beforeunload', () => {
+        eventSource?.close();
+        eventSource = null;
+    });
 }
 
 function refreshButtons() {
@@ -210,8 +217,9 @@ function bindResultsStage() {
 
     $('result-filter').addEventListener('input', e => table.setFilter(e.target.value));
 
-    // 勾选变化时刷新按钮（用事件委托挂在容器上）
-    $('result-table-container').addEventListener('change', () => setTimeout(refreshButtons, 0));
+    // 勾选变化时刷新按钮。ResultTable 在勾选后派发 selectionchange，
+    // 无需再靠 setTimeout 等重绘结束（改造前勾选会重建整表）。
+    $('result-table-container').addEventListener('selectionchange', refreshButtons);
 
     // 国家配额
     $('btn-quota-toggle').addEventListener('click', () => {
@@ -231,7 +239,7 @@ function bindResultsStage() {
         toast(Object.keys(quotas).length ? `已按配额选择 ${table.getSelectedResults().length} 条` : '已清除配额选择');
     });
     $('btn-quota-clear').addEventListener('click', () => {
-        table.applyCountryQuotas(null);
+        table.clearSelection();
         refreshButtons();
     });
 
@@ -315,10 +323,11 @@ function bindExportStage() {
         toast(`已导出 ${results.length} 条 × ${cols.length} 列`);
     });
 
-    // CSV 列选择器
+    // CSV 列选择器（列与列数都由注册表派生，不再硬编码「共 27 列」）
     $('csv-columns').innerHTML = CSV_COLUMNS.map(c =>
         `<label class="checkbox"><input type="checkbox" data-key="${c.key}" checked> ${c.label}</label>`
     ).join('');
+    $('csv-column-count').textContent = CSV_COLUMNS.length;
 }
 
 /* ---------------- 初始化 ---------------- */
