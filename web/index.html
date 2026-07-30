@@ -111,16 +111,21 @@
                     <div class="field"><label>并发数</label><input type="number" id="lat-concurrency" min="1" max="1000"></div>
                     <div class="field"><label>超时 (ms)</label><input type="number" id="lat-timeout" min="200" max="10000"></div>
                     <div class="field"><label>延迟过滤 (ms)</label><input type="number" id="lat-maxlatency" min="0" max="10000" title="超过此延迟的 IP 直接丢弃，0=不过滤"></div>
+                    <div class="field"><label>最大结果数</label><input type="number" id="lat-maxresults" min="0" placeholder="0" title="0 = 不限制，全部测试。填 N 则凑够 N 个即停止，可大幅节省时间；得到的是最先找到的 N 个，不是全部测完后最优的 N 个。"></div>
                     <div class="field">
                         <label class="checkbox"><input type="checkbox" id="lat-tls"> 使用 TLS</label>
                         <label class="checkbox"><input type="checkbox" id="lat-ipapi"> 检测 IPS 类型</label>
                     </div>
                 </div>
-                <div class="config-panel">
-                    <h3>下载测速（对勾选/筛选的结果）</h3>
+                <div class="config-panel" id="spd-panel">
+                    <h3 class="panel-head">
+                        <span>下载测速（对勾选/筛选的结果）</span>
+                        <label class="checkbox" title="关闭后跳过下载测速，只做延迟测试"><input type="checkbox" id="spd-enable" checked> 启用</label>
+                    </h3>
                     <div class="field"><label>测速并发数</label><input type="number" id="spd-concurrency" min="1" max="100"></div>
                     <div class="field"><label>单 IP 时限 (秒)</label><input type="number" id="spd-duration" min="1" max="30"></div>
                     <div class="field"><label>速度过滤 (kB/s)</label><input type="number" id="spd-minspeed" min="0" title="低于此速度的结果不回填，0=不过滤"></div>
+                    <div class="field"><label>最大结果数</label><input type="number" id="spd-maxresults" min="0" placeholder="0" title="0 = 不限制，全部测试。填 N 则凑够 N 个即停止，可大幅节省时间；得到的是最先找到的 N 个，不是全部测完后最优的 N 个。"></div>
                     <div class="field"><label>测速地址</label><input type="text" id="spd-url" class="wide"></div>
                     <div class="field">
                         <label class="checkbox"><input type="checkbox" id="spd-tls"> 使用 TLS</label>
@@ -147,11 +152,25 @@
             <h2><span class="stage-num">3</span>结果 <span id="result-count" style="font-size:12px;color:var(--text-secondary);font-weight:400"></span></h2>
             <div class="toolbar" style="margin-top:0">
                 <input type="text" id="result-filter" placeholder="过滤结果（IP / 国家 / 城市 / ASN）" style="flex:1;min-width:220px">
-                <button id="btn-quota-toggle">国家配额选择</button>
+                <span class="sort-bar">
+                    <label for="sort-key">排序</label>
+                    <select id="sort-key"></select>
+                    <button id="btn-sort-dir" class="small" title="切换升序 / 降序">▲ 升序</button>
+                </span>
+                <button id="btn-quota-toggle">分组配额选择</button>
                 <button id="btn-append" class="primary" disabled>追加到结果框 →</button>
             </div>
             <div class="quota-box" id="quota-box">
-                <div class="quota-title">按国家取前 N 个（跟随当前排序，留空/0 = 不取）</div>
+                <div class="quota-title">按分组取前 N 个（在当前筛选后的结果上、跟随当前排序；留空/0 = 不取）</div>
+                <div class="quota-controls">
+                    <label for="quota-dim">分组维度</label>
+                    <select id="quota-dim"></select>
+                    <span class="ctl">
+                        只列出分组
+                        <span id="quota-picker"></span>
+                    </span>
+                    <span class="hint">不选 = 列出全部分组</span>
+                </div>
                 <div class="quota-grid" id="quota-grid"></div>
                 <button id="btn-quota-apply" class="small primary">应用配额</button>
                 <button id="btn-quota-clear" class="small">清除配额</button>

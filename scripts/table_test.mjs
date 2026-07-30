@@ -69,6 +69,16 @@ const SAMPLE = [
     R('3.0.0.1', '新加坡', 5),
 ];
 
+// SAMPLE 的 dataCenter / asnOrg / ipType 全都一样，验证不了非国家维度的分组，
+// 这里单独造一份各维度都有区分度的。
+const MIXED = [
+    { ...R('1.1.1.1', '日本', 10), dataCenter: 'NRT', asnOrg: 'Cloudflare, Inc.', ipType: 'IPv4' },
+    { ...R('1.1.1.2', '日本', 20), dataCenter: 'NRT', asnOrg: 'Cloudflare, Inc.', ipType: 'IPv4' },
+    { ...R('1.1.1.3', '美国', 30), dataCenter: 'LAX', asnOrg: 'Cloudflare, Inc.', ipType: 'IPv6' },
+    { ...R('1.1.1.4', '美国', 40), dataCenter: 'LAX', asnOrg: 'Amazon', ipType: 'IPv6' },
+    { ...R('1.1.1.5', '新加坡', 50), dataCenter: 'SIN', asnOrg: 'Amazon', ipType: 'IPv4' },
+];
+
 console.log('配额 union bug（A5 核心）:');
 check('应用国家配额后可以取消其中一行', () => {
     const { t } = makeTable(SAMPLE);
@@ -164,6 +174,75 @@ check('getAllResults 返回筛选后的集合', () => {
     const { t } = makeTable(SAMPLE);
     t.setFilter('美国');
     assert.equal(t.getAllResults().length, 2);
+});
+
+console.log('排序入口（setSort）:');
+check('setSort 派发 sortchange，detail 带 key/asc', () => {
+    const { t, container } = makeTable(SAMPLE);
+    const seen = [];
+    container.addEventListener('sortchange', e => seen.push(e.detail));
+    t.setSort('ip', false);
+    assert.equal(t.sortKey, 'ip');
+    assert.equal(t.sortAsc, false);
+    assert.deepEqual(seen, [{ key: 'ip', asc: false }],
+        '下拉与方向按钮靠这个事件回填，不派发就会和表头点击脱节');
+});
+check('setSort 拒绝不可排序的列，且不派发事件', () => {
+    const { t, container } = makeTable(SAMPLE);
+    let fired = 0;
+    container.addEventListener('sortchange', () => fired++);
+    t.setSort('emoji');          // columns.js 里 sortable: false
+    assert.equal(t.sortKey, 'tcpLatencyMs', '不该被改成不可排序的列');
+    assert.equal(fired, 0);
+});
+check('setSort 换列后排序结果真的变了', () => {
+    const { t } = makeTable(SAMPLE);
+    t.setSort('tcpLatencyMs', true);
+    assert.equal(t._sortedResults()[0].tcpLatencyMs, 5);
+    t.setSort('tcpLatencyMs', false);
+    assert.equal(t._sortedResults()[0].tcpLatencyMs, 30, '降序未生效（缓存没失效？）');
+});
+
+console.log('非国家维度的配额:');
+check('按 ASN 组织分组取前 N', () => {
+    const { t } = makeTable(MIXED);
+    t.applyGroupQuotas('asnOrg', { 'Cloudflare, Inc.': 2, Amazon: 1 });
+    const sel = t.getSelectedResults();
+    assert.equal(sel.length, 3);
+    assert.equal(sel.filter(r => r.asnOrg === 'Cloudflare, Inc.').length, 2);
+    assert.equal(sel.filter(r => r.asnOrg === 'Amazon').length, 1);
+});
+check('未在配额表里的分组一个都不选', () => {
+    const { t } = makeTable(MIXED);
+    t.applyGroupQuotas('dataCenter', { NRT: 1 });
+    const sel = t.getSelectedResults();
+    assert.equal(sel.length, 1);
+    assert.equal(sel[0].dataCenter, 'NRT');
+});
+check('quotas 为 null 时清空勾选', () => {
+    const { t } = makeTable(MIXED);
+    t.applyGroupQuotas('dataCenter', { NRT: 1 });
+    assert.equal(t.applyGroupQuotas('dataCenter', null), 0);
+    assert.equal(t.getSelectedResults().length, 0);
+});
+check('getGroupStats 只在国家维度给 emoji', () => {
+    const { t } = makeTable(MIXED);
+    assert.ok(t.getGroupStats('country')[0].emoji, '国家维度应带国旗');
+    assert.equal(t.getGroupStats('asnOrg')[0].emoji, '',
+        '按 ASN 分组时同组内国旗并不一致，带上会误导');
+});
+
+console.log('虚拟滚动窗口:');
+check('行数低于阈值时渲染整个区间', () => {
+    const { t } = makeTable(SAMPLE);
+    assert.deepEqual(t._window(SAMPLE.length),
+        { start: 0, end: SAMPLE.length, padTop: 0, padBottom: 0 });
+});
+check('没有 wrap 元素时不崩（桩 DOM 里 .table-wrap 取不到）', () => {
+    const { t } = makeTable(SAMPLE);
+    assert.equal(t.wrap, null, '桩件应当拿不到 .table-wrap');
+    assert.deepEqual(t._window(10000), { start: 0, end: 10000, padTop: 0, padBottom: 0 },
+        'wrap 为 null 时应退回全量区间，而不是拿 clientHeight 抛错');
 });
 
 console.log('分组统计:');

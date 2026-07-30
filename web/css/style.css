@@ -180,6 +180,16 @@ button.small { padding: 4px 10px; font-size: 12px; }
 }
 .stats-line b { color: var(--text); font-weight: 600; }
 
+/* 排序下拉 + 升降序按钮（与表头点击双向同步） */
+.sort-bar {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+.sort-bar select { font-size: 12px; padding: 4px 6px; }
+
 /* ---------- 阶段 1：模式 Tab 与来源面板 ---------- */
 
 .mode-tabs {
@@ -315,6 +325,25 @@ label.radio {
 .config-panel .field input { width: 110px; }
 .config-panel .field input.wide { width: 100%; flex: 1; }
 
+/* 总开关关闭态：只淡化被禁用的字段，标题那一行（含开关本身）保持可用 */
+.config-panel h3.panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+.config-panel h3.panel-head .checkbox {
+    font-weight: 400;
+    color: var(--text-secondary);
+}
+.config-panel.disabled .field {
+    opacity: 0.45;
+}
+.config-panel.disabled .field,
+.config-panel.disabled .field label {
+    cursor: not-allowed;
+}
+
 .action-bar {
     display: flex;
     gap: 10px;
@@ -385,6 +414,11 @@ table.results thead th.no-sort { cursor: default; }
 table.results thead th .arrow { font-size: 10px; margin-left: 3px; }
 table.results tbody tr:hover { background: var(--primary-light); }
 table.results tbody tr.selected { background: var(--primary-light); }
+/* 虚拟滚动的撑高占位行：只负责高度，不能有 hover/边框，
+   否则滚动到中途会看到一条横跨表格的空白高亮带。 */
+table.results tbody tr.pad,
+table.results tbody tr.pad:hover { background: none; }
+table.results tbody tr.pad td { padding: 0; border-bottom: none; }
 table.results td.mono { font-family: var(--mono); font-size: 12px; }
 table.results td.num { text-align: right; font-variant-numeric: tabular-nums; }
 table.results .empty-row td {
@@ -438,6 +472,104 @@ table.results .empty-row td {
     text-align: center;
 }
 .quota-item .count { color: var(--text-secondary); }
+
+/* 配额面板的头部控件行（维度下拉 + 分组筛选 + 排序下拉） */
+.quota-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+.quota-controls label {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+.quota-controls select { font-size: 12px; padding: 3px 6px; }
+.quota-controls .ctl {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+/* ---------- 可搜索多选下拉 ---------- */
+
+.multiselect { position: relative; display: inline-block; }
+.ms-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 130px;
+    padding: 3px 8px;
+    font-size: 12px;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+}
+.multiselect.open .ms-trigger { border-color: var(--primary); }
+.ms-label { flex: 1; text-align: left; }
+.ms-label.placeholder { color: var(--text-secondary); }
+.ms-caret { font-size: 10px; color: var(--text-secondary); }
+.ms-panel {
+    position: absolute;
+    z-index: 20;                /* 要压住 thead 的 sticky（z-index:1） */
+    top: calc(100% + 4px);
+    left: 0;
+    width: 240px;
+    padding: 8px;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+}
+.ms-search { width: 100%; padding: 4px 6px; font-size: 12px; }
+.ms-list {
+    max-height: 220px;
+    overflow: auto;
+    margin: 6px 0;
+}
+.ms-opt {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px;
+    font-size: 12px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+}
+.ms-opt:hover, .ms-opt.active { background: var(--primary-light); }
+.ms-opt.selected { font-weight: 500; }
+.ms-check { width: 12px; color: var(--primary); }
+.ms-opt-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ms-opt-count { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.ms-empty { padding: 14px 0; text-align: center; font-size: 12px; color: var(--text-secondary); }
+.ms-actions { display: flex; gap: 6px; }
+.ms-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.ms-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 1px 4px 1px 8px;
+    font-size: 11px;
+    background: var(--primary-light);
+    border-radius: 10px;
+}
+.ms-chip-x {
+    padding: 0 3px;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+}
+.ms-chip-x:hover { color: var(--danger); }
 
 /* ---------- 结果框（导出） ---------- */
 

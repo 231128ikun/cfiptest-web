@@ -8,7 +8,9 @@ import {
     appendVisibleToCandidates, clearCandidates,
     visibleWorkspace, candidateTargets, filterIsValid, targetToLine,
 } from './store.js';
-import { ResultTable, CSV_COLUMNS } from './table.js';
+import { ResultTable, CSV_COLUMNS, GROUP_DIMENSIONS } from './table.js';
+import { TABLE_COLUMNS, escapeHTML } from './columns.js';
+import { createMultiSelect } from './multiselect.js';
 import { PRESETS, formatResults, placeholderNames } from './composer.js';
 import { downloadAsText, downloadAsCSV, copyToClipboard } from './exporter.js';
 
@@ -21,6 +23,8 @@ let eventSource = null;
 let table = null;
 let defaults = null;
 let officialRanges = null; // 已拉取的官方段（{ipv4, ipv6, estimate, source}）
+let quotaPicker = null;    // 「只列出分组」的多选控件（createMultiSelect 实例）
+let quotaGroups = [];      // 多选里当前选中的分组名；空数组 = 不过滤，列出全部
 
 /* ---------------- Toast ---------------- */
 let toastTimer = null;
@@ -236,6 +240,8 @@ function latencyOptions() {
         maxConcurrency: parseInt($('lat-concurrency').value, 10) || undefined,
         timeoutMs: parseInt($('lat-timeout').value, 10) || undefined,
         maxLatencyMs: parseInt($('lat-maxlatency').value, 10) || 0,
+        // 留空与 0 都表示不限制，后端 0=全部测完
+        maxResults: parseInt($('lat-maxresults').value, 10) || 0,
         enableTLS: $('lat-tls').checked,
         enableIPAPI: $('lat-ipapi').checked,
     };
@@ -246,17 +252,40 @@ function speedOptions() {
         maxConcurrency: parseInt($('spd-concurrency').value, 10) || undefined,
         durationSec: parseInt($('spd-duration').value, 10) || undefined,
         minSpeedKBs: parseFloat($('spd-minspeed').value) || 0,
+        // 留空与 0 都表示不限制，后端 0=全部测完
+        maxResults: parseInt($('spd-maxresults').value, 10) || 0,
         downloadURL: $('spd-url').value.trim() || undefined,
         enableTLS: $('spd-tls').checked,
     };
+}
+
+/** 测速总开关。关闭时阶段 2 的测速面板整体停用，两个测速按钮也一起禁用。 */
+function speedEnabled() {
+    return $('spd-enable').checked;
+}
+
+/**
+ * 把总开关状态落到 DOM。
+ *
+ * 光靠 opacity 不够：视觉上灰了但仍可 focus、可 Tab 进去改值，读屏也听不出禁用。
+ * 所以三件事都做——真的 disabled（顺带把元素移出 Tab 序）、aria-disabled、加类名走样式。
+ */
+function applySpeedEnabled() {
+    const on = speedEnabled();
+    const panel = $('spd-panel');
+    panel.classList.toggle('disabled', !on);
+    panel.setAttribute('aria-disabled', String(!on));
+    // 只禁用字段里的控件，标题行的开关自己要留着能点
+    panel.querySelectorAll('.field input').forEach(el => { el.disabled = !on; });
+    refreshButtons();
 }
 
 function setRunning(running, type) {
     currentTaskId = running ? currentTaskId : null;
     currentTaskType = running ? type : null;
     $('btn-start-latency').disabled = running || store.candidates.length === 0;
-    $('btn-start-speed').disabled = running || table.getSelectedResults().length === 0;
-    $('btn-speed-filtered').disabled = running || table.getAllResults().length === 0;
+    $('btn-start-speed').disabled = running || !speedEnabled() || table.getSelectedResults().length === 0;
+    $('btn-speed-filtered').disabled = running || !speedEnabled() || table.getAllResults().length === 0;
     $('btn-stop').disabled = !running;
     $('progress-wrap').classList.toggle('active', running);
     if (!running) {
@@ -288,7 +317,10 @@ function bindTestStage() {
         }
     });
 
+    $('spd-enable').addEventListener('change', applySpeedEnabled);
+
     const startSpeed = async useFiltered => {
+        if (!speedEnabled()) { toast('下载测速已关闭，请先在测速面板勾选「启用」'); return; }
         const results = useFiltered ? table.getAllResults() : table.getSelectedResults();
         const targets = results.map(r => ({ ip: r.ip, port: r.port }));
         if (!targets.length) { toast(useFiltered ? '没有可测速的结果' : '请先勾选要测速的结果'); return; }
@@ -352,8 +384,8 @@ function bindEvents() {
 }
 
 function refreshButtons() {
-    $('btn-start-speed').disabled = currentTaskId !== null || table.getSelectedResults().length === 0;
-    $('btn-speed-filtered').disabled = currentTaskId !== null || table.getAllResults().length === 0;
+    $('btn-start-speed').disabled = currentTaskId !== null || !speedEnabled() || table.getSelectedResults().length === 0;
+    $('btn-speed-filtered').disabled = currentTaskId !== null || !speedEnabled() || table.getAllResults().length === 0;
     $('btn-append').disabled = table.getSelectedResults().length === 0 && table.getAllResults().length === 0;
 }
 
@@ -368,27 +400,8 @@ function bindResultsStage() {
     // 无需再靠 setTimeout 等重绘结束（改造前勾选会重建整表）。
     $('result-table-container').addEventListener('selectionchange', refreshButtons);
 
-    // 国家配额
-    $('btn-quota-toggle').addEventListener('click', () => {
-        const box = $('quota-box');
-        const show = !box.classList.contains('active');
-        if (show) renderQuotaGrid();
-        box.classList.toggle('active', show);
-    });
-    $('btn-quota-apply').addEventListener('click', () => {
-        const quotas = {};
-        document.querySelectorAll('#quota-grid .quota-item').forEach(item => {
-            const n = parseInt(item.querySelector('input').value, 10);
-            if (n > 0) quotas[item.dataset.country] = n;
-        });
-        table.applyCountryQuotas(Object.keys(quotas).length ? quotas : null);
-        refreshButtons();
-        toast(Object.keys(quotas).length ? `已按配额选择 ${table.getSelectedResults().length} 条` : '已清除配额选择');
-    });
-    $('btn-quota-clear').addEventListener('click', () => {
-        table.clearSelection();
-        refreshButtons();
-    });
+    bindSortBar();
+    bindQuotaPanel();
 
     // 追加到结果框
     $('btn-append').addEventListener('click', () => {
@@ -403,15 +416,110 @@ function bindResultsStage() {
     });
 }
 
+/**
+ * 排序下拉 + 升降序按钮。
+ *
+ * 两个控件与表头点击共用 table.setSort() 这一个入口，再靠 table 派发的
+ * sortchange 事件回填 UI——所以点表头时下拉也会跟着变，不会出现
+ * 「表格按延迟排、下拉却还写着 IP」的分裂状态。
+ */
+function bindSortBar() {
+    const sel = $('sort-key');
+    sel.innerHTML = TABLE_COLUMNS
+        .filter(col => col.sortable)
+        .map(col => `<option value="${col.key}">${escapeHTML(col.label)}</option>`)
+        .join('');
+
+    sel.addEventListener('change', () => table.setSort(sel.value, table.sortAsc));
+    $('btn-sort-dir').addEventListener('click', () => table.setSort(table.sortKey, !table.sortAsc));
+
+    // 回填：唯一改动 UI 的地方，三条入口（下拉 / 按钮 / 表头）都经由它。
+    $('result-table-container').addEventListener('sortchange', e => {
+        const { key, asc } = e.detail;
+        sel.value = key;
+        $('btn-sort-dir').textContent = asc ? '▲ 升序' : '▼ 降序';
+    });
+
+    sel.value = table.sortKey;
+    $('btn-sort-dir').textContent = table.sortAsc ? '▲ 升序' : '▼ 降序';
+}
+
+/** 当前选中的分组维度 key（country / asnOrg / dataCenter / ipType）。 */
+function currentQuotaDim() {
+    return $('quota-dim').value || GROUP_DIMENSIONS[0].key;
+}
+
+function bindQuotaPanel() {
+    const dimSel = $('quota-dim');
+    dimSel.innerHTML = GROUP_DIMENSIONS
+        .map(d => `<option value="${d.key}">${escapeHTML(d.label)}</option>`)
+        .join('');
+
+    // 「只列出分组」：维度换成「数据中心」时有 300 多个分组，全部铺成配额输入框
+    // 没法用，所以先用多选把关注的几个挑出来。不选 = 不过滤。
+    quotaPicker = createMultiSelect($('quota-picker'), {
+        placeholder: '全部分组',
+        onChange: vals => { quotaGroups = vals; renderQuotaGrid(); },
+    });
+
+    // 换维度时分组名的含义完全变了（国家名 → ASN 名），旧的选择必须丢掉，
+    // 否则「只列出日本」会在 ASN 维度下过滤掉所有分组，界面显示空白。
+    dimSel.addEventListener('change', () => {
+        quotaGroups = [];
+        renderQuotaGrid();
+    });
+
+    $('btn-quota-toggle').addEventListener('click', () => {
+        const box = $('quota-box');
+        const show = !box.classList.contains('active');
+        if (show) renderQuotaGrid();
+        box.classList.toggle('active', show);
+    });
+
+    $('btn-quota-apply').addEventListener('click', () => {
+        const dim = currentQuotaDim();
+        const quotas = {};
+        document.querySelectorAll('#quota-grid .quota-item').forEach(item => {
+            const n = parseInt(item.querySelector('input').value, 10);
+            if (n > 0) quotas[item.dataset.group] = n;
+        });
+        table.applyGroupQuotas(dim, Object.keys(quotas).length ? quotas : null);
+        refreshButtons();
+        toast(Object.keys(quotas).length ? `已按配额选择 ${table.getSelectedResults().length} 条` : '已清除配额选择');
+    });
+
+    $('btn-quota-clear').addEventListener('click', () => {
+        table.clearSelection();
+        refreshButtons();
+    });
+}
+
+/**
+ * 渲染配额输入格。分组名来自结果数据（ASN 组织名里出现引号/尖括号完全正常），
+ * 所以插入 HTML 前必须过 escapeHTML——data-group 属性里同样要过，否则一个
+ * 双引号就能提前闭合属性。
+ */
 function renderQuotaGrid() {
-    const stats = table.getCountryStats();
-    $('quota-grid').innerHTML = stats.length
-        ? stats.map(s => `
-            <span class="quota-item" data-country="${s.name}">
-                ${s.emoji} ${s.name} <span class="count">(${s.count})</span>
+    const dim = currentQuotaDim();
+    const stats = table.getGroupStats(dim);
+
+    // 同步多选的候选项（带计数），保留仍然存在的已选项。
+    quotaPicker?.setItems(stats.map(s => ({
+        value: s.name,
+        label: s.emoji ? `${s.emoji} ${s.name}` : s.name,
+        count: s.count,
+    })));
+
+    const keep = new Set(quotaGroups);
+    const shown = keep.size ? stats.filter(s => keep.has(s.name)) : stats;
+
+    $('quota-grid').innerHTML = shown.length
+        ? shown.map(s => `
+            <span class="quota-item" data-group="${escapeHTML(s.name)}">
+                ${escapeHTML(s.emoji)} ${escapeHTML(s.name)} <span class="count">(${s.count})</span>
                 <input type="number" min="0" max="${s.count}" placeholder="0">
             </span>`).join('')
-        : '<span style="color:var(--text-secondary);font-size:12px">暂无结果</span>';
+        : `<span style="color:var(--text-secondary);font-size:12px">${stats.length ? '所选分组不在当前结果中' : '暂无结果'}</span>`;
 }
 
 /* ---------------- 阶段 4：导出 ---------------- */
@@ -490,6 +598,9 @@ async function init() {
     subscribe(renderInputStage);
     renderInputStage();
 
+    // 必须排在 bindResultsStage() 之后：applySpeedEnabled → refreshButtons 会用到 table
+    applySpeedEnabled();
+
     try {
         const cfg = await api.fetchConfig();
         defaults = cfg.defaults;
@@ -497,11 +608,13 @@ async function init() {
         $('lat-concurrency').value = defaults.latency.maxConcurrency;
         $('lat-timeout').value = defaults.latency.timeoutMs;
         $('lat-maxlatency').value = defaults.latency.maxLatencyMs;
+        $('lat-maxresults').value = defaults.latency.maxResults;
         $('lat-tls').checked = defaults.latency.enableTLS;
         $('lat-ipapi').checked = defaults.latency.enableIPAPI;
         $('spd-concurrency').value = defaults.speed.maxConcurrency;
         $('spd-duration').value = defaults.speed.durationSec;
         $('spd-minspeed').value = defaults.speed.minSpeedKBs;
+        $('spd-maxresults').value = defaults.speed.maxResults;
         $('spd-url').value = defaults.speed.downloadURL;
         $('spd-tls').checked = defaults.speed.enableTLS;
 

@@ -68,6 +68,13 @@ iptest-web.exe -port 18080 -no-browser
 `done` 事件会区分三种结束原因：`completed`（测完）/ `limit`（达到上限）/ `stopped`（用户停止），
 后两者都属正常收工，不会弹错误提示。
 
+## 下载测速总开关
+
+测速面板标题行有个「启用」勾选框，取消勾选即跳过下载测速，只做延迟测试。
+关闭时该面板的输入框会真正 `disabled`（不只是变灰——同时移出 Tab 序、带上
+`aria-disabled`），两个测速按钮一并禁用；面板标题行的开关本身保持可点，
+否则关掉就再也开不回来。
+
 ## 官方优选 IP（CIDR 网段）
 
 支持直接输入 CIDR 网段（可与普通 IP 混写），按 [CloudflareSpeedTest](https://github.com/XIU2/CloudflareSpeedTest)

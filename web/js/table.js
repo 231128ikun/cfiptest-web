@@ -2,13 +2,20 @@
 
 import { TABLE_COLUMNS, columnByKey, escapeHTML } from './columns.js';
 
-/** 可用于配额分组的维度（B3 会在界面暴露；此处先支持泛化调用） */
+/** 可用于配额分组的维度（界面上的维度下拉直接由此派生） */
 export const GROUP_DIMENSIONS = [
     { key: 'country', label: '国家' },
     { key: 'asnOrg', label: 'ASN 组织' },
     { key: 'dataCenter', label: '数据中心' },
     { key: 'ipType', label: '出站类型' },
 ];
+
+// 虚拟滚动参数。行数不多时全量渲染最简单也最快，超过阈值才切窗口渲染——
+// 官方段每 /24 取 1 个就是 5956 个目标，全测出来一次 innerHTML 拼 6000 行
+// 会让每次勾选/排序都卡住半秒。
+const VIRTUAL_THRESHOLD = 500;
+const VIRTUAL_OVERSCAN = 10;   // 视口上下各多渲染几行，滚动时不露白
+const ROW_H_FALLBACK = 33;     // 首帧还没量到真实行高时的估值
 
 /** 结果表格：持有全部结果，支持逐条追加、排序、过滤、勾选、配额选择 */
 export class ResultTable {
@@ -21,6 +28,7 @@ export class ResultTable {
         this.filterText = '';
         this._renderScheduled = false; // 渲染节流：SSE 高频事件时合并重绘
         this._sortedCache = null;      // _sortedResults 的缓存
+        this._rowH = 0;                // 实测行高（虚拟滚动用）
         this._buildSkeleton();
     }
 
@@ -48,16 +56,21 @@ export class ResultTable {
             </div>`;
 
         this.tbody = this.container.querySelector('#result-tbody');
+        this.wrap = this.container.querySelector('.table-wrap');
+
+        // 虚拟滚动：滚动时重算窗口。行数少于阈值时 _renderNow 直接全量渲染，
+        // 这个监听器实际不做事（_renderNow 会算出整个区间）。
+        this.wrap?.addEventListener('scroll', () => {
+            if (this.results.length >= VIRTUAL_THRESHOLD) this.render();
+        });
 
         this.container.querySelectorAll('thead th[data-key]').forEach(th => {
             th.addEventListener('click', () => {
                 const key = th.dataset.key;
                 const col = columnByKey(key);
                 if (!col?.sortable) return;
-                if (this.sortKey === key) this.sortAsc = !this.sortAsc;
-                else { this.sortKey = key; this.sortAsc = true; }
-                this._invalidate();
-                this.render();
+                // 点当前列 = 反向；点别的列 = 换列并复位为升序
+                this.setSort(key, this.sortKey === key ? !this.sortAsc : true);
             });
         });
 
@@ -81,6 +94,24 @@ export class ResultTable {
             this._syncSelectAll();
             this.container.dispatchEvent(new CustomEvent('selectionchange', { bubbles: true }));
         });
+    }
+
+    /**
+     * 设置排序。表头点击与排序下拉都走这里，两条入口共用一份状态，
+     * 之后派发 sortchange 让下拉回填——否则点表头排序后下拉还显示旧列，
+     * 两个控件各说各话。
+     */
+    setSort(key, asc = true) {
+        const col = columnByKey(key);
+        if (!col?.sortable) return;
+        this.sortKey = key;
+        this.sortAsc = !!asc;
+        this._invalidate();
+        this.render();
+        this.container.dispatchEvent(new CustomEvent('sortchange', {
+            bubbles: true,
+            detail: { key: this.sortKey, asc: this.sortAsc },
+        }));
     }
 
     /** 全选框状态跟随可见行：全选/部分选/未选。 */
@@ -123,12 +154,17 @@ export class ResultTable {
         this.render();
     }
 
-    /** 返回分组统计 [{name, emoji, count}]，按数量降序。 */
+    /**
+     * 返回分组统计 [{name, emoji, count}]，按数量降序。
+     * emoji 只对国家维度有意义——按 ASN 分组时同组内各行国旗并不相同，
+     * 取第一条的国旗会让人以为「这个 ASN 属于这个国家」。
+     */
     getGroupStats(groupBy = 'country') {
         const stats = new Map();
         for (const r of this.results) {
             const name = r[groupBy] || '未知';
-            const cur = stats.get(name) || { name, emoji: r.emoji || '', count: 0 };
+            const cur = stats.get(name)
+                || { name, emoji: groupBy === 'country' ? (r.emoji || '') : '', count: 0 };
             cur.count++;
             stats.set(name, cur);
         }
@@ -169,26 +205,30 @@ export class ResultTable {
     }
 
     /**
-     * 按国家配额选择：{ "日本": 5, "美国": 10 }。
-     * 保留此方法供现有界面调用；同样只写 selectedKeys。
+     * 按「每组各自的配额」选择：applyGroupQuotas('country', { 日本: 5, 美国: 10 })。
+     * 与 applyGroupQuota（统一 N）的区别只在配额来源，语义完全一致：
+     * 在当前筛选后的集合上、按当前排序、每组取前 N。同样只写 selectedKeys。
      */
-    applyCountryQuotas(quotas) {
+    applyGroupQuotas(groupBy, quotas) {
         this.selectedKeys.clear();
         if (quotas) {
-            const taken = {};
+            const taken = new Map();
             for (const r of this._visibleResults()) {
-                const country = r.country || '未知';
-                const quota = quotas[country];
+                const group = r[groupBy] || '未知';
+                const quota = quotas[group];
                 if (!quota) continue;
-                taken[country] = taken[country] || 0;
-                if (taken[country] < quota) {
-                    taken[country]++;
-                    this.selectedKeys.add(ResultTable.keyOf(r));
-                }
+                const used = taken.get(group) || 0;
+                if (used >= quota) continue;
+                taken.set(group, used + 1);
+                this.selectedKeys.add(ResultTable.keyOf(r));
             }
         }
         this.render();
+        return this.selectedKeys.size;
     }
+
+    /** 兼容旧调用名（国家维度）。 */
+    applyCountryQuotas(quotas) { return this.applyGroupQuotas('country', quotas); }
 
     /** 清除全部勾选。 */
     clearSelection() {
@@ -254,19 +294,50 @@ export class ResultTable {
             return;
         }
 
-        this.tbody.innerHTML = visible.map(r => {
-            const key = ResultTable.keyOf(r);
-            const checked = this.selectedKeys.has(key) ? 'checked' : '';
-            const cells = TABLE_COLUMNS.map(col => {
-                if (col.key === '_sel') return `<td><input type="checkbox" data-key="${escapeHTML(key)}" ${checked}></td>`;
-                const val = col.render ? col.render(r) : escapeHTML(r[col.key]);
-                const cls = col.type === 'number' ? 'num' : (col.key === 'ip' ? 'mono' : '');
-                return `<td class="${cls}">${val}</td>`;
-            }).join('');
-            return `<tr class="${checked ? 'selected' : ''}">${cells}</tr>`;
-        }).join('');
+        const { start, end, padTop, padBottom } = this._window(visible.length);
+        const rows = visible.slice(start, end).map(r => this._rowHTML(r)).join('');
+
+        // 上下用一对撑高的空行占位，让滚动条长度与总行数一致。
+        // 这样滚动位置、拖动手感都和全量渲染时一样，只是 DOM 里只有一屏行。
+        const span = TABLE_COLUMNS.length;
+        this.tbody.innerHTML =
+            (padTop ? `<tr class="pad" style="height:${padTop}px"><td colspan="${span}"></td></tr>` : '')
+            + rows
+            + (padBottom ? `<tr class="pad" style="height:${padBottom}px"><td colspan="${span}"></td></tr>` : '');
+
+        // 量一次真实行高，之后的窗口计算就准了（首帧用估值，误差只影响一帧）
+        if (!this._rowH && this.wrap) {
+            const tr = this.tbody.querySelector('tr:not(.pad)');
+            if (tr?.offsetHeight) this._rowH = tr.offsetHeight;
+        }
 
         this._syncSelectAll();
+    }
+
+    /** 计算当前该渲染哪一段行。行数少于阈值时返回整个区间。 */
+    _window(total) {
+        if (total < VIRTUAL_THRESHOLD || !this.wrap) {
+            return { start: 0, end: total, padTop: 0, padBottom: 0 };
+        }
+        const rowH = this._rowH || ROW_H_FALLBACK;
+        const viewH = this.wrap.clientHeight || 420;
+        const first = Math.floor((this.wrap.scrollTop || 0) / rowH);
+        const count = Math.ceil(viewH / rowH) + VIRTUAL_OVERSCAN * 2;
+        const start = Math.max(0, first - VIRTUAL_OVERSCAN);
+        const end = Math.min(total, start + count);
+        return { start, end, padTop: start * rowH, padBottom: (total - end) * rowH };
+    }
+
+    _rowHTML(r) {
+        const key = ResultTable.keyOf(r);
+        const checked = this.selectedKeys.has(key) ? 'checked' : '';
+        const cells = TABLE_COLUMNS.map(col => {
+            if (col.key === '_sel') return `<td><input type="checkbox" data-key="${escapeHTML(key)}" ${checked}></td>`;
+            const val = col.render ? col.render(r) : escapeHTML(r[col.key]);
+            const cls = col.type === 'number' ? 'num' : (col.key === 'ip' ? 'mono' : '');
+            return `<td class="${cls}">${val}</td>`;
+        }).join('');
+        return `<tr class="${checked ? 'selected' : ''}">${cells}</tr>`;
     }
 }
 
