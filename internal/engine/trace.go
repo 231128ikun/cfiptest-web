@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/http"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -25,7 +24,7 @@ func (r *Runner) testSingleIP(ctx context.Context, target Target, opts LatencyOp
 
 	// 1. TCP 握手测延迟
 	dialer := &net.Dialer{Timeout: timeout}
-	addr := net.JoinHostPort(target.IP, strconv.Itoa(target.Port))
+	addr := target.String()
 	start := time.Now()
 	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {

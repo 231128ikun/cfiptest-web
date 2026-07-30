@@ -76,6 +76,24 @@ iptest-web.exe -port 18080 -no-browser
 
 抽样模式（`sampleMode`）：`one`（默认，每 /24 取 1 个）/ `n`（每 /24 取 `sampleN` 个）/ `all`（全取，百万级，不建议）。
 
+网段的展开与抽样只在后端实现一份（`internal/engine/cidr.go`，有单测），
+所以含 `/` 的文本一律走 `POST /api/import/text`，前端不重写抽样逻辑。
+一次解析最多返回 20 万个目标，超出会返回 413 并提示改用更粗的抽样粒度——
+官方段「全取」是 152 万个地址，序列化成 JSON 堆进浏览器会直接把页面卡死。
+
+## 导入远程列表
+
+粘贴框之外还可以直接填一个 TXT 地址，由后端代抓（绝大多数订阅源不给
+`Access-Control-Allow-Origin`，浏览器 fetch 会被 CORS 拦掉，Go 取则没这个限制）。
+
+限制：只放行 `http` / `https`（`file://` 会让这个端点变成任意本地文件读取器）、
+响应体 8 MB、20 秒超时、重定向最多 5 跳。
+
+**解析到内网或保留地址的目标会被拒绝**（回环 / 私有段 / 链路本地 / 组播 /
+CGNAT / 云厂商 metadata 端点如 `169.254.169.254`）。校验发生在 TCP 拨号那一刻而非
+事前 DNS 查询，因此重定向的每一跳、以及「先解析到公网、真连接时再解析到 127.0.0.1」
+的 DNS rebinding 都拦得住。代价是内网自建的 IP 列表也导不进来，此时请改用粘贴或本地文件。
+
 ## 构建
 
 ```bash
@@ -108,6 +126,8 @@ internal/
     official_ranges.go  官方 IP 段默认源与内置兜底数据
     locations.go/asn.go 地理位置与 ASN 数据库加载
   server/               HTTP API + SSE 事件推送（单任务模型）
+    handler_import.go   IP 列表导入（粘贴文本 / 代抓远程 TXT，含 CIDR 展开与内网拦截）
+    handler_ranges.go   官方 IP 段接口 + 各抽样模式预估数量
 web/                    前端（原生 JS 模块，无框架）
   js/store.js           状态层（工作区/候选区/结果；筛选只产生派生视图）
   js/input.js           输入整理（规范化/去重/筛选 DSL）
@@ -128,6 +148,8 @@ scripts/                前端模块的 node 校验脚本（store_test.mjs / tab
 |---|---|---|
 | GET | `/api/config` | 版本号、默认参数与资源加载状态 |
 | GET | `/api/official-ranges` | 官方 IP 段 + 各抽样模式的预估数量 + 可用端口（`?n=` 指定每 /24 取几个）|
+| POST | `/api/import/text` | `{text, sampleMode, sampleN}` 解析任意 IP 文本并展开其中的 CIDR，返回规范化目标 |
+| POST | `/api/import/remote` | `{url, sampleMode, sampleN}` 代抓远程 IP 列表（绕开浏览器 CORS）后同上解析 |
 | POST | `/api/task/latency` | `{targets:[{ip,port}]} 或 {rawText}, sampleMode, sampleN, options` 启动延迟测试 |
 | POST | `/api/task/speed` | `{targets, options}` 启动测速 |
 | POST | `/api/task/stop` | `{taskId}` 停止当前任务 |

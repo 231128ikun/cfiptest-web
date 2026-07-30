@@ -14,25 +14,92 @@
     </header>
 
     <main class="pipeline">
-        <!-- ========== 阶段 1：输入整理 ========== -->
+        <!-- ========== 阶段 1：输入来源 ========== -->
         <section id="stage-input" class="card">
-            <h2><span class="stage-num">1</span>输入整理</h2>
-            <textarea id="ip-input" rows="7" placeholder="粘贴 IP 列表，每行一个。支持格式：
-1.1.1.1:443 / 1.1.1.1 / 1.1.1.1 443 / [2606:4700::1]:443 / 1.1.1.1:443#注释 / 1.1.1.1:443,US,AS13335"></textarea>
-            <div class="toolbar">
-                <button id="btn-normalize" class="primary">整理</button>
-                <button id="btn-dedupe">仅去重</button>
-                <input type="text" id="filter-expr" placeholder="筛选：port:443,8443 country:JP 关键词（空格=且 | =或）" style="flex:1;min-width:260px">
-                <button id="btn-filter-keep">保留匹配</button>
-                <button id="btn-filter-remove">剔除匹配</button>
+            <h2><span class="stage-num">1</span>输入来源</h2>
+
+            <!-- 模式 Tab：只切换本阶段内容，阶段 2/3/4 完全共用 -->
+            <div class="mode-tabs" id="mode-tabs" role="tablist">
+                <button class="mode-tab active" data-mode="proxy" role="tab" aria-selected="true">反代 IP</button>
+                <button class="mode-tab" data-mode="official" role="tab" aria-selected="false">官方优选</button>
             </div>
-            <div class="stats-line" id="input-stats">
-                <span>有效 <b id="stat-valid">0</b> 条</span>
-                <span>IPv4 <b id="stat-v4">0</b></span>
-                <span>IPv6 <b id="stat-v6">0</b></span>
-                <span id="stat-ports"></span>
+
+            <!-- ---- 反代模式：粘贴 / 远程 TXT / 本地文件，三者汇入同一工作区 ---- -->
+            <div id="source-proxy" class="source-panel">
+                <textarea id="ip-input" rows="6" placeholder="粘贴 IP 列表，每行一个（粘贴后点「加入工作区」自动规范化去重）。支持格式：
+1.1.1.1:443 / 1.1.1.1 / 1.1.1.1 443 / [2606:4700::1]:443 / 1.1.1.1:443#注释 / 1.1.1.1:443,US,AS13335 / 104.16.0.0/24"></textarea>
+                <div class="toolbar">
+                    <button id="btn-add-paste" class="primary">加入工作区</button>
+                    <span class="spacer"></span>
+                    <input type="text" id="remote-url" placeholder="远程 TXT 地址（由后端代取，无 CORS 限制）" style="flex:1;min-width:240px">
+                    <button id="btn-import-remote">导入远程</button>
+                    <label class="file-btn">
+                        选择本地文件<input type="file" id="file-input" accept=".txt,.csv,.text" hidden>
+                    </label>
+                </div>
             </div>
-            <textarea id="ip-cleaned" rows="5" readonly placeholder="整理结果会显示在这里，测试时将使用这份列表"></textarea>
+
+            <!-- ---- 官方模式：拉取官方段 + 抽样粒度（端口固定 443） ---- -->
+            <div id="source-official" class="source-panel" hidden>
+                <div class="official-bar">
+                    <button id="btn-fetch-ranges" class="primary">拉取官方段</button>
+                    <span id="ranges-status" class="hint">未拉取</span>
+                </div>
+                <div class="field">
+                    <label>抽样粒度</label>
+                    <label class="radio"><input type="radio" name="sample-mode" value="one" checked> 每 /24 取 1 个（推荐）</label>
+                    <label class="radio"><input type="radio" name="sample-mode" value="n"> 每 /24 取
+                        <input type="number" id="sample-n" min="1" max="256" value="2" style="width:60px"> 个</label>
+                    <label class="radio"><input type="radio" name="sample-mode" value="all"> 全部</label>
+                </div>
+                <div class="hint" id="sample-hint">
+                    同一 /24 内的 IP 几乎总走同一 Cloudflare 机房，故每 /24 取 1 个即可代表。端口固定 443。
+                </div>
+                <div class="toolbar">
+                    <button id="btn-add-ranges">按此粒度加入工作区</button>
+                    <span id="ranges-estimate" class="hint"></span>
+                </div>
+            </div>
+
+            <!-- ---- 工作区 → 候选区 ---- -->
+            <div class="dual-pane">
+                <div class="pane">
+                    <div class="pane-head">
+                        <span>工作区</span>
+                        <span class="hint" id="workspace-count">0 条</span>
+                    </div>
+                    <textarea id="ip-workspace" rows="8" readonly placeholder="从上方任一来源加入的 IP 会显示在这里。筛选不会破坏原始数据。"></textarea>
+                    <div class="toolbar">
+                        <input type="text" id="filter-expr" placeholder="筛选：port:443,8443 关键词（空格=且 | =或）" style="flex:1;min-width:200px">
+                        <button id="btn-filter-keep" class="small">保留匹配</button>
+                        <button id="btn-filter-remove" class="small">剔除匹配</button>
+                        <button id="btn-filter-clear" class="small">清除筛选</button>
+                        <button id="btn-workspace-clear" class="small">清空</button>
+                    </div>
+                    <div class="stats-line" id="input-stats">
+                        <span>显示 <b id="stat-visible">0</b>/<b id="stat-valid">0</b></span>
+                        <span>IPv4 <b id="stat-v4">0</b></span>
+                        <span>IPv6 <b id="stat-v6">0</b></span>
+                        <span id="stat-ports"></span>
+                    </div>
+                </div>
+
+                <div class="pane-mid">
+                    <button id="btn-append-candidates" class="primary">追加 →</button>
+                    <span class="hint">把工作区当前<b>可见</b>行追加到候选区</span>
+                </div>
+
+                <div class="pane">
+                    <div class="pane-head">
+                        <span>候选区（已去重）</span>
+                        <span class="hint" id="candidate-count">0 条</span>
+                    </div>
+                    <textarea id="ip-candidates" rows="8" readonly placeholder="候选区是测试阶段的唯一输入源。"></textarea>
+                    <div class="toolbar">
+                        <button id="btn-candidates-clear" class="small">清空候选</button>
+                    </div>
+                </div>
+            </div>
         </section>
 
         <!-- ========== 阶段 2：测试配置与执行 ========== -->

@@ -1,7 +1,13 @@
 // app.js —— 主控：初始化各模块、编排流水线步骤
 
-import { processInput, quickDeduplicate, smartFilter, getInputStats } from './input.js';
+import { getInputStats } from './input.js';
 import * as api from './api.js';
+import {
+    store, subscribe, setMode, addToWorkspaceFromText, addToWorkspace,
+    clearWorkspace, setWorkspaceFilter, clearWorkspaceFilter,
+    appendVisibleToCandidates, clearCandidates,
+    visibleWorkspace, candidateTargets, filterIsValid, targetToLine,
+} from './store.js';
 import { ResultTable, CSV_COLUMNS } from './table.js';
 import { PRESETS, formatResults, placeholderNames } from './composer.js';
 import { downloadAsText, downloadAsCSV, copyToClipboard } from './exporter.js';
@@ -14,6 +20,7 @@ let currentTaskType = null; // 'latency' | 'speed'
 let eventSource = null;
 let table = null;
 let defaults = null;
+let officialRanges = null; // 已拉取的官方段（{ipv4, ipv6, estimate, source}）
 
 /* ---------------- Toast ---------------- */
 let toastTimer = null;
@@ -25,16 +32,25 @@ function toast(msg) {
     toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
 }
 
-/* ---------------- 阶段 1：输入整理 ---------------- */
+/* ---------------- 阶段 1：输入来源 ---------------- */
 
-function cleanedLines() {
-    return $('ip-cleaned').value.split('\n').map(l => l.trim()).filter(Boolean);
+/** 当前抽样设置（官方模式用；也用于远程导入里的 CIDR 展开） */
+function sampleSettings() {
+    const mode = document.querySelector('input[name="sample-mode"]:checked')?.value || 'one';
+    return { sampleMode: mode, sampleN: parseInt($('sample-n').value, 10) || 1 };
 }
 
-function refreshInputStats() {
-    const lines = cleanedLines();
-    const stats = getInputStats(lines);
-    $('stat-valid').textContent = stats.total;
+/** 把 store 的当前状态渲染到阶段 1 的两个框与统计行 */
+function renderInputStage() {
+    const visible = visibleWorkspace();
+    $('ip-workspace').value = visible.map(targetToLine).join('\n');
+    $('ip-candidates').value = store.candidates.map(targetToLine).join('\n');
+    $('workspace-count').textContent = `${store.workspace.length} 条`;
+    $('candidate-count').textContent = `${store.candidates.length} 条`;
+
+    const stats = getInputStats(visible.map(targetToLine));
+    $('stat-visible').textContent = visible.length;
+    $('stat-valid').textContent = store.workspace.length;
     $('stat-v4').textContent = stats.v4;
     $('stat-v6').textContent = stats.v6;
     const portText = Object.entries(stats.ports)
@@ -43,47 +59,174 @@ function refreshInputStats() {
         .map(([p, n]) => `${p}×${n}`)
         .join(' ');
     $('stat-ports').innerHTML = portText ? `端口分布 <b>${portText}</b>` : '';
-    $('btn-start-latency').disabled = stats.total === 0 || currentTaskId !== null;
+
+    // 筛选表达式非法时给个视觉提示，但不清空列表（visibleWorkspace 会退回全量）
+    $('filter-expr').style.borderColor = filterIsValid() ? '' : 'var(--danger)';
+
+    $('btn-start-latency').disabled = store.candidates.length === 0 || currentTaskId !== null;
 }
 
-function parseCleanedToTargets() {
-    return cleanedLines().map(line => {
-        // IPv6: [addr]:port；IPv4: addr:port
-        const m = line.match(/^\[([0-9a-fA-F:]+)\]:(\d+)$/);
-        if (m) return { ip: m[1], port: parseInt(m[2], 10) };
-        const idx = line.lastIndexOf(':');
-        return { ip: line.slice(0, idx), port: parseInt(line.slice(idx + 1), 10) };
-    });
+/**
+ * 把一段 IP 文本加入工作区。
+ *
+ * 不含网段时走前端 store.parseLines（零往返）；含 "/" 时交后端 /api/import/text，
+ * 因为 CIDR 的抽样算法只在 engine 里有一份（带单测），不在 JS 里重复实现。
+ */
+async function addText(rawText, onSuccess) {
+    if (!rawText.trim()) { toast('内容为空'); return; }
+
+    if (!rawText.includes('/')) {
+        const { added, dupCount, invalidCount } = addToWorkspaceFromText(rawText);
+        if (!added && !dupCount) { toast('没有识别到有效 IP'); return; }
+        onSuccess?.();
+        toast(`已加入 ${added} 条（去重 ${dupCount}，丢弃 ${invalidCount}）`);
+        return;
+    }
+
+    try {
+        const resp = await api.importText(rawText, sampleSettings());
+        const { added, dupCount } = addToWorkspace(resp.targets);
+        onSuccess?.();
+        toast(`已加入 ${added} 条（去重 ${dupCount}，含网段展开）`);
+    } catch (e) {
+        toast(e.message);
+    }
 }
 
 function bindInputStage() {
-    $('btn-normalize').addEventListener('click', () => {
-        const { valid, invalidCount, dupCount } = processInput($('ip-input').value);
-        $('ip-cleaned').value = valid.join('\n');
-        refreshInputStats();
-        toast(`整理完成：${valid.length} 条有效（丢弃 ${invalidCount}，去重 ${dupCount}）`);
+    // ---- 模式 Tab：只切换本阶段的来源面板 ----
+    $('mode-tabs').addEventListener('click', e => {
+        const tab = e.target.closest('.mode-tab');
+        if (!tab) return;
+        setMode(tab.dataset.mode);
+        document.querySelectorAll('.mode-tab').forEach(t => {
+            const on = t.dataset.mode === store.mode;
+            t.classList.toggle('active', on);
+            t.setAttribute('aria-selected', String(on));
+        });
+        $('source-proxy').hidden = store.mode !== 'proxy';
+        $('source-official').hidden = store.mode !== 'official';
     });
 
-    $('btn-dedupe').addEventListener('click', () => {
-        const lines = $('ip-input').value.split('\n');
-        const deduped = quickDeduplicate(lines);
-        $('ip-cleaned').value = deduped.join('\n');
-        refreshInputStats();
-        toast(`去重完成：${lines.filter(l => l.trim()).length} → ${deduped.length}`);
+    // ---- 来源一：粘贴 ----
+    // 含 "/" 说明混写了 CIDR 网段，交后端展开（抽样算法只在 engine 里有一份）；
+    // 纯 IP 列表在前端解析即可，省一次往返。
+    $('btn-add-paste').addEventListener('click', () => addText($('ip-input').value, () => {
+        $('ip-input').value = '';
+    }));
+
+    // ---- 来源二：远程 TXT（后端代取，避开 CORS）----
+    $('btn-import-remote').addEventListener('click', async () => {
+        const url = $('remote-url').value.trim();
+        if (!url) { toast('请填写远程地址'); return; }
+        const btn = $('btn-import-remote');
+        btn.disabled = true;
+        btn.textContent = '导入中…';
+        try {
+            const resp = await api.importRemote(url, sampleSettings());
+            const { added, dupCount } = addToWorkspace(resp.targets);
+            toast(`已导入 ${added} 条（去重 ${dupCount}）`);
+        } catch (e) {
+            toast(e.message);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '导入远程';
+        }
     });
 
-    const doFilter = mode => {
-        const expr = $('filter-expr').value;
-        const current = cleanedLines();
-        if (!current.length) { toast('请先整理输入'); return; }
-        const filtered = smartFilter(current, expr, mode);
-        if (!filtered) { toast('筛选表达式无效'); return; }
-        $('ip-cleaned').value = filtered.join('\n');
-        refreshInputStats();
-        toast(`筛选完成：${current.length} → ${filtered.length}`);
-    };
-    $('btn-filter-keep').addEventListener('click', () => doFilter('keep'));
-    $('btn-filter-remove').addEventListener('click', () => doFilter('remove'));
+    // ---- 来源三：本地文件（前端读取，网段仍交后端展开）----
+    $('file-input').addEventListener('change', async e => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        try {
+            await addText(await file.text());
+        } catch (err) {
+            toast('读取文件失败：' + err.message);
+        }
+        e.target.value = ''; // 允许重复选同一个文件
+    });
+
+    // ---- 来源四：官方段 ----
+    $('btn-fetch-ranges').addEventListener('click', fetchRanges);
+    $('btn-add-ranges').addEventListener('click', addOfficialToWorkspace);
+    document.querySelectorAll('input[name="sample-mode"]').forEach(radio =>
+        radio.addEventListener('change', renderRangesEstimate));
+    $('sample-n').addEventListener('input', renderRangesEstimate);
+
+    // ---- 工作区筛选：非破坏性，清除即可回退全量 ----
+    $('filter-expr').addEventListener('input', e => setWorkspaceFilter(e.target.value, 'keep'));
+    $('btn-filter-keep').addEventListener('click', () => setWorkspaceFilter($('filter-expr').value, 'keep'));
+    $('btn-filter-remove').addEventListener('click', () => setWorkspaceFilter($('filter-expr').value, 'remove'));
+    $('btn-filter-clear').addEventListener('click', () => {
+        $('filter-expr').value = '';
+        clearWorkspaceFilter();
+    });
+    $('btn-workspace-clear').addEventListener('click', () => clearWorkspace());
+
+    // ---- 工作区 → 候选区 ----
+    $('btn-append-candidates').addEventListener('click', () => {
+        const visible = visibleWorkspace();
+        if (!visible.length) { toast('工作区没有可追加的行'); return; }
+        const { added, dupCount } = appendVisibleToCandidates();
+        toast(`已追加 ${added} 条到候选区（去重 ${dupCount}）`);
+    });
+    $('btn-candidates-clear').addEventListener('click', () => clearCandidates());
+}
+
+async function fetchRanges() {
+    const btn = $('btn-fetch-ranges');
+    btn.disabled = true;
+    try {
+        officialRanges = await api.fetchOfficialRanges(sampleSettings().sampleN);
+        const src = officialRanges.source === 'builtin' ? '内置兜底' : '官方接口';
+        $('ranges-status').textContent =
+            `${src}：IPv4 ${officialRanges.ipv4.length} 段 / IPv6 ${officialRanges.ipv6.length} 段`;
+        if (officialRanges.warning) toast(officialRanges.warning);
+        renderRangesEstimate();
+    } catch (e) {
+        $('ranges-status').textContent = '拉取失败';
+        toast('拉取官方段失败：' + e.message);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+function renderRangesEstimate() {
+    if (!officialRanges) return;
+    const { sampleMode, sampleN } = sampleSettings();
+    const est = officialRanges.estimate || {};
+    let count = est.onePerSubnet;
+    if (sampleMode === 'n') count = (est.onePerSubnet || 0) * Math.max(1, sampleN);
+    else if (sampleMode === 'all') count = est.all;
+
+    const warn = sampleMode === 'all'
+        ? '（百万级，不建议）'
+        : sampleMode === 'n' && sampleN > 4 ? '（数量较大，耗时明显增加）' : '';
+    $('ranges-estimate').textContent = `按此粒度约 ${count?.toLocaleString() ?? '?'} 个 IPv4${warn}`;
+}
+
+/**
+ * 官方段按当前抽样粒度展开后加入工作区。
+ *
+ * 端口固定 443（官方模式暂时只需要 443）；后端 ExpandCIDRs 仍带 port 参数，
+ * 将来要放开端口选择不必改后端。
+ * 全取模式会被后端的 maxExpandedTargets 拦下并给出提示，前端先劝一句。
+ */
+async function addOfficialToWorkspace() {
+    if (!officialRanges) { toast('请先拉取官方段'); return; }
+    if (sampleSettings().sampleMode === 'all') {
+        toast('全取模式约 152 万个 IP，超出单次导入上限，请改用更粗的抽样粒度');
+        return;
+    }
+
+    const btn = $('btn-add-ranges');
+    btn.disabled = true;
+    try {
+        // 每行一个网段，端口写死 443，交后端按 sampleMode 抽样
+        await addText(officialRanges.ipv4.map(c => `${c}:443`).join('\n'));
+    } finally {
+        btn.disabled = false;
+    }
 }
 
 /* ---------------- 阶段 2：测试执行 ---------------- */
@@ -111,7 +254,7 @@ function speedOptions() {
 function setRunning(running, type) {
     currentTaskId = running ? currentTaskId : null;
     currentTaskType = running ? type : null;
-    $('btn-start-latency').disabled = running || cleanedLines().length === 0;
+    $('btn-start-latency').disabled = running || store.candidates.length === 0;
     $('btn-start-speed').disabled = running || table.getSelectedResults().length === 0;
     $('btn-speed-filtered').disabled = running || table.getAllResults().length === 0;
     $('btn-stop').disabled = !running;
@@ -131,8 +274,8 @@ function updateProgress(p) {
 
 function bindTestStage() {
     $('btn-start-latency').addEventListener('click', async () => {
-        const targets = parseCleanedToTargets();
-        if (!targets.length) { toast('请先整理输入列表'); return; }
+        const targets = candidateTargets();
+        if (!targets.length) { toast('候选区为空，请先从工作区追加'); return; }
         table.clear();
         $('result-count').textContent = '';
         try {
@@ -181,10 +324,14 @@ function bindEvents() {
         },
         onProgress: updateProgress,
         onSpeed: r => table.updateSpeed(r),
-        onDone: msg => {
+        onDone: (msg, reason) => {
             setRunning(false);
             refreshButtons();
             toast(msg);
+            // 三种结束原因都是正常收工，只是措辞不同（reason 由 A3 下发）
+            $('progress-label').textContent =
+                reason === 'limit' ? '已达到最大结果数' :
+                reason === 'stopped' ? '已停止' : '已完成';
             $('result-count').textContent = `（共 ${table.results.length} 个有效 IP）`;
         },
         onError: msg => {
@@ -338,7 +485,10 @@ async function init() {
     bindResultsStage();
     bindExportStage();
     bindEvents();
-    refreshInputStats();
+
+    // store 变化即重绘工作区/候选区，两个框不再有各自的刷新入口
+    subscribe(renderInputStage);
+    renderInputStage();
 
     try {
         const cfg = await api.fetchConfig();

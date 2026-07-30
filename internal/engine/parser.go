@@ -68,6 +68,21 @@ func ParseTargetsWithCIDR(raw string, mode SampleMode, n int) []Target {
 	return targets
 }
 
+// CollectCIDRs 挑出文本中所有合法的 CIDR 行（丢弃端口信息）。
+//
+// 供上层在真正展开前预估规模：全取模式下官方段是 152 万个地址，
+// 先估后展开才不至于为了报一句「太多了」而先吃掉几百 MB 内存。
+// 判定逻辑与 ParseTargetsWithCIDR 共用 normalizeCIDRLine，不会两边走样。
+func CollectCIDRs(raw string) []string {
+	var cidrs []string
+	for _, line := range strings.Split(raw, "\n") {
+		if cidr, _, ok := normalizeCIDRLine(line); ok {
+			cidrs = append(cidrs, cidr)
+		}
+	}
+	return cidrs
+}
+
 // normalizeCIDRLine 识别 CIDR 行，返回网段与端口（未指定端口时为 443）。
 //
 // 端口写法：

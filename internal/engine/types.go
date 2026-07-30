@@ -5,10 +5,21 @@
 // 若响应为合法 trace 文本（含 uag 回显），则该 IP 是真实 Cloudflare 边缘节点。
 package engine
 
+import (
+	"net"
+	"strconv"
+)
+
 // Target 表示一个待测试的 IP:Port 目标。
 type Target struct {
 	IP   string `json:"ip"`
 	Port int    `json:"port"`
+}
+
+// String 返回 ip:port 形式；IPv6 自动加方括号，与前端 store.js 的
+// targetToLine 保持一致，两端来回传的文本行才不会走样。
+func (t Target) String() string {
+	return net.JoinHostPort(t.IP, strconv.Itoa(t.Port))
 }
 
 // Result 表示一个 IP 的完整测试结果，通过 SSE 以 JSON 推送给前端。

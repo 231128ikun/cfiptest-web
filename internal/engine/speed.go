@@ -5,7 +5,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"strconv"
 	"time"
 )
 
@@ -36,7 +35,7 @@ func testSingleSpeed(ctx context.Context, target Target, opts SpeedOptions) floa
 
 	// 直连目标 IP
 	dialer := &net.Dialer{Timeout: 1 * time.Second}
-	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(target.IP, strconv.Itoa(target.Port)))
+	conn, err := dialer.DialContext(ctx, "tcp", target.String())
 	if err != nil {
 		return 0
 	}
