@@ -86,6 +86,12 @@ check('显示字段支持全选和单独保存', () => {
     assert.ok(/id="btn-column-save"/.test(html));
     assert.ok(/saveDisplayColumns/.test(appJs));
 });
+check('结果工具栏分组与面板按钮状态接线', () => {
+    assert.ok(/class="result-filter-group"/.test(html));
+    assert.ok(/class="result-view-controls"/.test(html));
+    assert.ok(/aria-expanded/.test(html));
+    assert.ok(/syncColumnToggle/.test(appJs));
+});
 check('远程地址支持 TXT 与 CSV', () => {
     assert.ok(/远程 TXT \/ CSV 链接/.test(html));
     assert.ok(/importCSVText/.test(appJs), '前端缺少远程 CSV 转换逻辑');

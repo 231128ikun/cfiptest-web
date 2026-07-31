@@ -775,6 +775,8 @@ function bindQuotaPanel() {
         const open = !box.classList.contains('active');
         if (open && !quotaRuleEditors.size) addQuotaRule();
         box.classList.toggle('active', open);
+        $('btn-quota-toggle').classList.toggle('active', open);
+        $('btn-quota-toggle').setAttribute('aria-expanded', String(open));
     });
     $('btn-quota-apply').addEventListener('click', () => {
         const rules = readQuotaRules();
@@ -792,11 +794,18 @@ function bindQuotaPanel() {
     });
 }
 
+function syncColumnToggle() {
+    const open = $('column-box').classList.contains('active');
+    $('btn-column-toggle').classList.toggle('active', open);
+    $('btn-column-toggle').setAttribute('aria-expanded', String(open));
+}
+
 function refreshButtons() {
     if (!table) return;
     const running = currentTaskId !== null;
     $('btn-start-speed').disabled = running || table.getSelectedResults().length === 0;
     $('btn-speed-filtered').disabled = running || table.getAllResults().length === 0;
+    $('btn-custom-append').disabled = running || table.getSelectedResultsInDisplayOrder().length === 0;
 }
 
 function bindResults() {
@@ -825,9 +834,11 @@ function bindResults() {
         const open = !box.classList.contains('active');
         box.classList.toggle('active', open);
         box.open = open;
+        syncColumnToggle();
     });
     $('column-box').addEventListener('toggle', () => {
         if (!$('column-box').open) $('column-box').classList.remove('active');
+        syncColumnToggle();
     });
     $('column-options').addEventListener('change', applyColumnsFromUI);
     $('btn-column-all').addEventListener('click', () => {
@@ -883,13 +894,17 @@ function updateCustomExportUI() {
         ? (table?.getAllResults().length || 0)
         : (customResults?.length || 0);
     $('custom-count').textContent = custom ? `当前 ${count} 条` : '';
+    $('btn-custom-clear').disabled = count === 0;
 }
 
 function regenerateOutput() {
     clearTimeout(exportPreviewTimer);
     exportPreviewTimer = null;
     const results = exportResults();
-    $('output-box').value = currentExportContent();
+    const content = currentExportContent();
+    $('output-box').value = content;
+    $('btn-copy').disabled = !content;
+    $('btn-download').disabled = !content;
     $('output-count').textContent = `${results.length} 条`;
     $('output-title').textContent = `${exportFormat() === 'csv' ? 'CSV' : 'TXT'} 预览`;
     updateCustomExportUI();

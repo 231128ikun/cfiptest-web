@@ -195,12 +195,16 @@
             </div>
 
             <div class="result-toolbar">
-                <input type="text" id="result-filter" placeholder="筛选 IP、国家、城市、数据中心、ASN">
-                <input type="number" id="result-max-latency" min="0" placeholder="延迟上限 ms">
-                <input type="number" id="result-min-speed" min="0" placeholder="最低速度 kB/s">
-                <span class="sort-bar"><label for="sort-key">排序</label><select id="sort-key"></select><button id="btn-sort-dir" class="small">▲ 升序</button></span>
-                <button id="btn-column-toggle">显示字段</button>
-                <button id="btn-quota-toggle">自定义展示规则</button>
+                <div class="result-filter-group">
+                    <input type="text" id="result-filter" placeholder="筛选 IP、国家、城市、数据中心、ASN" aria-label="结果筛选">
+                    <input type="number" id="result-max-latency" min="0" placeholder="延迟上限 ms" aria-label="延迟上限">
+                    <input type="number" id="result-min-speed" min="0" placeholder="最低速度 kB/s" aria-label="最低速度">
+                </div>
+                <div class="result-view-controls">
+                    <span class="sort-bar"><label for="sort-key">排序</label><select id="sort-key"></select><button id="btn-sort-dir" class="small">▲ 升序</button></span>
+                    <button id="btn-column-toggle" aria-expanded="false" aria-controls="column-box">显示字段</button>
+                    <button id="btn-quota-toggle" aria-expanded="false" aria-controls="quota-box">自定义展示规则</button>
+                </div>
             </div>
 
             <details class="column-box" id="column-box">
@@ -265,7 +269,7 @@
                 </div>
                 <div id="csv-template-hint" class="csv-template-hint" hidden>CSV 模板 = 当前展示字段：<span id="csv-column-label"></span></div>
                 <div class="export-preview">
-                    <div class="pane-head"><span id="output-title">导出预览</span><span id="output-count" class="hint">0 条</span></div>
+                    <div class="pane-head"><span id="output-title">导出预览</span><span id="output-count" class="hint" aria-live="polite">0 条</span></div>
                     <div class="custom-export-actions" id="custom-export-actions" hidden>
                         <button id="btn-custom-append" class="small">追加勾选结果</button>
                         <button id="btn-custom-clear" class="small">清空自定义</button>
