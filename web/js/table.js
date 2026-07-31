@@ -168,8 +168,8 @@ export class ResultTable {
     }
 
     /**
-     * 应用组合前 N 规则。第一项条件是分组字段：其中每个值分别取前 N；
-     * 后续条件是共同限制。多条规则合并并去重。
+     * 应用自定义展示规则。第一项条件是分组字段，值按选择顺序决定输出顺序；
+     * 后续条件是共同限制。limit 为 0 或空表示不限制。多条规则合并并去重。
      */
     applyDisplayRules(rules) {
         const normalized = (rules || []).map(rule => ({
@@ -177,7 +177,7 @@ export class ResultTable {
             conditions: (Array.isArray(rule.conditions) ? rule.conditions : Object.entries(rule.conditions || {}).map(([field, values]) => ({ field, values })))
                 .map(condition => ({ field: condition.field, values: [...new Set((condition.values || []).map(String))] }))
                 .filter(condition => condition.field && condition.values.length),
-        })).filter(rule => rule.limit > 0 && rule.conditions.length);
+        })).filter(rule => rule.conditions.length);
         this.displayRules = normalized.length ? { rules: normalized } : null;
         const shown = this._filteredResults(true).length;
         this.render();
@@ -199,21 +199,24 @@ export class ResultTable {
 
     _applyDisplayRules(rows) {
         if (!this.displayRules) return rows;
-        const selected = new Set();
+        const ordered = new Map();
         for (const rule of this.displayRules.rules) {
             const [primary, ...constraints] = rule.conditions;
+            const limit = rule.limit > 0 ? rule.limit : Infinity;
             for (const primaryValue of primary.values) {
                 let taken = 0;
                 for (const result of rows) {
                     if (String(result[primary.field] || '未知') !== primaryValue) continue;
                     if (!constraints.every(condition => condition.values.includes(String(result[condition.field] || '未知')))) continue;
-                    selected.add(ResultTable.keyOf(result));
+                    const key = ResultTable.keyOf(result);
+                    if (ordered.has(key)) continue;
+                    ordered.set(key, result);
                     taken++;
-                    if (taken >= rule.limit) break;
+                    if (taken >= limit) break;
                 }
             }
         }
-        return rows.filter(result => selected.has(ResultTable.keyOf(result)));
+        return [...ordered.values()];
     }
 
     /**
@@ -277,6 +280,11 @@ export class ResultTable {
     /** 当前勾选的结果（唯一来源 selectedKeys，按当前排序返回）。 */
     getSelectedResults() {
         return this._sortedResults().filter(r => this.selectedKeys.has(ResultTable.keyOf(r)));
+    }
+
+    /** 当前勾选的结果，按当前展示顺序返回（含显示规则分组顺序）。 */
+    getSelectedResultsInDisplayOrder() {
+        return this._visibleResults().filter(r => this.selectedKeys.has(ResultTable.keyOf(r)));
     }
 
     /** 当前筛选可见的全部结果。 */

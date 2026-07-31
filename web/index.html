@@ -162,6 +162,16 @@
                     <label>地理位置数据源 <textarea id="advanced-location-sources" rows="3" placeholder="每行一个地址"></textarea></label>
                     <label>ASN 数据源 <textarea id="advanced-asn-sources" rows="3" placeholder="每行一个地址"></textarea></label>
                     <label>官方 IP 段源 <textarea id="advanced-official-sources" rows="2" placeholder="每行一个地址"></textarea></label>
+                    <div class="advanced-group">
+                        <div class="advanced-group-title">结果颜色阈值</div>
+                        <div class="threshold-grid">
+                            <label>延迟绿色上限 <input type="number" id="badge-latency-fast" min="1" placeholder="150"><em>ms</em></label>
+                            <label>延迟黄色上限 <input type="number" id="badge-latency-mid" min="1" placeholder="400"><em>ms</em></label>
+                            <label>速度绿色下限 <input type="number" id="badge-speed-fast" min="1" placeholder="1000"><em>kB/s</em></label>
+                            <label>速度黄色下限 <input type="number" id="badge-speed-mid" min="1" placeholder="100"><em>kB/s</em></label>
+                        </div>
+                        <div class="threshold-note">低于黄色阈值或未测速时显示为红色/灰色；阈值即时生效，保存后写入 settings.json。</div>
+                    </div>
                 </div>
                 <div class="settings-actions"><button id="btn-save-settings" class="primary">保存到本地</button><span id="settings-status" class="hint">保存在 data/config.json 与 data/settings.json</span></div>
             </details>
@@ -172,7 +182,6 @@
         <section id="stage-results" class="flow-section">
             <div class="section-heading compact">
                 <div><span class="eyebrow">STEP 3</span><h2>检测及结果 <span id="result-count"></span></h2></div>
-                <div class="result-summary"><span>导出范围</span><strong id="export-count">0 条</strong></div>
             </div>
 
             <div class="run-strip result-run-strip">
@@ -191,7 +200,7 @@
                 <input type="number" id="result-min-speed" min="0" placeholder="最低速度 kB/s">
                 <span class="sort-bar"><label for="sort-key">排序</label><select id="sort-key"></select><button id="btn-sort-dir" class="small">▲ 升序</button></span>
                 <button id="btn-column-toggle">显示字段</button>
-                <button id="btn-quota-toggle">分组取前 N</button>
+                <button id="btn-quota-toggle">自定义展示规则</button>
             </div>
 
             <details class="column-box" id="column-box">
@@ -206,13 +215,13 @@
             </details>
 
             <div class="quota-box" id="quota-box">
-                <div class="quota-title">组合规则取前 N</div>
+                <div class="quota-title">自定义展示规则</div>
                 <div class="quota-controls">
-                    <span>第一个字段按每个选中值分别取前 N；后续字段作为共同限制。多条规则自动合并并去重。</span>
+                    <span>选择分组字段与取值顺序，导出和表格都按该顺序排列；多条规则自动合并并去重。</span>
                     <button id="btn-quota-add-rule" class="small">添加规则</button>
                 </div>
                 <div class="quota-rules" id="quota-rules"></div>
-                <button id="btn-quota-apply" class="small primary">应用展示规则</button>
+                <button id="btn-quota-apply" class="small primary">应用规则</button>
                 <button id="btn-quota-clear" class="small">清除规则</button>
             </div>
 
@@ -224,20 +233,27 @@
 
             <div class="direct-export">
                 <div class="direct-export-head">
-                    <div><h3>直接导出</h3><span>默认导出全部检测结果，也可改为当前展示或已勾选</span></div>
-                    <div class="export-scope" role="radiogroup" aria-label="导出范围">
-                        <label class="radio"><input type="radio" name="export-scope" value="all" checked> 全部结果</label>
-                        <label class="radio"><input type="radio" name="export-scope" value="visible"> 当前展示</label>
-                        <label class="radio"><input type="radio" name="export-scope" value="selected"> 已勾选</label>
+                    <div><h3>直接导出</h3><span>全部 = 所有检测结果；当前规则 = 按上方筛选与规则处理后的结果；自定义 = 可清空后手动整理的结果</span></div>
+                </div>
+                <div class="export-scope export-segmented" role="radiogroup" aria-label="导出范围">
+                    <label class="radio"><input type="radio" name="export-scope" value="direct" checked><span>全部</span></label>
+                    <label class="radio"><input type="radio" name="export-scope" value="rules"><span>当前规则</span></label>
+                    <label class="radio"><input type="radio" name="export-scope" value="custom"><span>自定义</span></label>
+                </div>
+                <div class="export-toolbar">
+                    <label class="export-field">导出格式<select id="export-format">
+                        <option value="txt">TXT</option>
+                        <option value="csv">CSV</option>
+                    </select></label>
+                    <label class="export-field">导出模板<select id="format-presets"></select></label>
+                    <div class="export-actions">
+                        <button id="btn-copy" class="primary">复制到粘贴板</button>
+                        <button id="btn-download">下载文件</button>
                     </div>
                 </div>
-                <div class="export-layout">
-                <div class="format-settings">
-                    <label for="format-presets">TXT 模板</label>
-                    <select id="format-presets"></select>
-                    <label for="format-template">模板内容</label>
-                    <input type="text" id="format-template" class="template" value="{ip}:{port}#{country}">
-                    <div class="template-save-row">
+                <div class="template-editor" id="txt-template-editor">
+                    <div class="template-main">
+                        <input type="text" id="format-template" class="template" value="{ip}:{port}#{country}">
                         <input type="text" id="template-name" placeholder="新模板名称，或修改当前自定义模板">
                         <button id="btn-save-template">保存</button>
                         <button id="btn-delete-template" class="danger" disabled>删除</button>
@@ -246,16 +262,16 @@
                         <summary>可用模板字段 <span id="placeholder-count"></span></summary>
                         <div class="placeholder-help" id="placeholder-help"></div>
                     </details>
-                    <div class="export-actions">
-                        <button id="btn-copy" class="primary">复制 TXT</button>
-                        <button id="btn-download-txt">下载 TXT</button>
-                        <button id="btn-download-csv">按显示字段导出 CSV</button>
+                </div>
+                <div id="csv-template-hint" class="csv-template-hint" hidden>CSV 模板 = 当前展示字段：<span id="csv-column-label"></span></div>
+                <div class="export-preview">
+                    <div class="pane-head"><span id="output-title">导出预览</span><span id="output-count" class="hint">0 条</span></div>
+                    <div class="custom-export-actions" id="custom-export-actions" hidden>
+                        <button id="btn-custom-append" class="small">追加勾选结果</button>
+                        <button id="btn-custom-clear" class="small">清空自定义</button>
+                        <span id="custom-count" class="hint"></span>
                     </div>
-                </div>
-                <div>
-                    <div class="pane-head"><span>TXT 预览</span><span id="output-count" class="hint">0 行</span></div>
-                    <textarea id="output-box" class="output-box" rows="12" readonly placeholder="检测结果会按模板生成到这里，一行一个"></textarea>
-                </div>
+                    <textarea id="output-box" class="output-box" rows="12" readonly placeholder="导出内容会按当前格式生成到这里"></textarea>
                 </div>
             </div>
         </section>

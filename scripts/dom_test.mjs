@@ -47,6 +47,36 @@ check('导出区只保留一个模板下拉框', () => {
     assert.ok(/id="format-presets"/.test(html));
     assert.equal(/id="saved-templates"/.test(html), false, '保存模板不应再使用第二个下拉框');
 });
+check('导出格式、全部/当前规则/自定义范围与通用下载按钮已接线', () => {
+    assert.ok(/id="export-format"/.test(html));
+    assert.ok(/name="export-scope" value="direct"/.test(html));
+    assert.ok(/name="export-scope" value="rules"/.test(html));
+    assert.ok(/name="export-scope" value="custom"/.test(html));
+    assert.equal(/name="export-scope" value="all"/.test(html), false);
+    assert.ok(/id="btn-download"/.test(html));
+    assert.equal(/id="btn-download-csv"/.test(html), false);
+    assert.ok(/结果直出/.test(html) === false, '范围标签不应再叫结果直出');
+    assert.ok(/export-segmented/.test(html));
+    assert.ok(/export-toolbar/.test(html));
+});
+check('分组取前 N 已改名为自定义展示规则', () => {
+    assert.ok(/自定义展示规则/.test(html));
+    assert.equal(/分组取前 N/.test(html), false);
+});
+check('前 N 输入留空即显示无限制，不再附加注释', () => {
+    assert.ok(/placeholder="无限制"/.test(appJs));
+    assert.equal(/0 表示不限制/.test(appJs), false);
+});
+check('结果区右上角不再展示导出范围摘要', () => {
+    assert.equal(/id="export-count"/.test(html), false);
+    assert.equal(/result-summary/.test(html), false);
+});
+check('颜色阈值可配置字段已接线', () => {
+    for (const id of ['badge-latency-fast', 'badge-latency-mid', 'badge-speed-fast', 'badge-speed-mid']) {
+        assert.ok(html.includes(`id="${id}"`), `${id} 不存在`);
+        assert.ok(appJs.includes(`'${id}'`), `${id} 未在 app.js 中接线`);
+    }
+});
 check('IPS 检测地址在本地配置中可见', () => {
     assert.ok(/id="advanced-ips-url"/.test(html));
     assert.ok(/\$\('advanced-ips-url'\)/.test(appJs));
@@ -72,9 +102,9 @@ console.log('class 选择器:');
 check('.mode-tab 在静态标记里存在', () => {
     assert.ok(/class="mode-tab/.test(html), 'mode-tabs 的按钮绑定会一个都连不上');
 });
-check('.quota-condition 由组合规则编辑器生成', () => {
+check('.quota-condition 由自定义展示规则编辑器生成', () => {
     assert.ok(/className = 'quota-condition'/.test(appJs), '组合规则缺少条件编辑行');
-    assert.ok(/picker\.getSelected\(\)/.test(appJs), '组合规则没有读取多选值');
+    assert.ok(/picker\.getSelectedInOrder\(\)/.test(appJs), '显示规则没有按选择顺序读取多选值');
 });
 
 console.log('初次检测是否继续测速:');

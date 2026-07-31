@@ -5,7 +5,7 @@
 // 用最小桩件覆盖），所以能直接在 node 里跑。
 import assert from 'node:assert/strict';
 
-const { ALL_COLUMNS, TABLE_COLUMNS, CSV_COLUMNS, GROUP_COLUMNS, csvValue, columnByKey, escapeHTML } =
+const { ALL_COLUMNS, TABLE_COLUMNS, CSV_COLUMNS, GROUP_COLUMNS, csvValue, columnByKey, escapeHTML, setBadgeThresholds } =
     await import('../web/js/columns.js');
 
 let pass = 0;
@@ -98,6 +98,13 @@ check('render 用于表格，返回的是带转义的 HTML', () => {
     assert.equal(columnByKey('cityZh').render({ cityZh: '<b>x</b>' }), '&lt;b&gt;x&lt;/b&gt;');
     assert.equal(columnByKey('cityZh').render({ city: 'Tokyo' }), 'Tokyo', 'cityZh 缺失时回落 city');
 });
+check('颜色阈值可配置，修改后立即影响徽章颜色', () => {
+    setBadgeThresholds({ latencyFastMs: 50, latencyMidMs: 60, speedFastKBs: 200, speedMidKBs: 50 });
+    assert.equal(columnByKey('tcpLatencyMs').render({ tcpLatencyMs: 55 }), '<span class="badge mid">55 ms</span>');
+    assert.equal(columnByKey('downloadSpeedKBs').render({ downloadSpeedKBs: 100 }), '<span class="badge mid">100 kB/s</span>');
+    setBadgeThresholds({});
+    assert.equal(columnByKey('tcpLatencyMs').render({ tcpLatencyMs: 55 }), '<span class="badge fast">55 ms</span>');
+});
 check('escapeHTML 覆盖五个字符，null/undefined 变空串', () => {
     assert.equal(escapeHTML(`&<>"'`), '&amp;&lt;&gt;&quot;&#39;');
     assert.equal(escapeHTML(null), '');
@@ -106,7 +113,7 @@ check('escapeHTML 覆盖五个字符，null/undefined 变空串', () => {
 
 // exporter.js 顶层不碰 DOM（document 只在 triggerDownload 函数体里用），
 // 所以可以直接 import；下面 downloadAsCSV 一节再补桩件。
-const { serialize, downloadAsCSV, downloadAsText } = await import('../web/js/exporter.js');
+const { serialize, download, downloadAsCSV, downloadAsText } = await import('../web/js/exporter.js');
 
 console.log('serialize（序列化与投递解耦）:');
 // 注意 filter 保持的是注册表顺序（ip → 延迟 → ASN），不是这里数组字面量的顺序。
@@ -139,6 +146,11 @@ check('值里的换行被引号保护（不会撕成两行记录）', () => {
 });
 check('空结果只输出表头', () => {
     assert.equal(serialize([], 'csv', { columns: COLS3 }), 'IP地址,网络延迟,ASN组织');
+});
+check('TXT 按模板逐行替换，空结果返回空串', () => {
+    assert.equal(serialize([ROW], 'txt', { template: '{ip}:{port}#{country}' }),
+        '104.16.0.1:443#日本');
+    assert.equal(serialize([], 'txt', { template: '{ip}:{port}' }), '');
 });
 check('列选择被尊重：只导出传入的列', () => {
     const out = serialize([ROW], 'csv', { columns: [{ key: 'ip', label: 'IP地址' }] });
@@ -215,6 +227,13 @@ check('TXT 原样投递，MIME 为 text/plain', () => {
     assert.equal(captured[0].blob.text, '1.1.1.1:443\n2.2.2.2:443');
     assert.equal(captured[0].blob.type, 'text/plain;charset=utf-8');
     assert.equal(captured[0].name, 'iptest-result.txt');
+});
+check('download 可指定 MIME 与文件名（统一投递入口）', () => {
+    captured.length = 0;
+    download('x', 'custom.json', 'application/json');
+    assert.equal(captured[0].blob.text, 'x');
+    assert.equal(captured[0].blob.type, 'application/json');
+    assert.equal(captured[0].name, 'custom.json');
 });
 check('每次下载都释放 object URL（不泄漏）', () => {
     const before = revoked;

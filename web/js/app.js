@@ -4,10 +4,10 @@ import { getInputStats, smartFilter, parseFilterExpression, importCSVText } from
 import * as api from './api.js';
 import { store, setMode, parseLines, targetToLine } from './store.js';
 import { ResultTable, CSV_COLUMNS } from './table.js';
-import { ALL_COLUMNS, TABLE_COLUMNS, GROUP_COLUMNS, escapeHTML } from './columns.js';
+import { ALL_COLUMNS, TABLE_COLUMNS, GROUP_COLUMNS, DEFAULT_BADGE_THRESHOLDS, escapeHTML, setBadgeThresholds } from './columns.js';
 import { createMultiSelect } from './multiselect.js';
-import { PRESETS, formatResults, placeholderNames } from './composer.js';
-import { downloadAsText, downloadAsCSV, copyToClipboard } from './exporter.js';
+import { PRESETS, placeholderNames } from './composer.js';
+import { download, copyToClipboard, serialize as serializeExport } from './exporter.js';
 
 const $ = id => document.getElementById(id);
 const keyOf = item => `${item.ip}|${item.port || 0}`;
@@ -29,6 +29,8 @@ const quotaRuleEditors = new Map();
 let officialEstimateTimer = null;
 let exportPreviewTimer = null;
 let savedTemplates = [];
+let customResults = null; // null = 尚未进入自定义，进入时默认用当前展示结果
+let customTouched = false; // 清空或追加后，自定义列表由用户接管
 
 const SAVED_TEMPLATE_KEY = 'iptest.savedTemplates.v1';
 
@@ -426,6 +428,8 @@ async function startPipeline() {
     const targets = activeCandidates();
     if (!targets.length) { toast('候选区为空'); return; }
     table.clear();
+    customResults = null;
+    customTouched = false;
     scheduleExportPreview();
     $('result-count').textContent = '';
     $('progress-fill').style.width = '0%';
@@ -457,6 +461,9 @@ async function startSupplementalSpeed(useVisible) {
 
 function bindRulesAndRun() {
     $('spd-enable').addEventListener('change', applySpeedEnabled);
+    ['badge-latency-fast', 'badge-latency-mid', 'badge-speed-fast', 'badge-speed-mid'].forEach(id => {
+        $(id).addEventListener('input', applyBadgeThresholdsFromUI);
+    });
     $('lat-tls').addEventListener('change', () => {
         $('spd-tls').checked = $('lat-tls').checked;
         updateDefaultPortHint();
@@ -580,7 +587,7 @@ function addQuotaRule(seed = {}) {
     const row = document.createElement('div');
     row.className = 'quota-rule';
     row.dataset.id = id;
-    row.innerHTML = `<div class="quota-rule-head"><strong>规则 ${quotaRuleSeq}</strong><span class="hint">每个分组值分别取</span><input class="quota-rule-limit" type="number" min="1" value="${Number(seed.limit) || 5}"><span class="hint">个</span><button class="small quota-rule-add-condition" type="button">添加限制字段</button><button class="small quota-rule-remove" type="button">删除规则</button></div><div class="quota-conditions"></div>`;
+    row.innerHTML = `<div class="quota-rule-head"><strong>规则 ${quotaRuleSeq}</strong><span class="hint">每个值取前</span><input class="quota-rule-limit" type="number" min="0" value="${Number(seed.limit) || ''}" placeholder="无限制"><span class="hint">个</span><button class="small quota-rule-add-condition" type="button">添加限制字段</button><button class="small quota-rule-remove" type="button">删除规则</button></div><div class="quota-conditions"></div>`;
     $('quota-rules').appendChild(row);
     const conditions = [];
     function addCondition(condition = {}) {
@@ -592,7 +599,7 @@ function addQuotaRule(seed = {}) {
         dimension.value = condition.field || condition.dimension || seed.dimension || 'country';
         const picker = createMultiSelect(line.querySelector('.quota-rule-picker'), { placeholder: '选择一个或多个值' });
         const refill = values => {
-            const selected = (values || picker.getSelected()).map(String);
+            const selected = (values || picker.getSelectedInOrder()).map(String);
             const items = quotaItems(dimension.value);
             const known = new Set(items.map(item => item.value));
             selected.filter(value => !known.has(value)).forEach(value => items.push({ value, label: value, count: 0 }));
@@ -629,20 +636,46 @@ function addQuotaRule(seed = {}) {
 
 function readQuotaRules() {
     return [...quotaRuleEditors.values()].map(({ row, conditions }) => ({
-        conditions: conditions.map(({ line, picker }) => ({ field: line.querySelector('select').value, values: picker.getSelected() })).filter(condition => condition.values.length),
+        conditions: conditions.map(({ line, picker }) => ({ field: line.querySelector('select').value, values: picker.getSelectedInOrder() })).filter(condition => condition.values.length),
         limit: Number(row.querySelector('.quota-rule-limit').value) || 0,
-    })).filter(rule => rule.conditions.length && rule.limit > 0);
+    })).filter(rule => rule.conditions.length);
 }
 
 function currentSettings() {
     return {
         rules: { latency: latencyOptions(), speed: speedOptions(), speedEnabled: speedEnabled(), maxResults: ruleMaxResults() },
         columns: [...visibleColumnKeys],
-        quotaRules: readQuotaRules(),
+        displayRules: readQuotaRules(),
+        exportFormat: exportFormat(),
         formatTemplate: $('format-template').value,
         savedTemplates: savedTemplates.map(item => ({ ...item })),
         exportScope: exportScope(),
+        ui: { badgeThresholds: readBadgeThresholds() },
     };
+}
+
+function readBadgeThresholds() {
+    return {
+        latencyFastMs: Number($('badge-latency-fast').value) || 0,
+        latencyMidMs: Number($('badge-latency-mid').value) || 0,
+        speedFastKBs: Number($('badge-speed-fast').value) || 0,
+        speedMidKBs: Number($('badge-speed-mid').value) || 0,
+    };
+}
+
+function applyBadgeThresholdsFromUI() {
+    setBadgeThresholds(readBadgeThresholds());
+    table?.render();
+    scheduleExportPreview();
+}
+
+function fillBadgeThresholdFields(settings = {}) {
+    const saved = settings.ui?.badgeThresholds || {};
+    $('badge-latency-fast').value = Number(saved.latencyFastMs) > 0 ? saved.latencyFastMs : DEFAULT_BADGE_THRESHOLDS.latencyFastMs;
+    $('badge-latency-mid').value = Number(saved.latencyMidMs) > 0 ? saved.latencyMidMs : DEFAULT_BADGE_THRESHOLDS.latencyMidMs;
+    $('badge-speed-fast').value = Number(saved.speedFastKBs) > 0 ? saved.speedFastKBs : DEFAULT_BADGE_THRESHOLDS.speedFastKBs;
+    $('badge-speed-mid').value = Number(saved.speedMidKBs) > 0 ? saved.speedMidKBs : DEFAULT_BADGE_THRESHOLDS.speedMidKBs;
+    setBadgeThresholds(readBadgeThresholds());
 }
 
 function fillConfigFields(config) {
@@ -676,17 +709,23 @@ function applySavedSettings(settings = {}) {
         renderColumnOptions(); table.setColumns(visibleColumnKeys); renderSortOptions();
     }
     if (settings.formatTemplate) $('format-template').value = settings.formatTemplate;
+    if (settings.exportFormat === 'txt' || settings.exportFormat === 'csv') {
+        $('export-format').value = settings.exportFormat;
+    }
     if (Array.isArray(settings.savedTemplates)) {
         savedTemplates = settings.savedTemplates
             .filter(item => item && typeof item.name === 'string' && typeof item.template === 'string');
-        renderTemplateOptions();
     }
-    if (['all', 'visible', 'selected'].includes(settings.exportScope)) {
-        const scope = document.querySelector(`input[name="export-scope"][value="${settings.exportScope}"]`);
+    renderTemplateOptions();
+    fillBadgeThresholdFields(settings);
+    const legacyScope = { all: 'direct', visible: 'rules', selected: 'custom' }[settings.exportScope] || settings.exportScope;
+    if (['direct', 'rules', 'custom'].includes(legacyScope)) {
+        const scope = document.querySelector(`input[name="export-scope"][value="${legacyScope}"]`);
         if (scope) scope.checked = true;
     }
     clearQuotaEditors();
-    (settings.quotaRules?.length ? settings.quotaRules : [{}]).forEach(addQuotaRule);
+    const displayRules = settings.displayRules || settings.quotaRules;
+    (displayRules?.length ? displayRules : [{}]).forEach(addQuotaRule);
     applySpeedEnabled(); updateDefaultPortHint(); regenerateOutput();
 }
 
@@ -720,7 +759,7 @@ function clearQuotaEditors() {
 function refreshQuotaEditors() {
     for (const { conditions } of quotaRuleEditors.values()) {
         conditions.forEach(({ line, picker }) => {
-            const selected = picker.getSelected();
+            const selected = picker.getSelectedInOrder();
             const items = quotaItems(line.querySelector('select').value);
             const known = new Set(items.map(item => item.value));
             selected.filter(value => !known.has(value)).forEach(value => items.push({ value, label: value, count: 0 }));
@@ -758,7 +797,6 @@ function refreshButtons() {
     const running = currentTaskId !== null;
     $('btn-start-speed').disabled = running || table.getSelectedResults().length === 0;
     $('btn-speed-filtered').disabled = running || table.getAllResults().length === 0;
-    refreshExportCount();
 }
 
 function bindResults() {
@@ -809,34 +847,86 @@ function bindResults() {
 }
 
 function exportScope() {
-    return document.querySelector('input[name="export-scope"]:checked')?.value || 'all';
+    return document.querySelector('input[name="export-scope"]:checked')?.value || 'direct';
+}
+
+function exportFormat() {
+    return $('export-format')?.value === 'csv' ? 'csv' : 'txt';
 }
 
 function exportResults() {
     if (!table) return [];
-    if (exportScope() === 'selected') return table.getSelectedResults();
-    if (exportScope() === 'visible') return table.getAllResults();
+    if (exportScope() === 'rules') return table.getAllResults();
+    if (exportScope() === 'custom') {
+        if (!customTouched) return table.getAllResults();
+        if (customResults === null) customResults = [];
+        return customResults;
+    }
     return table.getResults();
 }
 
-function refreshExportCount() {
-    if (!table) return;
-    $('export-count').textContent = `${exportResults().length} 条`;
+function currentExportContent() {
+    const results = exportResults();
+    if (!results.length) return '';
+    if (exportFormat() === 'csv') {
+        const columns = CSV_COLUMNS.filter(column => visibleColumnKeys.includes(column.key));
+        if (!columns.length) return '';
+        return serializeExport(results, 'csv', { columns, enableTLS: $('lat-tls').checked });
+    }
+    return serializeExport(results, 'txt', { template: $('format-template').value });
+}
+
+function updateCustomExportUI() {
+    const custom = exportScope() === 'custom';
+    $('custom-export-actions').hidden = !custom;
+    const count = custom && !customTouched
+        ? (table?.getAllResults().length || 0)
+        : (customResults?.length || 0);
+    $('custom-count').textContent = custom ? `当前 ${count} 条` : '';
 }
 
 function regenerateOutput() {
     clearTimeout(exportPreviewTimer);
     exportPreviewTimer = null;
     const results = exportResults();
-    $('output-box').value = results.length ? formatResults($('format-template').value, results) : '';
-    $('output-count').textContent = `${results.length} 行`;
-    $('export-count').textContent = `${results.length} 条`;
+    $('output-box').value = currentExportContent();
+    $('output-count').textContent = `${results.length} 条`;
+    $('output-title').textContent = `${exportFormat() === 'csv' ? 'CSV' : 'TXT'} 预览`;
+    updateCustomExportUI();
 }
 
 function scheduleExportPreview() {
-    refreshExportCount();
     clearTimeout(exportPreviewTimer);
     exportPreviewTimer = setTimeout(regenerateOutput, 140);
+}
+
+function appendSelectedToCustom() {
+    if (!table) return;
+    const selected = table.getSelectedResultsInDisplayOrder();
+    if (!selected.length) { toast('请先勾选要追加的结果'); return; }
+    if (!customTouched) {
+        customTouched = true;
+        customResults = table.getAllResults().map(r => r);
+    }
+    const seen = new Set(customResults.map(keyOf));
+    let added = 0;
+    let duplicates = 0;
+    for (const result of selected) {
+        const key = keyOf(result);
+        if (seen.has(key)) { duplicates++; continue; }
+        seen.add(key);
+        customResults.push(result);
+        added++;
+    }
+    regenerateOutput();
+    toast(added ? `已追加 ${added} 条${duplicates ? `，跳过重复 ${duplicates} 条` : ''}` : '没有新增结果（已在自定义列表中）');
+}
+
+function clearCustomResults() {
+    customTouched = true;
+    customResults = [];
+    regenerateOutput();
+    toast('已清空自定义导出列表');
 }
 
 async function persistSavedTemplates() {
@@ -850,6 +940,21 @@ async function persistSavedTemplates() {
 }
 
 function renderTemplateOptions(selected = '') {
+    const format = exportFormat();
+    const txtEditor = $('txt-template-editor');
+    const csvHint = $('csv-template-hint');
+    if (format === 'csv') {
+        const columns = CSV_COLUMNS.filter(column => visibleColumnKeys.includes(column.key));
+        $('format-presets').innerHTML = `<option value="csv:visible">当前展示字段（${columns.length} 列）</option>`;
+        $('format-presets').value = 'csv:visible';
+        txtEditor.hidden = true;
+        csvHint.hidden = false;
+        $('csv-column-label').textContent = columns.map(c => c.label).join('、') || '未选择字段';
+        $('btn-delete-template').disabled = true;
+        return;
+    }
+    txtEditor.hidden = false;
+    csvHint.hidden = true;
     const presetOptions = PRESETS.map((item, index) =>
         `<option value="preset:${index}">${escapeHTML(item.name)}</option>`).join('');
     const savedOptions = savedTemplates.map((item, index) =>
@@ -874,7 +979,12 @@ function loadSavedTemplates() {
 
 function bindExport() {
     const templates = $('format-presets');
+    $('export-format').addEventListener('change', () => {
+        renderTemplateOptions();
+        regenerateOutput();
+    });
     templates.addEventListener('change', () => {
+        if (exportFormat() === 'csv') return;
         const [type, rawIndex] = templates.value.split(':');
         const index = Number(rawIndex);
         const item = type === 'saved' ? savedTemplates[index] : PRESETS[index];
@@ -895,8 +1005,13 @@ function bindExport() {
         regenerateOutput();
     });
     document.querySelectorAll('input[name="export-scope"]').forEach(input =>
-        input.addEventListener('change', regenerateOutput));
+        input.addEventListener('change', () => {
+            if (!input.checked) return;
+            regenerateOutput();
+        }));
     loadSavedTemplates();
+    $('btn-custom-append').addEventListener('click', appendSelectedToCustom);
+    $('btn-custom-clear').addEventListener('click', clearCustomResults);
     $('btn-save-template').addEventListener('click', async () => {
         const name = $('template-name').value.trim();
         const template = $('format-template').value.trim();
@@ -936,21 +1051,21 @@ function bindExport() {
         const text = $('output-box').value;
         if (!text) { toast('没有可复制的结果'); return; }
         await copyToClipboard(text);
-        toast(`已复制 ${exportResults().length} 条 TXT`);
+        toast(`已复制 ${exportResults().length} 条${exportFormat() === 'csv' ? ' CSV' : ' TXT'}`);
     });
-    $('btn-download-txt').addEventListener('click', () => {
+    $('btn-download').addEventListener('click', () => {
         regenerateOutput();
         const text = $('output-box').value;
         if (!text) { toast('没有可下载的结果'); return; }
-        downloadAsText(text);
-    });
-    $('btn-download-csv').addEventListener('click', () => {
         const results = exportResults();
-        if (!results.length) { toast('当前导出范围没有结果'); return; }
-        const columns = CSV_COLUMNS.filter(column => visibleColumnKeys.includes(column.key));
-        if (!columns.length) { toast('没有可导出的显示字段'); return; }
-        downloadAsCSV(results, columns, { enableTLS: $('lat-tls').checked });
-        toast(`已导出 ${results.length} 条 × ${columns.length} 列`);
+        if (exportFormat() === 'csv') {
+            const columns = CSV_COLUMNS.filter(column => visibleColumnKeys.includes(column.key));
+            download('\uFEFF' + text, 'iptest-result.csv', 'text/csv;charset=utf-8');
+            toast(`已下载 ${results.length} 条 × ${columns.length} 列 CSV`);
+        } else {
+            download(text, 'iptest-result.txt', 'text/plain;charset=utf-8');
+            toast(`已下载 ${results.length} 条 TXT`);
+        }
     });
     regenerateOutput();
 }

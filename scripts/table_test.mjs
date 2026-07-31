@@ -172,6 +172,19 @@ check('同一分组字段的多个值分别取前 N', () => {
     assert.equal(shown, 2);
     assert.deepEqual(new Set(t.getAllResults().map(r => r.country)), new Set(['日本', '美国']));
 });
+check('显示规则按值选择顺序输出，0 表示不限制', () => {
+    const { t } = makeTable(SAMPLE);
+    const shown = t.applyDisplayRules([{ conditions: [{ field: 'country', values: ['美国', '日本'] }], limit: 0 }]);
+    assert.equal(shown, 5);
+    assert.deepEqual(t.getAllResults().map(r => r.country), ['美国', '美国', '日本', '日本', '日本']);
+});
+check('勾选结果按当前展示顺序返回（含显示规则分组）', () => {
+    const { t } = makeTable(SAMPLE);
+    t.applyDisplayRules([{ conditions: [{ field: 'country', values: ['美国', '日本'] }], limit: 1 }]);
+    t.selectedKeys.add(ResultTable.keyOf(SAMPLE[0])); // 日本
+    t.selectedKeys.add(ResultTable.keyOf(SAMPLE[3])); // 美国
+    assert.deepEqual(t.getSelectedResultsInDisplayOrder().map(r => r.country), ['美国', '日本']);
+});
 check('按当前筛选与排序限制每组展示数量', () => {
     const { t } = makeTable(SAMPLE);
     t.setFilters({ maxLatency: 25 });

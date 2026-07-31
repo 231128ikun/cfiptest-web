@@ -198,6 +198,10 @@ export function createMultiSelect(container, { placeholder = '选择…', onChan
             if (dropped) emit();   // 选择集实际变了，调用方需要知道
         },
         getSelected,
+        /** 按用户点选/追加的先后顺序返回（显示规则需要用它决定导出顺序）。 */
+        getSelectedInOrder() {
+            return [...selected];
+        },
         /** 静默设置选择（不触发 onChange），用于外部状态回填。 */
         setSelected(values) {
             selected.clear();
