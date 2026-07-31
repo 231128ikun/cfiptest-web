@@ -13,7 +13,8 @@ function isValidPort(port) {
 }
 
 /**
- * 规范化单行输入为 "IP:PORT"（IPv6 为 "[IP]:PORT"）；无法识别返回 null。
+ * 规范化单行输入。显式端口保留为 "IP:PORT"（IPv6 为 "[IP]:PORT"）；
+ * 没写端口时只返回 IP，实际端口在执行阶段根据 TLS 规则补 443/80。
  * 支持：1.2.3.4:443 / 1.2.3.4 / 1.2.3.4 443 / 中文冒号 / [v6]:443 / 纯v6 /
  *       行内 # 注释（丢弃）/ CSV 元数据行（取首列）
  */
@@ -35,9 +36,9 @@ export function normalizeIPFormat(input) {
     let match = mainPart.match(/^\[([0-9a-fA-F:]+)\]:(\d+)$/);
     if (match && isValidPort(match[2])) return `[${match[1]}]:${match[2]}`;
 
-    // 纯 IPv6 → 默认 443
+    // 纯 IPv6 → 保持未指定端口
     if (/^[0-9a-fA-F:]+$/.test(mainPart) && mainPart.includes(':') && !mainPart.includes('.')) {
-        return `[${mainPart.replace(/^\[/, '').replace(/\]$/, '')}]:443`;
+        return mainPart.replace(/^\[/, '').replace(/\]$/, '');
     }
 
     // IPv4:port
@@ -55,9 +56,9 @@ export function normalizeIPFormat(input) {
         return `${parts[0]}:${parts[1]}`;
     }
 
-    // 纯 IPv4 → 默认 443
+    // 纯 IPv4 → 保持未指定端口
     if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(mainPart) && isValidIPv4(mainPart)) {
-        return `${mainPart}:443`;
+        return mainPart;
     }
 
     // 兜底：IPv4 + 非数字分隔 + 数字
@@ -152,7 +153,7 @@ export function parseFilterExpression(query) {
 export function lineMatchesFilter(line, criteria) {
     if (Array.isArray(criteria)) return criteria.some(g => lineMatchesFilter(line, g));
 
-    const portMatch = line.match(/:(\d+)$/);
+    const portMatch = line.match(/:(\d+)(?:\s*#.*)?$/);
     const portNum = portMatch ? parseInt(portMatch[1], 10) : NaN;
     if (criteria.ports.length && !criteria.ports.some(p =>
         typeof p === 'number' ? portNum === p : portNum >= p.start && portNum <= p.end)) {

@@ -175,6 +175,12 @@ check('getAllResults 返回筛选后的集合', () => {
     t.setFilter('美国');
     assert.equal(t.getAllResults().length, 2);
 });
+check('getResults 返回忽略筛选的全部排序结果', () => {
+    const { t } = makeTable(SAMPLE);
+    t.setFilter('美国');
+    assert.equal(t.getAllResults().length, 2);
+    assert.equal(t.getResults().length, SAMPLE.length);
+});
 
 console.log('排序入口（setSort）:');
 check('setSort 派发 sortchange，detail 带 key/asc', () => {
@@ -186,6 +192,52 @@ check('setSort 派发 sortchange，detail 带 key/asc', () => {
     assert.equal(t.sortAsc, false);
     assert.deepEqual(seen, [{ key: 'ip', asc: false }],
         '下拉与方向按钮靠这个事件回填，不派发就会和表头点击脱节');
+});
+
+console.log('动态字段与结构化筛选:');
+check('setColumns 保留勾选列、去重并忽略未知字段', () => {
+    const { t } = makeTable(SAMPLE);
+    t.setColumns(['country', 'ip', 'country', 'not-exists']);
+    assert.deepEqual(t.columns.map(c => c.key), ['_sel', 'country', 'ip']);
+});
+check('国家、延迟与速度筛选可组合', () => {
+    const rows = MIXED.map((r, i) => ({ ...r, downloadSpeedKBs: (i + 1) * 100 }));
+    const { t } = makeTable(rows);
+    t.setFilters({ country: '美国', maxLatency: 35, minSpeed: 250 });
+    assert.deepEqual(t.getAllResults().map(r => r.ip), ['1.1.1.3']);
+});
+check('未测速结果不会通过最低速度筛选', () => {
+    const { t } = makeTable([R('8.8.8.8', '美国', 12)]);
+    t.setFilters({ minSpeed: 1 });
+    assert.equal(t.getAllResults().length, 0);
+});
+
+console.log('展示前 N:');
+check('按当前筛选与排序限制每组展示数量', () => {
+    const { t } = makeTable(SAMPLE);
+    t.setFilters({ maxLatency: 25 });
+    t.setSort('tcpLatencyMs', true);
+    const shown = t.applyGroupDisplayQuotas('country', { 日本: 1, 美国: 1 });
+    assert.equal(shown, 2);
+    assert.deepEqual(t.getAllResults().map(r => r.tcpLatencyMs), [10, 15]);
+});
+check('展示前 N 会随排序变化重新计算', () => {
+    const { t } = makeTable(SAMPLE);
+    t.applyGroupDisplayQuotas('country', { 日本: 1 });
+    assert.equal(t.getAllResults()[0].tcpLatencyMs, 10);
+    t.setSort('tcpLatencyMs', false);
+    assert.equal(t.getAllResults()[0].tcpLatencyMs, 30);
+});
+check('清除展示限制恢复当前筛选全集', () => {
+    const { t } = makeTable(SAMPLE);
+    t.applyGroupDisplayQuotas('country', { 日本: 1 });
+    t.clearDisplayQuotas();
+    assert.equal(t.getAllResults().length, SAMPLE.length);
+});
+check('分组统计可只统计当前筛选结果', () => {
+    const { t } = makeTable(SAMPLE);
+    t.setFilter('美国');
+    assert.deepEqual(t.getGroupStats('country', { filtered: true }).map(s => s.name), ['美国']);
 });
 check('setSort 拒绝不可排序的列，且不派发事件', () => {
     const { t, container } = makeTable(SAMPLE);
@@ -262,6 +314,7 @@ check('clear 重置结果与勾选', () => {
     t.clear();
     assert.equal(t.results.length, 0);
     assert.equal(t.getSelectedResults().length, 0);
+    assert.equal(t.displayQuota, null);
 });
 
 console.log(`\n通过 ${pass} 项`);

@@ -8,6 +8,7 @@ import {
     appendVisibleToCandidates, addToCandidates, clearCandidates, candidateTargets,
     addResult, updateSpeed, clearResults, filterIsValid, subscribe, setMode,
 } from '../web/js/store.js';
+import { normalizeIPFormat, smartFilter } from '../web/js/input.js';
 
 let pass = 0;
 const check = (name, fn) => {
@@ -17,7 +18,7 @@ const check = (name, fn) => {
 
 console.log('lineToTarget:');
 check('正常 IPv4', () => assert.deepEqual(lineToTarget('1.2.3.4:443'), { ip: '1.2.3.4', port: 443 }));
-check('裸 IPv4 默认 443', () => assert.deepEqual(lineToTarget('1.2.3.4'), { ip: '1.2.3.4', port: 443 }));
+check('裸 IPv4 保持未指定端口', () => assert.deepEqual(lineToTarget('1.2.3.4'), { ip: '1.2.3.4', port: 0 }));
 check('中文冒号', () => assert.deepEqual(lineToTarget('1.2.3.4：2053'), { ip: '1.2.3.4', port: 2053 }));
 check('空格分隔', () => assert.deepEqual(lineToTarget('1.2.3.4 8443'), { ip: '1.2.3.4', port: 8443 }));
 check('IPv6 带括号', () => assert.deepEqual(lineToTarget('[2606:4700::1]:2053'), { ip: '2606:4700::1', port: 2053 }));
@@ -41,6 +42,7 @@ check('任何输出端口都不是 NaN', () => {
 console.log('targetToLine:');
 check('IPv4 往返', () => assert.equal(targetToLine({ ip: '1.2.3.4', port: 443 }), '1.2.3.4:443'));
 check('IPv6 加括号', () => assert.equal(targetToLine({ ip: '2606:4700::1', port: 443 }), '[2606:4700::1]:443'));
+check('未指定端口不补写', () => assert.equal(targetToLine({ ip: '1.2.3.4', port: 0 }), '1.2.3.4'));
 
 console.log('parseLines:');
 check('去重与计数', () => {
@@ -52,6 +54,16 @@ check('去重与计数', () => {
 check('同 IP 不同端口不算重复', () => {
     const r = parseLines('1.2.3.4:443\n1.2.3.4:2053');
     assert.equal(r.targets.length, 2);
+});
+check('端口筛选可识别带备注的行', () => {
+    assert.deepEqual(smartFilter(['1.2.3.4:443#日本', '5.6.7.8:80#美国'], 'port:443'), ['1.2.3.4:443#日本']);
+});
+check('关键词可筛选备注', () => {
+    assert.deepEqual(smartFilter(['1.2.3.4:443#日本', '5.6.7.8:443#美国'], '日本'), ['1.2.3.4:443#日本']);
+});
+check('加入候选时备注被丢弃', () => {
+    assert.equal(normalizeIPFormat('1.2.3.4:443#日本'), '1.2.3.4:443');
+    assert.deepEqual(parseLines('1.2.3.4:443#日本').targets, [{ ip: '1.2.3.4', port: 443 }]);
 });
 
 console.log('工作区与筛选（非破坏性）:');

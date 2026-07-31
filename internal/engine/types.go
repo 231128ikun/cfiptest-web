@@ -19,7 +19,33 @@ type Target struct {
 // String 返回 ip:port 形式；IPv6 自动加方括号，与前端 store.js 的
 // targetToLine 保持一致，两端来回传的文本行才不会走样。
 func (t Target) String() string {
+	if t.Port == 0 {
+		return t.IP
+	}
 	return net.JoinHostPort(t.IP, strconv.Itoa(t.Port))
+}
+
+// ResolveDefaultPorts 返回一份可执行目标：用户未指定端口（Port=0）时，
+// TLS 使用 443，非 TLS 使用 80；显式端口始终原样保留。
+func ResolveDefaultPorts(targets []Target, enableTLS bool) []Target {
+	defaultPort := 80
+	if enableTLS {
+		defaultPort = 443
+	}
+	out := make([]Target, 0, len(targets))
+	seen := make(map[string]struct{}, len(targets))
+	for _, target := range targets {
+		if target.Port == 0 {
+			target.Port = defaultPort
+		}
+		key := target.IP + "|" + strconv.Itoa(target.Port)
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, target)
+	}
+	return out
 }
 
 // Result 表示一个 IP 的完整测试结果，通过 SSE 以 JSON 推送给前端。
@@ -146,9 +172,10 @@ type Event struct {
 
 // Progress 表示一次进度快照。
 type Progress struct {
-	Completed int `json:"completed"`
-	Total     int `json:"total"`
-	ValidIPs  int `json:"validIPs"`
+	Completed int    `json:"completed"`
+	Total     int    `json:"total"`
+	ValidIPs  int    `json:"validIPs"`
+	Phase     string `json:"phase,omitempty"` // latency | speed
 }
 
 // EventCallback 由 server 层传入，每产出一个事件调用一次。

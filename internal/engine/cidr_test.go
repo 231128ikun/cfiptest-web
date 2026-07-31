@@ -195,7 +195,7 @@ func TestExpandCIDRsSkipsInvalid(t *testing.T) {
 }
 
 func TestExpandCIDRDefaultsBadPort(t *testing.T) {
-	for _, port := range []int{0, -1, 70000} {
+	for _, port := range []int{-1, 70000} {
 		targets, err := ExpandCIDR("10.0.0.0/24", SampleOnePerSubnet, 1, port)
 		if err != nil {
 			t.Fatalf("展开失败: %v", err)
@@ -203,6 +203,10 @@ func TestExpandCIDRDefaultsBadPort(t *testing.T) {
 		if targets[0].Port != 443 {
 			t.Errorf("端口 %d 应回落到 443，实际 %d", port, targets[0].Port)
 		}
+	}
+	targets, err := ExpandCIDR("10.0.0.0/24", SampleOnePerSubnet, 1, 0)
+	if err != nil || targets[0].Port != 0 {
+		t.Errorf("端口 0 应保留为未指定，实际 %+v, err=%v", targets, err)
 	}
 }
 

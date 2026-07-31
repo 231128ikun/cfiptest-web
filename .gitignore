@@ -1,6 +1,10 @@
 # 构建产物
 iptest-web.exe
 iptest-web.exe~
+/release/
+/_temp_archive/
+/DELIVERY.md
+*.log
 
 # 运行时自动下载的数据文件
 GeoLite2-ASN.mmdb

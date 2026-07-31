@@ -99,7 +99,8 @@ func ExpandCIDR(cidr string, mode SampleMode, n int, port int) ([]Target, error)
 	if err != nil {
 		return nil, fmt.Errorf("无法解析网段 %q: %w", cidr, err)
 	}
-	if port < 1 || port > 65535 {
+	// 0 表示用户没有指定端口，执行阶段根据 TLS 规则补 443/80。
+	if port < 0 || port > 65535 {
 		port = 443
 	}
 

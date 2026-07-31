@@ -15,6 +15,7 @@ import { normalizeIPFormat, parseFilterExpression, lineMatchesFilter, getInputSt
 
 /** 把 {ip, port} 渲染成规范文本行；IPv6 加方括号。 */
 export function targetToLine({ ip, port }) {
+    if (!port) return ip;
     return ip.includes(':') ? `[${ip}]:${port}` : `${ip}:${port}`;
 }
 
@@ -31,6 +32,14 @@ export function lineToTarget(line) {
 
     const v6 = normalized.match(/^\[([0-9a-fA-F:]+)\]:(\d+)$/);
     if (v6) return { ip: v6[1], port: Number(v6[2]) };
+
+    // 没写端口：保留 port=0，执行阶段再根据 TLS 规则补成 443/80。
+    if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalized)) {
+        return { ip: normalized, port: 0 };
+    }
+    if (/^[0-9a-fA-F:]+$/.test(normalized) && normalized.includes(':')) {
+        return { ip: normalized, port: 0 };
+    }
 
     const idx = normalized.lastIndexOf(':');
     if (idx <= 0) return null;

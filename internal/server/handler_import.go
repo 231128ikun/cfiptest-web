@@ -89,6 +89,7 @@ type importResponse struct {
 	Targets []engine.Target `json:"targets"`
 	Bytes   int             `json:"bytes"`
 	Source  string          `json:"source"`
+	Text    string          `json:"text,omitempty"` // 远程导入保留原文，供前端按备注/端口筛选
 }
 
 const (
@@ -221,6 +222,7 @@ func (s *Server) handleImportRemote(w http.ResponseWriter, r *http.Request) {
 		Targets: targets,
 		Bytes:   len(body),
 		Source:  target,
+		Text:    body,
 	})
 }
 

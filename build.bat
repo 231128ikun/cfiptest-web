@@ -1,8 +1,9 @@
 @echo off
-REM 构建 iptest-web.exe，版本号 = 构建时刻（2026.07.29-01.21）
+REM 构建 iptest-web.exe；可传入版本号，不传时使用构建时刻。
 setlocal
 
-for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyy.MM.dd-HH.mm"') do set VER=%%i
+set "VER=%~1"
+if not defined VER for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyy.MM.dd-HH.mm"') do set VER=%%i
 
 echo 构建版本 %VER% ...
 go build -ldflags "-s -w -X main.version=%VER%" -o iptest-web.exe .

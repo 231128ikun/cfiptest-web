@@ -24,8 +24,8 @@ export async function fetchConfig() {
  * targets 为 [{ip, port}]，由候选区提供（网段已在导入阶段展开）。
  * options 可部分提供，缺的字段后端补默认值。
  */
-export function startLatencyTest(targets, options) {
-    return postJSON('/api/task/latency', { targets, options });
+export function startLatencyTest(targets, options, { enableSpeed = false, speedOptions } = {}) {
+    return postJSON('/api/task/latency', { targets, options, enableSpeed, speedOptions });
 }
 
 /** 官方 IP 段 + 各抽样模式的预估数量；n 为「每 /24 取 N 个」模式的 N */

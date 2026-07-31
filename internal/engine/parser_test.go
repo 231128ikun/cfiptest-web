@@ -9,11 +9,11 @@ func TestParseTargets(t *testing.T) {
 		want  []Target
 	}{
 		{"标准 IPv4:端口", "1.2.3.4:443", []Target{{"1.2.3.4", 443}}},
-		{"纯 IPv4 默认 443", "1.2.3.4", []Target{{"1.2.3.4", 443}}},
+		{"纯 IPv4 保持未指定端口", "1.2.3.4", []Target{{"1.2.3.4", 0}}},
 		{"空格分隔", "1.2.3.4 2053", []Target{{"1.2.3.4", 2053}}},
 		{"中文冒号", "1.2.3.4：8443", []Target{{"1.2.3.4", 8443}}},
 		{"IPv6 带端口", "[2001:db8::1]:443", []Target{{"2001:db8::1", 443}}},
-		{"纯 IPv6 默认 443", "2001:db8::1", []Target{{"2001:db8::1", 443}}},
+		{"纯 IPv6 保持未指定端口", "2001:db8::1", []Target{{"2001:db8::1", 0}}},
 		{"带注释", "1.2.3.4:443 # 香港节点", []Target{{"1.2.3.4", 443}}},
 		{"注释行跳过", "# 这是注释", nil},
 		{"空行跳过", "  ", nil},
@@ -53,16 +53,16 @@ func TestParseTargetsCIDR(t *testing.T) {
 		want  int // 期望目标数（IP 是随机抽的，只能校验数量与端口）
 		port  int // 期望端口，0 表示不校验
 	}{
-		{"裸网段默认 443", "1.2.0.0/16", 256, 443},
-		{"单 IP 网段", "1.2.3.4/32", 1, 443},
+		{"裸网段保持未指定端口", "1.2.0.0/16", 256, -1},
+		{"单 IP 网段", "1.2.3.4/32", 1, -1},
 		{"网段带端口", "10.0.0.0/16:2053", 256, 2053},
 		{"网段带中文冒号端口", "10.0.0.0/16：8443", 256, 8443},
-		{"网段带注释", "10.0.0.0/24 # 测试段", 1, 443},
-		{"IPv6 网段", "2606:4700::/32", 1, 443},
+		{"网段带注释", "10.0.0.0/24 # 测试段", 1, -1},
+		{"IPv6 网段", "2606:4700::/32", 1, -1},
 		{"IPv6 网段带端口", "[2606:4700::/32]:8443", 1, 8443},
 		{"CIDR 与普通 IP 混写", "1.1.1.1:443\n10.0.0.0/16\n2.2.2.2:2053", 258, 0},
 		{"非法网段被跳过但保留其余行", "1.2.3.0/99\n1.1.1.1:443", 1, 443},
-		{"网段的 CSV 行取首列", "10.0.0.0/24,JP,AS13335", 1, 443},
+		{"网段的 CSV 行取首列", "10.0.0.0/24,JP,AS13335", 1, -1},
 	}
 
 	for _, tt := range tests {
@@ -73,8 +73,12 @@ func TestParseTargetsCIDR(t *testing.T) {
 			}
 			if tt.port != 0 {
 				for _, g := range got {
-					if g.Port != tt.port {
-						t.Errorf("目标 %+v 端口应为 %d", g, tt.port)
+					wantPort := tt.port
+					if wantPort == -1 {
+						wantPort = 0
+					}
+					if g.Port != wantPort {
+						t.Errorf("目标 %+v 端口应为 %d", g, wantPort)
 					}
 				}
 			}
@@ -131,6 +135,24 @@ func TestGetIPType(t *testing.T) {
 		if got := getIPType(in); got != want {
 			t.Errorf("getIPType(%q) = %q, 期望 %q", in, got, want)
 		}
+	}
+}
+
+func TestResolveDefaultPorts(t *testing.T) {
+	targets := []Target{{IP: "1.2.3.4", Port: 0}, {IP: "1.2.3.4", Port: 443}, {IP: "1.2.3.5", Port: 2053}}
+
+	tls := ResolveDefaultPorts(targets, true)
+	if len(tls) != 2 || tls[0].Port != 443 || tls[1].Port != 2053 {
+		t.Fatalf("TLS 端口解析错误: %+v", tls)
+	}
+
+	plain := ResolveDefaultPorts(targets, false)
+	if len(plain) != 3 || plain[0].Port != 80 || plain[1].Port != 443 || plain[2].Port != 2053 {
+		t.Fatalf("非 TLS 端口解析错误: %+v", plain)
+	}
+
+	if targets[0].Port != 0 {
+		t.Fatalf("ResolveDefaultPorts 不应修改原切片: %+v", targets)
 	}
 }
 

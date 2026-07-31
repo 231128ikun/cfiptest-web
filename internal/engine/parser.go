@@ -83,7 +83,7 @@ func CollectCIDRs(raw string) []string {
 	return cidrs
 }
 
-// normalizeCIDRLine 识别 CIDR 行，返回网段与端口（未指定端口时为 443）。
+// normalizeCIDRLine 识别 CIDR 行，返回网段与端口（未指定端口时为 0，执行阶段再补）。
 //
 // 端口写法：
 //   - "104.16.0.0/13"        → 443
@@ -115,10 +115,10 @@ func normalizeCIDRLine(line string) (string, int, bool) {
 		}
 	}
 
-	// 裸网段（IPv4 或 IPv6）
+	// 裸网段（IPv4 或 IPv6）：保持未指定端口
 	bare := strings.Trim(line, "[]")
 	if IsCIDR(bare) {
-		return bare, 443, true
+		return bare, 0, true
 	}
 	return "", 0, false
 }
@@ -162,11 +162,11 @@ func normalizeLine(line string) (Target, bool) {
 		}
 	}
 
-	// 纯 IPv6（含冒号）→ 默认 443
+	// 纯 IPv6（含冒号）→ 保持未指定端口
 	if strings.Contains(line, ":") && rePureIPv6.MatchString(line) {
 		ip := strings.Trim(line, "[]")
 		if net.ParseIP(ip) != nil && net.ParseIP(ip).To4() == nil {
-			return Target{IP: ip, Port: 443}, true
+			return Target{IP: ip, Port: 0}, true
 		}
 	}
 
@@ -191,9 +191,9 @@ func normalizeLine(line string) (Target, bool) {
 		}
 	}
 
-	// 纯 IPv4 → 默认 443
+	// 纯 IPv4 → 保持未指定端口
 	if rePureIPv4.MatchString(line) && isValidIPv4(line) {
-		return Target{IP: line, Port: 443}, true
+		return Target{IP: line, Port: 0}, true
 	}
 
 	// 兜底：IPv4 + 非数字分隔 + 数字（如 "1.2.3.4 端口 443"）

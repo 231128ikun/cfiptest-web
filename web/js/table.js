@@ -19,13 +19,16 @@ const ROW_H_FALLBACK = 33;     // 首帧还没量到真实行高时的估值
 
 /** 结果表格：持有全部结果，支持逐条追加、排序、过滤、勾选、配额选择 */
 export class ResultTable {
-    constructor(containerEl) {
+    constructor(containerEl, columns = TABLE_COLUMNS) {
         this.container = containerEl;
+        this.columns = columns;
         this.results = [];             // 全部结果（原始顺序 = 到达顺序）
         this.selectedKeys = new Set(); // 唯一的勾选集合 "ip|port"
         this.sortKey = 'tcpLatencyMs';
         this.sortAsc = true;
         this.filterText = '';
+        this.filters = {};
+        this.displayQuota = null;
         this._renderScheduled = false; // 渲染节流：SSE 高频事件时合并重绘
         this._sortedCache = null;      // _sortedResults 的缓存
         this._rowH = 0;                // 实测行高（虚拟滚动用）
@@ -38,7 +41,7 @@ export class ResultTable {
     _invalidate() { this._sortedCache = null; }
 
     _buildSkeleton() {
-        const thead = TABLE_COLUMNS.map(col => {
+        const thead = this.columns.map(col => {
             if (col.key === '_sel') {
                 return `<th class="no-sort"><input type="checkbox" id="sel-all" title="全选"></th>`;
             }
@@ -50,7 +53,7 @@ export class ResultTable {
                 <table class="results">
                     <thead><tr>${thead}</tr></thead>
                     <tbody id="result-tbody">
-                        <tr class="empty-row"><td colspan="${TABLE_COLUMNS.length}">暂无结果 —— 请先运行延迟测试</td></tr>
+                        <tr class="empty-row"><td colspan="${this.columns.length}">暂无结果 —— 请先运行延迟测试</td></tr>
                     </tbody>
                 </table>
             </div>`;
@@ -128,6 +131,7 @@ export class ResultTable {
     clear() {
         this.results = [];
         this.selectedKeys.clear();
+        this.displayQuota = null;
         this._invalidate();
         this.render();
     }
@@ -154,14 +158,62 @@ export class ResultTable {
         this.render();
     }
 
+    /** 设置结构化筛选：country / maxLatency / minSpeed。空值表示不限制。 */
+    setFilters(filters = {}) {
+        this.filters = { ...filters };
+        this.render();
+    }
+
+    /** 动态设置展示列；勾选列始终保留。 */
+    setColumns(keys) {
+        const unique = [...new Set(Array.isArray(keys) ? keys : [])];
+        const wanted = ['_sel', ...unique.filter(k => k !== '_sel')];
+        const columns = wanted.map(columnByKey).filter(Boolean);
+        if (columns.length < 2) return;
+        this.columns = columns;
+        this._buildSkeleton();
+        this.render();
+    }
+
+    /** 按当前筛选和排序，把每组前 N 个作为当前展示集合。 */
+    applyGroupDisplayQuotas(groupBy, quotas) {
+        const normalized = Object.fromEntries(Object.entries(quotas || {})
+            .map(([group, value]) => [group, Math.max(0, Number(value) || 0)])
+            .filter(([, value]) => value > 0));
+        this.displayQuota = Object.keys(normalized).length ? { groupBy, quotas: normalized } : null;
+        const shown = this._filteredResults(true).length;
+        this.render();
+        return shown;
+    }
+
+    clearDisplayQuotas() {
+        this.displayQuota = null;
+        this.render();
+    }
+
+    _applyDisplayQuota(rows) {
+        if (!this.displayQuota) return rows;
+        const { groupBy, quotas } = this.displayQuota;
+        const taken = new Map();
+        return rows.filter(r => {
+            const group = r[groupBy] || '未知';
+            const quota = quotas[group] || 0;
+            const used = taken.get(group) || 0;
+            if (quota <= 0 || used >= quota) return false;
+            taken.set(group, used + 1);
+            return true;
+        });
+    }
+
     /**
      * 返回分组统计 [{name, emoji, count}]，按数量降序。
      * emoji 只对国家维度有意义——按 ASN 分组时同组内各行国旗并不相同，
      * 取第一条的国旗会让人以为「这个 ASN 属于这个国家」。
      */
-    getGroupStats(groupBy = 'country') {
+    getGroupStats(groupBy = 'country', { filtered = false } = {}) {
         const stats = new Map();
-        for (const r of this.results) {
+        const rows = filtered ? this._filteredResults(false) : this.results;
+        for (const r of rows) {
             const name = r[groupBy] || '未知';
             const cur = stats.get(name)
                 || { name, emoji: groupBy === 'country' ? (r.emoji || '') : '', count: 0 };
@@ -236,12 +288,22 @@ export class ResultTable {
         this.render();
     }
 
-    _visibleResults() {
-        if (!this.filterText) return this._sortedResults();
-        return this._sortedResults().filter(r =>
-            [r.ip, r.port, r.country, r.cityZh, r.city, r.dataCenter, r.asnOrg, r.emoji]
-                .some(v => String(v ?? '').toLowerCase().includes(this.filterText)));
+    _filteredResults(includeDisplayLimit = true) {
+        let rows = this._sortedResults();
+        if (this.filterText) {
+            rows = rows.filter(r =>
+                [r.ip, r.port, r.country, r.cityZh, r.city, r.dataCenter, r.asnOrg, r.emoji]
+                    .some(v => String(v ?? '').toLowerCase().includes(this.filterText)));
+        }
+        const { country, maxLatency, minSpeed } = this.filters;
+        if (country) rows = rows.filter(r => r.country === country || r.locCode === country);
+        if (Number(maxLatency) > 0) rows = rows.filter(r => Number(r.tcpLatencyMs) <= Number(maxLatency));
+        if (Number(minSpeed) > 0) rows = rows.filter(r => Number(r.downloadSpeedKBs) >= Number(minSpeed));
+        if (includeDisplayLimit) rows = this._applyDisplayQuota(rows);
+        return rows;
     }
+
+    _visibleResults() { return this._filteredResults(true); }
 
     /** 排序结果（带缓存：改造前每次 render 要重算 3–4 次）。 */
     _sortedResults() {
@@ -268,6 +330,9 @@ export class ResultTable {
     /** 当前筛选可见的全部结果。 */
     getAllResults() { return this._visibleResults(); }
 
+    /** 全部结果，忽略筛选与展示数量限制，但保留当前排序。 */
+    getResults() { return this._sortedResults(); }
+
     /** 请求重绘：用 rAF 合并高频调用（SSE 事件风暴时避免 O(n²) 卡顿） */
     render() {
         if (this._renderScheduled) return;
@@ -289,7 +354,7 @@ export class ResultTable {
         });
 
         if (!visible.length) {
-            this.tbody.innerHTML = `<tr class="empty-row"><td colspan="${TABLE_COLUMNS.length}">${this.results.length ? '没有匹配过滤条件的结果' : '暂无结果 —— 请先运行延迟测试'}</td></tr>`;
+            this.tbody.innerHTML = `<tr class="empty-row"><td colspan="${this.columns.length}">${this.results.length ? '没有匹配过滤条件的结果' : '暂无结果 —— 请先运行延迟测试'}</td></tr>`;
             this._syncSelectAll();
             return;
         }
@@ -299,7 +364,7 @@ export class ResultTable {
 
         // 上下用一对撑高的空行占位，让滚动条长度与总行数一致。
         // 这样滚动位置、拖动手感都和全量渲染时一样，只是 DOM 里只有一屏行。
-        const span = TABLE_COLUMNS.length;
+        const span = this.columns.length;
         this.tbody.innerHTML =
             (padTop ? `<tr class="pad" style="height:${padTop}px"><td colspan="${span}"></td></tr>` : '')
             + rows
@@ -331,7 +396,7 @@ export class ResultTable {
     _rowHTML(r) {
         const key = ResultTable.keyOf(r);
         const checked = this.selectedKeys.has(key) ? 'checked' : '';
-        const cells = TABLE_COLUMNS.map(col => {
+        const cells = this.columns.map(col => {
             if (col.key === '_sel') return `<td><input type="checkbox" data-key="${escapeHTML(key)}" ${checked}></td>`;
             const val = col.render ? col.render(r) : escapeHTML(r[col.key]);
             const cls = col.type === 'number' ? 'num' : (col.key === 'ip' ? 'mono' : '');

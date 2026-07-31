@@ -3,207 +3,239 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cloudflare IP 测速工具</title>
+    <title>IP 优选工作台</title>
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
     <header class="app-header">
-        <h1>Cloudflare IP 测速工具</h1>
-        <span class="version" id="app-version">…</span>
-        <span id="res-status" class="res-status">资源加载中…</span>
+        <div class="header-inner">
+            <div class="brand-block">
+                <div class="brand-mark" aria-hidden="true">IP</div>
+                <div><h1>IP 优选工作台</h1><p>导入候选、设置规则、检测并导出</p></div>
+            </div>
+            <div class="header-status">
+                <span class="local-badge">本地运行</span>
+                <span class="version" id="app-version">…</span>
+                <span id="res-status" class="res-status">资源加载中…</span>
+            </div>
+        </div>
     </header>
 
+    <nav class="flow-nav" aria-label="处理流程">
+        <div class="flow-nav-inner">
+            <a href="#stage-input" class="flow-step active"><span>1</span>准备候选</a>
+            <a href="#stage-test" class="flow-step"><span>2</span>检测规则</a>
+            <a href="#stage-results" class="flow-step"><span>3</span>检测及结果</a>
+        </div>
+    </nav>
+
     <main class="pipeline">
-        <!-- ========== 阶段 1：输入来源 ========== -->
-        <section id="stage-input" class="card">
-            <h2><span class="stage-num">1</span>输入来源</h2>
+        <section id="stage-input" class="flow-section">
+            <div class="section-heading">
+                <div><span class="eyebrow">STEP 1</span><h2>准备待检测候选</h2></div>
+                <div class="section-metric"><strong id="candidate-count">0 条</strong><span>候选目标</span></div>
+            </div>
 
-            <!-- 模式 Tab：只切换本阶段内容，阶段 2/3/4 完全共用 -->
             <div class="mode-tabs" id="mode-tabs" role="tablist">
-                <button class="mode-tab active" data-mode="proxy" role="tab" aria-selected="true">反代 IP</button>
-                <button class="mode-tab" data-mode="official" role="tab" aria-selected="false">官方优选</button>
+                <button class="mode-tab active" data-mode="proxy" role="tab" aria-selected="true">反代 IP 模式</button>
+                <button class="mode-tab" data-mode="official" role="tab" aria-selected="false">官方 IP 模式</button>
             </div>
 
-            <!-- ---- 反代模式：粘贴 / 远程 TXT / 本地文件，三者汇入同一工作区 ---- -->
             <div id="source-proxy" class="source-panel">
-                <textarea id="ip-input" rows="6" placeholder="粘贴 IP 列表，每行一个（粘贴后点「加入工作区」自动规范化去重）。支持格式：
-1.1.1.1:443 / 1.1.1.1 / 1.1.1.1 443 / [2606:4700::1]:443 / 1.1.1.1:443#注释 / 1.1.1.1:443,US,AS13335 / 104.16.0.0/24"></textarea>
-                <div class="toolbar">
-                    <button id="btn-add-paste" class="primary">加入工作区</button>
-                    <span class="spacer"></span>
-                    <input type="text" id="remote-url" placeholder="远程 TXT 地址（由后端代取，无 CORS 限制）" style="flex:1;min-width:240px">
-                    <button id="btn-import-remote">导入远程</button>
-                    <label class="file-btn">
-                        选择本地文件<input type="file" id="file-input" accept=".txt,.csv,.text" hidden>
-                    </label>
+                <div class="source-toolbar">
+                    <label class="file-btn">选择本地文件<input type="file" id="file-input" accept=".txt,.csv,.text" hidden></label>
+                    <input type="text" id="remote-url" placeholder="远程 TXT 地址">
+                    <button id="btn-import-remote">加载 TXT</button>
+                </div>
+                <div class="input-candidate-grid">
+                    <div class="input-pane">
+                        <div class="pane-head"><span>原始 IP 列表</span><span id="source-line-count" class="hint">0 行</span></div>
+                        <textarea id="ip-input" rows="13" placeholder="每行一个，支持 IP、IP:端口、IPv6、CSV 首列和 #备注"></textarea>
+                        <div class="filter-row">
+                            <input type="text" id="filter-expr" placeholder="筛选端口或备注，例如 port:443 日本">
+                            <button id="btn-filter-keep" class="small">保留匹配</button>
+                            <button id="btn-filter-remove" class="small">排除匹配</button>
+                            <button id="btn-filter-clear" class="small">重置筛选</button>
+                        </div>
+                        <div class="input-feedback">
+                            <span id="filter-summary">未设置筛选</span>
+                            <button id="btn-workspace-clear" class="text-button">清空列表</button>
+                        </div>
+                    </div>
+                    <div class="transfer-pane">
+                        <button id="btn-add-paste" class="primary transfer-button" title="将当前筛选结果加入候选" aria-label="加入候选"><span>加入</span><b>→</b></button>
+                    </div>
+                    <div class="candidate-pane">
+                        <div class="pane-head"><span>候选区</span><button id="btn-candidates-clear" class="text-button">清空</button></div>
+                        <textarea id="ip-candidates" rows="13" readonly placeholder="筛选后的内容加入这里时会自动规范化和去重"></textarea>
+                        <div class="candidate-stats">
+                            <span>IPv4 <b id="stat-v4">0</b></span>
+                            <span>IPv6 <b id="stat-v6">0</b></span>
+                            <span id="stat-ports">端口 —</span>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <!-- ---- 官方模式：拉取官方段 + 抽样粒度（端口固定 443） ---- -->
             <div id="source-official" class="source-panel" hidden>
-                <div class="official-bar">
-                    <button id="btn-fetch-ranges" class="primary">拉取官方段</button>
-                    <span id="ranges-status" class="hint">未拉取</span>
-                </div>
-                <div class="field">
-                    <label>抽样粒度</label>
-                    <label class="radio"><input type="radio" name="sample-mode" value="one" checked> 每 /24 取 1 个（推荐）</label>
-                    <label class="radio"><input type="radio" name="sample-mode" value="n"> 每 /24 取
-                        <input type="number" id="sample-n" min="1" max="256" value="2" style="width:60px"> 个</label>
-                    <label class="radio"><input type="radio" name="sample-mode" value="all"> 全部</label>
-                </div>
-                <div class="hint" id="sample-hint">
-                    同一 /24 内的 IP 几乎总走同一 Cloudflare 机房，故每 /24 取 1 个即可代表。端口固定 443。
-                </div>
-                <div class="toolbar">
-                    <button id="btn-add-ranges">按此粒度加入工作区</button>
-                    <span id="ranges-estimate" class="hint"></span>
-                </div>
-            </div>
-
-            <!-- ---- 工作区 → 候选区 ---- -->
-            <div class="dual-pane">
-                <div class="pane">
-                    <div class="pane-head">
-                        <span>工作区</span>
-                        <span class="hint" id="workspace-count">0 条</span>
+                <div class="official-layout">
+                    <div class="official-settings">
+                        <div class="official-heading"><h3>Cloudflare 官方 IP 段</h3><span id="ranges-status" class="hint">尚未加载</span></div>
+                        <div class="field-row">
+                            <span class="field-name">地址类型</span>
+                            <label class="radio"><input type="radio" name="official-family" value="ipv4" checked> 官方 IPv4</label>
+                            <label class="radio"><input type="radio" name="official-family" value="ipv6"> 官方 IPv6</label>
+                        </div>
+                        <div class="field-row">
+                            <span class="field-name">抽样方式</span>
+                            <label class="radio"><input type="radio" name="sample-mode" value="one" checked> 每段取 1 个</label>
+                            <label class="radio"><input type="radio" name="sample-mode" value="n"> 每段取 <input type="number" id="sample-n" min="1" max="256" value="2"> 个</label>
+                            <label class="radio"><input type="radio" name="sample-mode" value="all"> 全部</label>
+                        </div>
+                        <div class="official-note" id="sample-hint">IPv4 按每个 /24 抽样，避免直接检测百万级地址；官方模式端口固定 443。</div>
+                        <div class="official-actions">
+                            <button id="btn-fetch-ranges">加载官方网段</button>
+                            <button id="btn-add-ranges" class="primary">生成官方候选</button>
+                        </div>
+                        <div id="ranges-estimate" class="estimate-box">加载后显示预计候选数量</div>
                     </div>
-                    <textarea id="ip-workspace" rows="8" readonly placeholder="从上方任一来源加入的 IP 会显示在这里。筛选不会破坏原始数据。"></textarea>
-                    <div class="toolbar">
-                        <input type="text" id="filter-expr" placeholder="筛选：port:443,8443 关键词（空格=且 | =或）" style="flex:1;min-width:200px">
-                        <button id="btn-filter-keep" class="small">保留匹配</button>
-                        <button id="btn-filter-remove" class="small">剔除匹配</button>
-                        <button id="btn-filter-clear" class="small">清除筛选</button>
-                        <button id="btn-workspace-clear" class="small">清空</button>
-                    </div>
-                    <div class="stats-line" id="input-stats">
-                        <span>显示 <b id="stat-visible">0</b>/<b id="stat-valid">0</b></span>
-                        <span>IPv4 <b id="stat-v4">0</b></span>
-                        <span>IPv6 <b id="stat-v6">0</b></span>
-                        <span id="stat-ports"></span>
-                    </div>
-                </div>
-
-                <div class="pane-mid">
-                    <button id="btn-append-candidates" class="primary">追加 →</button>
-                    <span class="hint">把工作区当前<b>可见</b>行追加到候选区</span>
-                </div>
-
-                <div class="pane">
-                    <div class="pane-head">
-                        <span>候选区（已去重）</span>
-                        <span class="hint" id="candidate-count">0 条</span>
-                    </div>
-                    <textarea id="ip-candidates" rows="8" readonly placeholder="候选区是测试阶段的唯一输入源。"></textarea>
-                    <div class="toolbar">
-                        <button id="btn-candidates-clear" class="small">清空候选</button>
+                    <div class="candidate-pane official-candidate">
+                        <div class="pane-head"><span>官方候选区</span><button id="btn-official-clear" class="text-button">清空</button></div>
+                        <textarea id="official-candidates" rows="13" readonly placeholder="按设置生成的官方候选会显示在这里"></textarea>
+                        <div class="candidate-stats"><span>端口固定 443</span><span id="official-candidate-count">0 条</span></div>
                     </div>
                 </div>
             </div>
         </section>
 
-        <!-- ========== 阶段 2：测试配置与执行 ========== -->
-        <section id="stage-test" class="card">
-            <h2><span class="stage-num">2</span>测试配置与执行</h2>
-            <div class="config-grid">
-                <div class="config-panel">
-                    <h3>延迟测试（验证 Cloudflare 节点）</h3>
-                    <div class="field"><label>并发数</label><input type="number" id="lat-concurrency" min="1" max="1000"></div>
-                    <div class="field"><label>超时 (ms)</label><input type="number" id="lat-timeout" min="200" max="10000"></div>
-                    <div class="field"><label>延迟过滤 (ms)</label><input type="number" id="lat-maxlatency" min="0" max="10000" title="超过此延迟的 IP 直接丢弃，0=不过滤"></div>
-                    <div class="field"><label>最大结果数</label><input type="number" id="lat-maxresults" min="0" placeholder="0" title="0 = 不限制，全部测试。填 N 则凑够 N 个即停止，可大幅节省时间；得到的是最先找到的 N 个，不是全部测完后最优的 N 个。"></div>
-                    <div class="field">
-                        <label class="checkbox"><input type="checkbox" id="lat-tls"> 使用 TLS</label>
-                        <label class="checkbox"><input type="checkbox" id="lat-ipapi"> 检测 IPS 类型</label>
-                    </div>
+        <section id="stage-test" class="flow-section">
+            <div class="section-heading">
+                <div><span class="eyebrow">STEP 2</span><h2>检测规则</h2></div>
+                <button id="btn-reset-rules" class="secondary-button">恢复推荐设置</button>
+            </div>
+
+            <div class="rules-grid">
+                <div class="rule-group">
+                    <div class="rule-group-head"><h3>连接与延迟</h3><span id="default-port-hint">未指定端口使用 443</span></div>
+                    <label class="rule-line"><span>TLS</span><input type="checkbox" id="lat-tls" checked></label>
+                    <label class="rule-line"><span>延迟并发数</span><input type="number" id="lat-concurrency" min="1" max="1000"><em>个</em></label>
+                    <label class="rule-line"><span>单 IP 超时</span><input type="number" id="lat-timeout" min="200" max="10000"><em>ms</em></label>
+                    <label class="rule-line"><span>最大允许延迟</span><input type="number" id="lat-maxlatency" min="0" max="10000" placeholder="不限制"><em>ms</em></label>
                 </div>
-                <div class="config-panel" id="spd-panel">
-                    <h3 class="panel-head">
-                        <span>下载测速（对勾选/筛选的结果）</span>
-                        <label class="checkbox" title="关闭后跳过下载测速，只做延迟测试"><input type="checkbox" id="spd-enable" checked> 启用</label>
-                    </h3>
-                    <div class="field"><label>测速并发数</label><input type="number" id="spd-concurrency" min="1" max="100"></div>
-                    <div class="field"><label>单 IP 时限 (秒)</label><input type="number" id="spd-duration" min="1" max="30"></div>
-                    <div class="field"><label>速度过滤 (kB/s)</label><input type="number" id="spd-minspeed" min="0" title="低于此速度的结果不回填，0=不过滤"></div>
-                    <div class="field"><label>最大结果数</label><input type="number" id="spd-maxresults" min="0" placeholder="0" title="0 = 不限制，全部测试。填 N 则凑够 N 个即停止，可大幅节省时间；得到的是最先找到的 N 个，不是全部测完后最优的 N 个。"></div>
-                    <div class="field"><label>测速地址</label><input type="text" id="spd-url" class="wide"></div>
-                    <div class="field">
-                        <label class="checkbox"><input type="checkbox" id="spd-tls"> 使用 TLS</label>
-                    </div>
+
+                <div class="rule-group" id="spd-panel">
+                    <div class="rule-group-head panel-head"><h3>速度条件</h3><label class="checkbox"><input type="checkbox" id="spd-enable"> 延迟检测后继续测速</label></div>
+                    <div class="field rule-line"><span>测速并发数</span><input type="number" id="spd-concurrency" min="1" max="100"><em>个</em></div>
+                    <div class="field rule-line"><span>单 IP 时限</span><input type="number" id="spd-duration" min="1" max="30"><em>秒</em></div>
+                    <div class="field rule-line"><span>最低下载速度</span><input type="number" id="spd-minspeed" min="0" placeholder="不限制"><em>kB/s</em></div>
+                    <div class="field hidden-setting"><input type="number" id="spd-maxresults" min="0"><input type="text" id="spd-url"><input type="checkbox" id="spd-tls"></div>
+                </div>
+
+                <div class="rule-group">
+                    <div class="rule-group-head"><h3>整体约束</h3><span>留空或 0 = 不限制</span></div>
+                    <label class="rule-line"><span>满足条件后自动停止</span><input type="number" id="rule-maxresults" min="0" placeholder="不限制"><em>个</em></label>
+                    <div class="rule-explain">达到该数量后立即停止剩余检测。只测延迟时按延迟合格数计数；继续测速时按同时满足延迟和速度条件的数量计数。</div>
                 </div>
             </div>
-            <div class="action-bar">
-                <button id="btn-start-latency" class="primary">开始延迟测试</button>
-                <button id="btn-start-speed" disabled>对勾选结果测速</button>
-                <button id="btn-speed-filtered" disabled>对筛选结果测速</button>
+
+            <details class="advanced-settings">
+                <summary>其他检测规则</summary>
+                <div class="advanced-inline">
+                    <label class="checkbox"><input type="checkbox" id="lat-ipapi"> 检测 IPS 类型</label>
+                    <label>测速地址 <input type="text" id="advanced-speed-url"></label>
+                </div>
+            </details>
+
+        </section>
+
+        <section id="stage-results" class="flow-section">
+            <div class="section-heading compact">
+                <div><span class="eyebrow">STEP 3</span><h2>检测及结果 <span id="result-count"></span></h2></div>
+                <div class="result-summary"><span>导出范围</span><strong id="export-count">0 条</strong></div>
+            </div>
+
+            <div class="run-strip result-run-strip">
+                <div><span>当前候选</span><strong id="run-target-count">0</strong></div>
+                <button id="btn-start-latency" class="primary run-button">开始检测</button>
                 <button id="btn-stop" class="danger" disabled>停止</button>
             </div>
             <div class="progress-wrap" id="progress-wrap">
                 <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
-                <div class="progress-text">
-                    <span id="progress-label">准备中…</span>
-                    <span id="progress-pct">0%</span>
-                </div>
+                <div class="progress-text"><span id="progress-label">准备中…</span><span id="progress-pct">0%</span></div>
             </div>
-        </section>
 
-        <!-- ========== 阶段 3：结果表格 ========== -->
-        <section id="stage-results" class="card">
-            <h2><span class="stage-num">3</span>结果 <span id="result-count" style="font-size:12px;color:var(--text-secondary);font-weight:400"></span></h2>
-            <div class="toolbar" style="margin-top:0">
-                <input type="text" id="result-filter" placeholder="过滤结果（IP / 国家 / 城市 / ASN）" style="flex:1;min-width:220px">
-                <span class="sort-bar">
-                    <label for="sort-key">排序</label>
-                    <select id="sort-key"></select>
-                    <button id="btn-sort-dir" class="small" title="切换升序 / 降序">▲ 升序</button>
-                </span>
-                <button id="btn-quota-toggle">分组配额选择</button>
-                <button id="btn-append" class="primary" disabled>追加到结果框 →</button>
+            <div class="result-toolbar">
+                <input type="text" id="result-filter" placeholder="筛选 IP、国家、城市、数据中心、ASN">
+                <select id="result-country-filter"><option value="">全部国家</option></select>
+                <input type="number" id="result-max-latency" min="0" placeholder="延迟上限 ms">
+                <input type="number" id="result-min-speed" min="0" placeholder="最低速度 kB/s">
+                <span class="sort-bar"><label for="sort-key">排序</label><select id="sort-key"></select><button id="btn-sort-dir" class="small">▲ 升序</button></span>
+                <button id="btn-column-toggle">显示字段</button>
+                <button id="btn-quota-toggle">分组取前 N</button>
             </div>
+
+            <div class="column-box" id="column-box">
+                <div class="column-box-head"><span>表格显示字段，同时作为 CSV 导出字段</span><button id="btn-column-default" class="text-button">恢复默认字段</button></div>
+                <div class="column-options" id="column-options"></div>
+            </div>
+
             <div class="quota-box" id="quota-box">
-                <div class="quota-title">按分组取前 N 个（在当前筛选后的结果上、跟随当前排序；留空/0 = 不取）</div>
+                <div class="quota-title">按当前筛选和排序，每组展示前 N 个</div>
                 <div class="quota-controls">
-                    <label for="quota-dim">分组维度</label>
-                    <select id="quota-dim"></select>
-                    <span class="ctl">
-                        只列出分组
-                        <span id="quota-picker"></span>
-                    </span>
-                    <span class="hint">不选 = 列出全部分组</span>
+                    <label for="quota-dim">分组</label><select id="quota-dim"></select>
+                    <span class="ctl">只列出 <span id="quota-picker"></span></span>
                 </div>
                 <div class="quota-grid" id="quota-grid"></div>
-                <button id="btn-quota-apply" class="small primary">应用配额</button>
-                <button id="btn-quota-clear" class="small">清除配额</button>
+                <button id="btn-quota-apply" class="small primary">应用展示规则</button>
+                <button id="btn-quota-clear" class="small">清除选择</button>
+            </div>
+
+            <div class="result-actions">
+                <button id="btn-speed-filtered">对当前展示结果测速</button>
+                <button id="btn-start-speed" disabled>对勾选结果测速</button>
             </div>
             <div id="result-table-container"></div>
-        </section>
 
-        <!-- ========== 阶段 4：结果框与导出 ========== -->
-        <section id="stage-export" class="card">
-            <h2><span class="stage-num">4</span>结果框与导出</h2>
-            <div class="format-bar">
-                <label style="font-size:13px;color:var(--text-secondary)">格式模板</label>
-                <input type="text" id="format-template" class="template" value="{ip}:{port}#{emoji}{country}">
-                <select id="format-presets"></select>
+            <div class="direct-export">
+                <div class="direct-export-head">
+                    <div><h3>直接导出</h3><span>默认导出全部检测结果，也可改为当前展示或已勾选</span></div>
+                    <div class="export-scope" role="radiogroup" aria-label="导出范围">
+                        <label class="radio"><input type="radio" name="export-scope" value="all" checked> 全部结果</label>
+                        <label class="radio"><input type="radio" name="export-scope" value="visible"> 当前展示</label>
+                        <label class="radio"><input type="radio" name="export-scope" value="selected"> 已勾选</label>
+                    </div>
+                </div>
+                <div class="export-layout">
+                <div class="format-settings">
+                    <label for="format-presets">TXT 格式预设</label>
+                    <select id="format-presets"></select>
+                    <label for="format-template">自定义模板</label>
+                    <input type="text" id="format-template" class="template" value="{ip}:{port}#{country}">
+                    <div class="template-save-row">
+                        <input type="text" id="template-name" placeholder="模板名称">
+                        <button id="btn-save-template">保存模板</button>
+                    </div>
+                    <div class="template-save-row">
+                        <select id="saved-templates"><option value="">已保存模板</option></select>
+                        <button id="btn-delete-template" class="danger">删除</button>
+                    </div>
+                    <div class="placeholder-help" id="placeholder-help"></div>
+                    <div class="export-actions">
+                        <button id="btn-copy" class="primary">复制 TXT</button>
+                        <button id="btn-download-txt">下载 TXT</button>
+                        <button id="btn-download-csv">按显示字段导出 CSV</button>
+                    </div>
+                </div>
+                <div>
+                    <div class="pane-head"><span>TXT 预览</span><span id="output-count" class="hint">0 行</span></div>
+                    <textarea id="output-box" class="output-box" rows="12" readonly placeholder="检测结果会按模板生成到这里，一行一个"></textarea>
+                </div>
+                </div>
             </div>
-            <div class="placeholder-help" id="placeholder-help"></div>
-            <textarea id="output-box" class="output-box" rows="8" placeholder="从结果表格勾选后点「追加到结果框」，内容会按模板格式化追加到这里。也可以直接手动编辑。"></textarea>
-            <div class="toolbar">
-                <button id="btn-output-dedupe" class="small">结果框去重</button>
-                <button id="btn-output-clear" class="small">清空</button>
-                <span class="spacer"></span>
-                <button id="btn-copy">复制</button>
-                <button id="btn-download-txt">下载 TXT</button>
-                <button id="btn-download-csv" class="primary">下载 CSV</button>
-            </div>
-            <details style="margin-top:10px">
-                <summary style="font-size:13px;color:var(--text-secondary);cursor:pointer">CSV 列选择（默认全选，共 <span id="csv-column-count">…</span> 列）</summary>
-                <div class="csv-columns" id="csv-columns"></div>
-            </details>
         </section>
     </main>
 
-    <div id="toast"></div>
+    <div id="toast" role="status" aria-live="polite"></div>
     <script type="module" src="js/app.js"></script>
 </body>
 </html>

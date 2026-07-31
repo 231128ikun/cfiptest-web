@@ -1,247 +1,319 @@
-// app.js —— 主控：初始化各模块、编排流水线步骤
+// app.js —— 主流程：候选准备 → 规则执行 → 结果整理 → 格式导出
 
-import { getInputStats } from './input.js';
+import { getInputStats, smartFilter, parseFilterExpression } from './input.js';
 import * as api from './api.js';
-import {
-    store, subscribe, setMode, addToWorkspaceFromText, addToWorkspace,
-    clearWorkspace, setWorkspaceFilter, clearWorkspaceFilter,
-    appendVisibleToCandidates, clearCandidates,
-    visibleWorkspace, candidateTargets, filterIsValid, targetToLine,
-} from './store.js';
+import { store, setMode, parseLines, targetToLine } from './store.js';
 import { ResultTable, CSV_COLUMNS, GROUP_DIMENSIONS } from './table.js';
-import { TABLE_COLUMNS, escapeHTML } from './columns.js';
+import { ALL_COLUMNS, TABLE_COLUMNS, escapeHTML } from './columns.js';
 import { createMultiSelect } from './multiselect.js';
 import { PRESETS, formatResults, placeholderNames } from './composer.js';
 import { downloadAsText, downloadAsCSV, copyToClipboard } from './exporter.js';
 
 const $ = id => document.getElementById(id);
+const keyOf = item => `${item.ip}|${item.port || 0}`;
 
-/* ---------------- 全局状态 ---------------- */
 let currentTaskId = null;
-let currentTaskType = null; // 'latency' | 'speed'
+let currentTaskType = null; // pipeline | speed
 let eventSource = null;
 let table = null;
 let defaults = null;
-let officialRanges = null; // 已拉取的官方段（{ipv4, ipv6, estimate, source}）
-let quotaPicker = null;    // 「只列出分组」的多选控件（createMultiSelect 实例）
-let quotaGroups = [];      // 多选里当前选中的分组名；空数组 = 不过滤，列出全部
+let officialRanges = null;
+let proxyCandidates = [];
+let officialCandidates = [];
+let filterMode = 'keep';
+let quotaPicker = null;
+let quotaGroups = [];
+let officialEstimateTimer = null;
+let exportPreviewTimer = null;
+let savedTemplates = [];
 
-/* ---------------- Toast ---------------- */
+const SAVED_TEMPLATE_KEY = 'iptest.savedTemplates.v1';
+
+const DEFAULT_COLUMN_KEYS = TABLE_COLUMNS.filter(c => c.key !== '_sel').map(c => c.key);
+let visibleColumnKeys = [...DEFAULT_COLUMN_KEYS];
+
 let toastTimer = null;
-function toast(msg) {
+function toast(message) {
     const el = $('toast');
-    el.textContent = msg;
+    el.textContent = message;
     el.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 2300);
 }
 
-/* ---------------- 阶段 1：输入来源 ---------------- */
-
-/** 当前抽样设置（官方模式用；也用于远程导入里的 CIDR 展开） */
-function sampleSettings() {
-    const mode = document.querySelector('input[name="sample-mode"]:checked')?.value || 'one';
-    return { sampleMode: mode, sampleN: parseInt($('sample-n').value, 10) || 1 };
+function addUnique(base, incoming) {
+    const seen = new Set(base.map(keyOf));
+    let added = 0;
+    let duplicates = 0;
+    for (const target of incoming) {
+        if (!target?.ip) continue;
+        const key = keyOf(target);
+        if (seen.has(key)) { duplicates++; continue; }
+        seen.add(key);
+        base.push({ ip: target.ip, port: Number(target.port) || 0 });
+        added++;
+    }
+    return { added, duplicates };
 }
 
-/** 把 store 的当前状态渲染到阶段 1 的两个框与统计行 */
-function renderInputStage() {
-    const visible = visibleWorkspace();
-    $('ip-workspace').value = visible.map(targetToLine).join('\n');
-    $('ip-candidates').value = store.candidates.map(targetToLine).join('\n');
-    $('workspace-count').textContent = `${store.workspace.length} 条`;
-    $('candidate-count').textContent = `${store.candidates.length} 条`;
+function activeCandidates() {
+    return store.mode === 'official' ? officialCandidates : proxyCandidates;
+}
 
-    const stats = getInputStats(visible.map(targetToLine));
-    $('stat-visible').textContent = visible.length;
-    $('stat-valid').textContent = store.workspace.length;
+function renderCandidates() {
+    $('ip-candidates').value = proxyCandidates.map(targetToLine).join('\n');
+    $('official-candidates').value = officialCandidates.map(targetToLine).join('\n');
+    $('official-candidate-count').textContent = `${officialCandidates.length} 条`;
+
+    const active = activeCandidates();
+    $('candidate-count').textContent = `${active.length} 条`;
+    $('run-target-count').textContent = active.length;
+    $('btn-start-latency').disabled = currentTaskId !== null || active.length === 0;
+
+    const stats = getInputStats(proxyCandidates.map(targetToLine));
     $('stat-v4').textContent = stats.v4;
     $('stat-v6').textContent = stats.v6;
-    const portText = Object.entries(stats.ports)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 6)
-        .map(([p, n]) => `${p}×${n}`)
-        .join(' ');
-    $('stat-ports').innerHTML = portText ? `端口分布 <b>${portText}</b>` : '';
-
-    // 筛选表达式非法时给个视觉提示，但不清空列表（visibleWorkspace 会退回全量）
-    $('filter-expr').style.borderColor = filterIsValid() ? '' : 'var(--danger)';
-
-    $('btn-start-latency').disabled = store.candidates.length === 0 || currentTaskId !== null;
+    const unspecified = proxyCandidates.filter(t => !t.port).length;
+    const ports = Object.entries(stats.ports).sort((a, b) => b[1] - a[1]).slice(0, 4)
+        .map(([port, count]) => `${port}×${count}`);
+    if (unspecified) ports.push(`未指定×${unspecified}`);
+    $('stat-ports').textContent = ports.length ? `端口 ${ports.join(' · ')}` : '端口 —';
 }
 
-/**
- * 把一段 IP 文本加入工作区。
- *
- * 不含网段时走前端 store.parseLines（零往返）；含 "/" 时交后端 /api/import/text，
- * 因为 CIDR 的抽样算法只在 engine 里有一份（带单测），不在 JS 里重复实现。
- */
-async function addText(rawText, onSuccess) {
-    if (!rawText.trim()) { toast('内容为空'); return; }
+function rawLines() {
+    return $('ip-input').value.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+}
 
-    if (!rawText.includes('/')) {
-        const { added, dupCount, invalidCount } = addToWorkspaceFromText(rawText);
-        if (!added && !dupCount) { toast('没有识别到有效 IP'); return; }
-        onSuccess?.();
-        toast(`已加入 ${added} 条（去重 ${dupCount}，丢弃 ${invalidCount}）`);
+function selectedRawLines() {
+    const lines = rawLines();
+    const expression = $('filter-expr').value.trim();
+    if (!expression) return lines;
+    return smartFilter(lines, expression, filterMode) || lines;
+}
+
+function renderRawSummary() {
+    const lines = rawLines();
+    $('source-line-count').textContent = `${lines.length} 行`;
+    const expression = $('filter-expr').value.trim();
+    if (!expression) {
+        $('filter-summary').textContent = '未设置筛选，将处理全部输入';
+        $('filter-expr').style.borderColor = '';
         return;
     }
-
-    try {
-        const resp = await api.importText(rawText, sampleSettings());
-        const { added, dupCount } = addToWorkspace(resp.targets);
-        onSuccess?.();
-        toast(`已加入 ${added} 条（去重 ${dupCount}，含网段展开）`);
-    } catch (e) {
-        toast(e.message);
-    }
+    const valid = parseFilterExpression(expression) !== null;
+    $('filter-expr').style.borderColor = valid ? '' : 'var(--danger)';
+    const selected = valid ? selectedRawLines().length : lines.length;
+    $('filter-summary').textContent = valid
+        ? `${filterMode === 'keep' ? '保留' : '排除'}匹配：当前将加入 ${selected}/${lines.length} 行`
+        : '筛选表达式无效，将按全部输入处理';
 }
 
-function bindInputStage() {
-    // ---- 模式 Tab：只切换本阶段的来源面板 ----
-    $('mode-tabs').addEventListener('click', e => {
-        const tab = e.target.closest('.mode-tab');
-        if (!tab) return;
-        setMode(tab.dataset.mode);
-        document.querySelectorAll('.mode-tab').forEach(t => {
-            const on = t.dataset.mode === store.mode;
-            t.classList.toggle('active', on);
-            t.setAttribute('aria-selected', String(on));
-        });
-        $('source-proxy').hidden = store.mode !== 'proxy';
-        $('source-official').hidden = store.mode !== 'official';
-    });
+function appendRawText(text) {
+    const next = String(text || '').trim();
+    if (!next) return;
+    const input = $('ip-input');
+    input.value = input.value.trim() ? `${input.value.trim()}\n${next}` : next;
+    renderRawSummary();
+}
 
-    // ---- 来源一：粘贴 ----
-    // 含 "/" 说明混写了 CIDR 网段，交后端展开（抽样算法只在 engine 里有一份）；
-    // 纯 IP 列表在前端解析即可，省一次往返。
-    $('btn-add-paste').addEventListener('click', () => addText($('ip-input').value, () => {
-        $('ip-input').value = '';
-    }));
-
-    // ---- 来源二：远程 TXT（后端代取，避开 CORS）----
-    $('btn-import-remote').addEventListener('click', async () => {
-        const url = $('remote-url').value.trim();
-        if (!url) { toast('请填写远程地址'); return; }
-        const btn = $('btn-import-remote');
-        btn.disabled = true;
-        btn.textContent = '导入中…';
-        try {
-            const resp = await api.importRemote(url, sampleSettings());
-            const { added, dupCount } = addToWorkspace(resp.targets);
-            toast(`已导入 ${added} 条（去重 ${dupCount}）`);
-        } catch (e) {
-            toast(e.message);
-        } finally {
-            btn.disabled = false;
-            btn.textContent = '导入远程';
+async function addProxySelectionToCandidates() {
+    const lines = selectedRawLines();
+    if (!lines.length) { toast('当前没有可加入的输入'); return; }
+    let parsed;
+    let invalidCount = 0;
+    try {
+        if (lines.some(line => line.includes('/'))) {
+            const resp = await api.importText(lines.join('\n'), { sampleMode: 'one', sampleN: 1 });
+            parsed = resp.targets;
+        } else {
+            const result = parseLines(lines.join('\n'));
+            parsed = result.targets;
+            invalidCount = result.invalidCount;
         }
-    });
+    } catch (error) {
+        toast(error.message);
+        return;
+    }
+    const { added, duplicates } = addUnique(proxyCandidates, parsed);
+    renderCandidates();
+    toast(`已加入候选 ${added} 条（重复 ${duplicates}，非法 ${invalidCount}）`);
+}
 
-    // ---- 来源三：本地文件（前端读取，网段仍交后端展开）----
-    $('file-input').addEventListener('change', async e => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-        try {
-            await addText(await file.text());
-        } catch (err) {
-            toast('读取文件失败：' + err.message);
-        }
-        e.target.value = ''; // 允许重复选同一个文件
-    });
-
-    // ---- 来源四：官方段 ----
-    $('btn-fetch-ranges').addEventListener('click', fetchRanges);
-    $('btn-add-ranges').addEventListener('click', addOfficialToWorkspace);
-    document.querySelectorAll('input[name="sample-mode"]').forEach(radio =>
-        radio.addEventListener('change', renderRangesEstimate));
-    $('sample-n').addEventListener('input', renderRangesEstimate);
-
-    // ---- 工作区筛选：非破坏性，清除即可回退全量 ----
-    $('filter-expr').addEventListener('input', e => setWorkspaceFilter(e.target.value, 'keep'));
-    $('btn-filter-keep').addEventListener('click', () => setWorkspaceFilter($('filter-expr').value, 'keep'));
-    $('btn-filter-remove').addEventListener('click', () => setWorkspaceFilter($('filter-expr').value, 'remove'));
+function bindProxyInput() {
+    $('ip-input').addEventListener('input', renderRawSummary);
+    $('filter-expr').addEventListener('input', renderRawSummary);
+    $('btn-filter-keep').addEventListener('click', () => { filterMode = 'keep'; renderRawSummary(); });
+    $('btn-filter-remove').addEventListener('click', () => { filterMode = 'remove'; renderRawSummary(); });
     $('btn-filter-clear').addEventListener('click', () => {
         $('filter-expr').value = '';
-        clearWorkspaceFilter();
+        filterMode = 'keep';
+        renderRawSummary();
     });
-    $('btn-workspace-clear').addEventListener('click', () => clearWorkspace());
+    $('btn-workspace-clear').addEventListener('click', () => {
+        $('ip-input').value = '';
+        renderRawSummary();
+    });
+    $('btn-add-paste').addEventListener('click', addProxySelectionToCandidates);
+    $('btn-candidates-clear').addEventListener('click', () => {
+        proxyCandidates = [];
+        renderCandidates();
+    });
 
-    // ---- 工作区 → 候选区 ----
-    $('btn-append-candidates').addEventListener('click', () => {
-        const visible = visibleWorkspace();
-        if (!visible.length) { toast('工作区没有可追加的行'); return; }
-        const { added, dupCount } = appendVisibleToCandidates();
-        toast(`已追加 ${added} 条到候选区（去重 ${dupCount}）`);
+    $('file-input').addEventListener('change', async event => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        try {
+            const text = await file.text();
+            appendRawText(text);
+            toast(`已加载 ${file.name}`);
+        } catch (error) {
+            toast(`读取文件失败：${error.message}`);
+        }
+        event.target.value = '';
     });
-    $('btn-candidates-clear').addEventListener('click', () => clearCandidates());
+
+    $('btn-import-remote').addEventListener('click', async () => {
+        const url = $('remote-url').value.trim();
+        if (!url) { toast('请填写远程 TXT 地址'); return; }
+        const button = $('btn-import-remote');
+        button.disabled = true;
+        button.textContent = '加载中…';
+        try {
+            const resp = await api.importRemote(url, { sampleMode: 'one', sampleN: 1 });
+            appendRawText(resp.text || resp.targets.map(targetToLine).join('\n'));
+            toast('远程 TXT 已加载到输入框');
+        } catch (error) {
+            toast(error.message);
+        } finally {
+            button.disabled = false;
+            button.textContent = '加载 TXT';
+        }
+    });
+}
+
+function officialSettings() {
+    return {
+        family: document.querySelector('input[name="official-family"]:checked')?.value || 'ipv4',
+        sampleMode: document.querySelector('input[name="sample-mode"]:checked')?.value || 'one',
+        sampleN: parseInt($('sample-n').value, 10) || 1,
+    };
 }
 
 async function fetchRanges() {
-    const btn = $('btn-fetch-ranges');
-    btn.disabled = true;
+    const button = $('btn-fetch-ranges');
+    button.disabled = true;
     try {
-        officialRanges = await api.fetchOfficialRanges(sampleSettings().sampleN);
-        const src = officialRanges.source === 'builtin' ? '内置兜底' : '官方接口';
-        $('ranges-status').textContent =
-            `${src}：IPv4 ${officialRanges.ipv4.length} 段 / IPv6 ${officialRanges.ipv6.length} 段`;
+        officialRanges = await api.fetchOfficialRanges(officialSettings().sampleN);
+        const source = officialRanges.source === 'builtin' ? '内置兜底' : '官方接口';
+        $('ranges-status').textContent = `${source} · IPv4 ${officialRanges.ipv4.length} 段 · IPv6 ${officialRanges.ipv6.length} 段`;
         if (officialRanges.warning) toast(officialRanges.warning);
         renderRangesEstimate();
-    } catch (e) {
-        $('ranges-status').textContent = '拉取失败';
-        toast('拉取官方段失败：' + e.message);
+    } catch (error) {
+        $('ranges-status').textContent = '加载失败';
+        toast(error.message);
     } finally {
-        btn.disabled = false;
+        button.disabled = false;
     }
 }
 
 function renderRangesEstimate() {
+    const { family, sampleMode, sampleN } = officialSettings();
+    const hint = $('sample-hint');
+    hint.textContent = family === 'ipv4'
+        ? 'IPv4 按每个 /24 抽样，避免直接检测百万级地址；官方模式端口固定 443。'
+        : 'IPv6 网段无法穷举，将在每个官方网段内随机抽样；官方模式端口固定 443。';
     if (!officialRanges) return;
-    const { sampleMode, sampleN } = sampleSettings();
-    const est = officialRanges.estimate || {};
-    let count = est.onePerSubnet;
-    if (sampleMode === 'n') count = (est.onePerSubnet || 0) * Math.max(1, sampleN);
-    else if (sampleMode === 'all') count = est.all;
-
-    const warn = sampleMode === 'all'
-        ? '（百万级，不建议）'
-        : sampleMode === 'n' && sampleN > 4 ? '（数量较大，耗时明显增加）' : '';
-    $('ranges-estimate').textContent = `按此粒度约 ${count?.toLocaleString() ?? '?'} 个 IPv4${warn}`;
+    let count;
+    if (family === 'ipv4') {
+        if (sampleMode === 'one') count = officialRanges.estimate?.onePerSubnet;
+        else if (sampleMode === 'n') count = officialRanges.estimate?.nPerSubnet;
+        else count = officialRanges.estimate?.all;
+    } else {
+        const segments = officialRanges.ipv6.length;
+        count = segments * (sampleMode === 'one' ? 1 : sampleMode === 'n' ? sampleN : 256);
+    }
+    const warning = sampleMode === 'all' && family === 'ipv4' ? '，数量过大，不建议直接执行' : '';
+    $('ranges-estimate').textContent = `预计生成 ${Number(count || 0).toLocaleString()} 个候选${warning}`;
 }
 
-/**
- * 官方段按当前抽样粒度展开后加入工作区。
- *
- * 端口固定 443（官方模式暂时只需要 443）；后端 ExpandCIDRs 仍带 port 参数，
- * 将来要放开端口选择不必改后端。
- * 全取模式会被后端的 maxExpandedTargets 拦下并给出提示，前端先劝一句。
- */
-async function addOfficialToWorkspace() {
-    if (!officialRanges) { toast('请先拉取官方段'); return; }
-    if (sampleSettings().sampleMode === 'all') {
-        toast('全取模式约 152 万个 IP，超出单次导入上限，请改用更粗的抽样粒度');
+async function generateOfficialCandidates() {
+    if (!officialRanges) { await fetchRanges(); }
+    if (!officialRanges) return;
+    const settings = officialSettings();
+    if (settings.family === 'ipv4' && settings.sampleMode === 'all') {
+        toast('IPv4 全部地址超过单次展开上限，请选择抽样');
         return;
     }
-
-    const btn = $('btn-add-ranges');
-    btn.disabled = true;
+    const ranges = settings.family === 'ipv6' ? officialRanges.ipv6 : officialRanges.ipv4;
+    const text = ranges.map(cidr => cidr.includes(':') ? `[${cidr}]:443` : `${cidr}:443`).join('\n');
+    const button = $('btn-add-ranges');
+    button.disabled = true;
     try {
-        // 每行一个网段，端口写死 443，交后端按 sampleMode 抽样
-        await addText(officialRanges.ipv4.map(c => `${c}:443`).join('\n'));
+        const resp = await api.importText(text, settings);
+        officialCandidates = [];
+        const { added } = addUnique(officialCandidates, resp.targets);
+        renderCandidates();
+        toast(`已生成 ${added} 条官方候选`);
+    } catch (error) {
+        toast(error.message);
     } finally {
-        btn.disabled = false;
+        button.disabled = false;
     }
 }
 
-/* ---------------- 阶段 2：测试执行 ---------------- */
+function bindOfficialInput() {
+    $('btn-fetch-ranges').addEventListener('click', fetchRanges);
+    $('btn-add-ranges').addEventListener('click', generateOfficialCandidates);
+    $('btn-official-clear').addEventListener('click', () => {
+        officialCandidates = [];
+        renderCandidates();
+    });
+    document.querySelectorAll('input[name="official-family"], input[name="sample-mode"]').forEach(input =>
+        input.addEventListener('change', renderRangesEstimate));
+    $('sample-n').addEventListener('input', () => {
+        renderRangesEstimate();
+        clearTimeout(officialEstimateTimer);
+        officialEstimateTimer = setTimeout(async () => {
+            if (!officialRanges) return;
+            try {
+                officialRanges = await api.fetchOfficialRanges(officialSettings().sampleN);
+                renderRangesEstimate();
+            } catch (error) {
+                toast(error.message);
+            }
+        }, 250);
+    });
+}
+
+function bindModes() {
+    $('mode-tabs').addEventListener('click', event => {
+        const tab = event.target.closest('.mode-tab');
+        if (!tab) return;
+        setMode(tab.dataset.mode);
+        document.querySelectorAll('.mode-tab').forEach(item => {
+            const active = item.dataset.mode === store.mode;
+            item.classList.toggle('active', active);
+            item.setAttribute('aria-selected', String(active));
+        });
+        $('source-proxy').hidden = store.mode !== 'proxy';
+        $('source-official').hidden = store.mode !== 'official';
+        renderCandidates();
+    });
+}
+
+function ruleMaxResults() {
+    return Math.max(0, parseInt($('rule-maxresults').value, 10) || 0);
+}
+
+function speedEnabled() { return $('spd-enable').checked; }
 
 function latencyOptions() {
     return {
         maxConcurrency: parseInt($('lat-concurrency').value, 10) || undefined,
         timeoutMs: parseInt($('lat-timeout').value, 10) || undefined,
         maxLatencyMs: parseInt($('lat-maxlatency').value, 10) || 0,
-        // 留空与 0 都表示不限制，后端 0=全部测完
-        maxResults: parseInt($('lat-maxresults').value, 10) || 0,
+        // 启用速度规则时，统一数量限制只在最终测速阶段生效。
+        maxResults: speedEnabled() ? 0 : ruleMaxResults(),
         enableTLS: $('lat-tls').checked,
         enableIPAPI: $('lat-ipapi').checked,
     };
@@ -252,377 +324,441 @@ function speedOptions() {
         maxConcurrency: parseInt($('spd-concurrency').value, 10) || undefined,
         durationSec: parseInt($('spd-duration').value, 10) || undefined,
         minSpeedKBs: parseFloat($('spd-minspeed').value) || 0,
-        // 留空与 0 都表示不限制，后端 0=全部测完
-        maxResults: parseInt($('spd-maxresults').value, 10) || 0,
-        downloadURL: $('spd-url').value.trim() || undefined,
-        enableTLS: $('spd-tls').checked,
+        maxResults: ruleMaxResults(),
+        downloadURL: $('advanced-speed-url').value.trim() || undefined,
+        enableTLS: $('lat-tls').checked,
     };
 }
 
-/** 测速总开关。关闭时阶段 2 的测速面板整体停用，两个测速按钮也一起禁用。 */
-function speedEnabled() {
-    return $('spd-enable').checked;
-}
-
-/**
- * 把总开关状态落到 DOM。
- *
- * 光靠 opacity 不够：视觉上灰了但仍可 focus、可 Tab 进去改值，读屏也听不出禁用。
- * 所以三件事都做——真的 disabled（顺带把元素移出 Tab 序）、aria-disabled、加类名走样式。
- */
 function applySpeedEnabled() {
-    const on = speedEnabled();
-    const panel = $('spd-panel');
-    panel.classList.toggle('disabled', !on);
-    panel.setAttribute('aria-disabled', String(!on));
-    // 只禁用字段里的控件，标题行的开关自己要留着能点
-    panel.querySelectorAll('.field input').forEach(el => { el.disabled = !on; });
+    // 复选框只决定初次检测是否自动进入测速阶段。
+    // 速度条件始终可编辑，并继续用于第三步的补充测速。
     refreshButtons();
 }
 
-function setRunning(running, type) {
-    currentTaskId = running ? currentTaskId : null;
+function updateDefaultPortHint() {
+    const port = $('lat-tls').checked ? 443 : 80;
+    $('default-port-hint').textContent = `未指定端口使用 ${port}`;
+}
+
+function resetRules() {
+    const lat = defaults?.latency || { maxConcurrency: 100, timeoutMs: 1000, maxLatencyMs: 0, enableTLS: true, enableIPAPI: false };
+    const spd = defaults?.speed || { maxConcurrency: 5, durationSec: 5, minSpeedKBs: 0, downloadURL: 'speed.cloudflare.com/__down?bytes=500000000' };
+    $('lat-concurrency').value = lat.maxConcurrency;
+    $('lat-timeout').value = lat.timeoutMs;
+    $('lat-maxlatency').value = lat.maxLatencyMs > 0 ? lat.maxLatencyMs : '';
+    $('lat-tls').checked = lat.enableTLS;
+    $('lat-ipapi').checked = lat.enableIPAPI;
+    $('spd-enable').checked = false;
+    $('spd-concurrency').value = spd.maxConcurrency;
+    $('spd-duration').value = spd.durationSec;
+    $('spd-minspeed').value = spd.minSpeedKBs > 0 ? spd.minSpeedKBs : '';
+    $('rule-maxresults').value = '';
+    $('advanced-speed-url').value = spd.downloadURL;
+    $('spd-url').value = spd.downloadURL;
+    $('spd-maxresults').value = 0;
+    $('spd-tls').checked = lat.enableTLS;
+    applySpeedEnabled();
+    updateDefaultPortHint();
+    toast('已恢复推荐设置');
+}
+
+function setRunning(running, type = null) {
     currentTaskType = running ? type : null;
-    $('btn-start-latency').disabled = running || store.candidates.length === 0;
-    $('btn-start-speed').disabled = running || !speedEnabled() || table.getSelectedResults().length === 0;
-    $('btn-speed-filtered').disabled = running || !speedEnabled() || table.getAllResults().length === 0;
+    if (!running) currentTaskId = null;
+    $('btn-start-latency').disabled = running || activeCandidates().length === 0;
+    $('btn-start-speed').disabled = running || table.getSelectedResults().length === 0;
+    $('btn-speed-filtered').disabled = running || table.getAllResults().length === 0;
     $('btn-stop').disabled = !running;
     $('progress-wrap').classList.toggle('active', running);
-    if (!running) {
-        $('progress-label').textContent = '已完成';
+}
+
+function updateProgress(progress) {
+    const percent = progress.total ? Math.round(progress.completed / progress.total * 100) : 0;
+    $('progress-fill').style.width = `${percent}%`;
+    $('progress-pct').textContent = `${percent}%`;
+    const phase = progress.phase === 'speed' ? '测速' : '延迟检测';
+    $('progress-label').textContent = `${phase} ${progress.completed}/${progress.total} · 符合 ${progress.validIPs}`;
+}
+
+async function startPipeline() {
+    const targets = activeCandidates();
+    if (!targets.length) { toast('候选区为空'); return; }
+    table.clear();
+    scheduleExportPreview();
+    $('result-count').textContent = '';
+    $('progress-fill').style.width = '0%';
+    try {
+        const response = await api.startLatencyTest(targets, latencyOptions(), {
+            enableSpeed: speedEnabled(),
+            speedOptions: speedOptions(),
+        });
+        currentTaskId = response.taskId;
+        setRunning(true, 'pipeline');
+        $('progress-label').textContent = `延迟检测 0/${response.totalTargets}`;
+    } catch (error) {
+        toast(error.message);
     }
 }
 
-function updateProgress(p) {
-    const pct = p.total ? Math.round((p.completed / p.total) * 100) : 0;
-    $('progress-fill').style.width = `${pct}%`;
-    $('progress-pct').textContent = `${pct}%`;
-    const label = currentTaskType === 'speed' ? '测速中' : '延迟测试中';
-    $('progress-label').textContent = `${label} ${p.completed}/${p.total} · 有效 ${p.validIPs}`;
+async function startSupplementalSpeed(useVisible) {
+    const results = useVisible ? table.getAllResults() : table.getSelectedResults();
+    if (!results.length) { toast(useVisible ? '当前没有展示结果' : '请先勾选结果'); return; }
+    try {
+        const response = await api.startSpeedTest(results.map(r => ({ ip: r.ip, port: r.port })), speedOptions());
+        currentTaskId = response.taskId;
+        setRunning(true, 'speed');
+        $('progress-label').textContent = `补充测速 0/${response.totalTargets}`;
+    } catch (error) {
+        toast(error.message);
+    }
 }
 
-function bindTestStage() {
-    $('btn-start-latency').addEventListener('click', async () => {
-        const targets = candidateTargets();
-        if (!targets.length) { toast('候选区为空，请先从工作区追加'); return; }
-        table.clear();
-        $('result-count').textContent = '';
-        try {
-            const resp = await api.startLatencyTest(targets, latencyOptions());
-            currentTaskId = resp.taskId;
-            setRunning(true, 'latency');
-            $('progress-label').textContent = `延迟测试 0/${resp.totalTargets}`;
-        } catch (e) {
-            toast(e.message);
-        }
-    });
-
+function bindRulesAndRun() {
     $('spd-enable').addEventListener('change', applySpeedEnabled);
-
-    const startSpeed = async useFiltered => {
-        if (!speedEnabled()) { toast('下载测速已关闭，请先在测速面板勾选「启用」'); return; }
-        const results = useFiltered ? table.getAllResults() : table.getSelectedResults();
-        const targets = results.map(r => ({ ip: r.ip, port: r.port }));
-        if (!targets.length) { toast(useFiltered ? '没有可测速的结果' : '请先勾选要测速的结果'); return; }
-        try {
-            const resp = await api.startSpeedTest(targets, speedOptions());
-            currentTaskId = resp.taskId;
-            setRunning(true, 'speed');
-            $('progress-label').textContent = `测速 0/${resp.totalTargets}`;
-        } catch (e) {
-            toast(e.message);
-        }
-    };
-    $('btn-start-speed').addEventListener('click', () => startSpeed(false));
-    $('btn-speed-filtered').addEventListener('click', () => startSpeed(true));
-
+    $('lat-tls').addEventListener('change', () => {
+        $('spd-tls').checked = $('lat-tls').checked;
+        updateDefaultPortHint();
+    });
+    $('advanced-speed-url').addEventListener('input', () => { $('spd-url').value = $('advanced-speed-url').value; });
+    $('rule-maxresults').addEventListener('input', () => { $('spd-maxresults').value = ruleMaxResults(); });
+    $('btn-reset-rules').addEventListener('click', resetRules);
+    $('btn-start-latency').addEventListener('click', startPipeline);
+    $('btn-start-speed').addEventListener('click', () => startSupplementalSpeed(false));
+    $('btn-speed-filtered').addEventListener('click', () => startSupplementalSpeed(true));
     $('btn-stop').addEventListener('click', async () => {
         try {
             await api.stopTask(currentTaskId);
             toast('已发送停止指令');
-        } catch (e) {
-            toast(e.message);
+        } catch (error) {
+            toast(error.message);
         }
     });
 }
 
-/* ---------------- SSE 事件 ---------------- */
-
 function bindEvents() {
     eventSource = api.subscribeEvents({
-        onResult: r => {
-            table.appendResult(r);
-            $('result-count').textContent = `（已发现 ${table.results.length} 个有效 IP）`;
+        onResult: result => {
+            table.appendResult(result);
+            $('result-count').textContent = `（${table.results.length} 个有效节点）`;
+            updateCountryFilter();
+            refreshButtons();
+            scheduleExportPreview();
         },
         onProgress: updateProgress,
-        onSpeed: r => table.updateSpeed(r),
-        onDone: (msg, reason) => {
-            setRunning(false);
-            refreshButtons();
-            toast(msg);
-            // 三种结束原因都是正常收工，只是措辞不同（reason 由 A3 下发）
-            $('progress-label').textContent =
-                reason === 'limit' ? '已达到最大结果数' :
-                reason === 'stopped' ? '已停止' : '已完成';
-            $('result-count').textContent = `（共 ${table.results.length} 个有效 IP）`;
+        onSpeed: result => {
+            table.updateSpeed(result);
+            scheduleExportPreview();
         },
-        onError: msg => {
-            // EventSource 断线也会触发；仅在任务运行时提示
-            if (currentTaskId) {
-                setRunning(false);
-                toast(msg || '任务出错');
-            }
+        onDone: (message, reason) => {
+            setRunning(false);
+            $('progress-label').textContent = reason === 'limit' ? '已达到最大数量' : reason === 'stopped' ? '已停止' : '已完成';
+            $('progress-pct').textContent = reason === 'stopped' ? $('progress-pct').textContent : '100%';
+            $('result-count').textContent = `（${table.results.length} 个有效节点）`;
+            toast(message || '任务完成');
+            refreshButtons();
+            regenerateOutput();
+        },
+        onError: message => {
+            if (!currentTaskId) return;
+            setRunning(false);
+            toast(message || '任务出错');
         },
     });
+    window.addEventListener('beforeunload', () => eventSource?.close());
+}
 
-    // 关页面时收掉 SSE 连接：EventSource 不关会自动重连，
-    // 刷新页面时后端会短暂多出一个订阅者。
-    window.addEventListener('beforeunload', () => {
-        eventSource?.close();
-        eventSource = null;
+function selectedColumns() {
+    return visibleColumnKeys.map(key => ALL_COLUMNS.find(column => column.key === key)).filter(Boolean);
+}
+
+function renderSortOptions() {
+    const sortable = selectedColumns().filter(column => column.sortable);
+    $('sort-key').innerHTML = sortable.map(column => `<option value="${column.key}">${escapeHTML(column.label)}</option>`).join('');
+    if (!sortable.some(column => column.key === table.sortKey)) {
+        table.setSort(sortable.find(column => column.key === 'tcpLatencyMs')?.key || sortable[0]?.key || 'ip', true);
+    }
+    $('sort-key').value = table.sortKey;
+}
+
+function renderColumnOptions() {
+    const choices = ALL_COLUMNS.filter(column => column.key !== '_sel' && column.key !== 'enableTLS' && column.inCSV);
+    $('column-options').innerHTML = choices.map(column => `
+        <label class="checkbox"><input type="checkbox" data-key="${column.key}" ${visibleColumnKeys.includes(column.key) ? 'checked' : ''}> ${escapeHTML(column.label)}</label>`).join('');
+}
+
+function applyColumnsFromUI() {
+    const keys = [...document.querySelectorAll('#column-options input:checked')].map(input => input.dataset.key);
+    if (!keys.length) { toast('至少保留一个显示字段'); renderColumnOptions(); return; }
+    visibleColumnKeys = keys;
+    table.setColumns(keys);
+    renderSortOptions();
+}
+
+function updateCountryFilter() {
+    const select = $('result-country-filter');
+    const current = select.value;
+    const countries = table.getGroupStats('country').filter(item => item.name !== '未知');
+    select.innerHTML = '<option value="">全部国家</option>' + countries.map(item =>
+        `<option value="${escapeHTML(item.name)}">${escapeHTML(item.emoji)} ${escapeHTML(item.name)} (${item.count})</option>`).join('');
+    if (countries.some(item => item.name === current)) select.value = current;
+}
+
+function applyResultFilters() {
+    table.setFilter($('result-filter').value);
+    table.setFilters({
+        country: $('result-country-filter').value,
+        maxLatency: parseFloat($('result-max-latency').value) || 0,
+        minSpeed: parseFloat($('result-min-speed').value) || 0,
+    });
+    refreshButtons();
+    scheduleExportPreview();
+}
+
+function currentQuotaDim() { return $('quota-dim').value || GROUP_DIMENSIONS[0].key; }
+
+function renderQuotaGrid() {
+    const stats = table.getGroupStats(currentQuotaDim(), { filtered: true });
+    quotaPicker?.setItems(stats.map(item => ({
+        value: item.name,
+        label: item.emoji ? `${item.emoji} ${item.name}` : item.name,
+        count: item.count,
+    })));
+    const keep = new Set(quotaGroups);
+    const shown = keep.size ? stats.filter(item => keep.has(item.name)) : stats;
+    $('quota-grid').innerHTML = shown.length ? shown.map(item => `
+        <span class="quota-item" data-group="${escapeHTML(item.name)}">
+            ${escapeHTML(item.emoji)} ${escapeHTML(item.name)} <span class="count">(${item.count})</span>
+            <input type="number" min="0" max="${item.count}" placeholder="0">
+        </span>`).join('') : '<span class="hint">暂无结果</span>';
+}
+
+function bindQuotaPanel() {
+    $('quota-dim').innerHTML = GROUP_DIMENSIONS.map(item => `<option value="${item.key}">${item.label}</option>`).join('');
+    quotaPicker = createMultiSelect($('quota-picker'), {
+        placeholder: '全部分组',
+        onChange: values => { quotaGroups = values; renderQuotaGrid(); },
+    });
+    $('quota-dim').addEventListener('change', () => { quotaGroups = []; renderQuotaGrid(); });
+    $('btn-quota-toggle').addEventListener('click', () => {
+        const box = $('quota-box');
+        const open = !box.classList.contains('active');
+        if (open) renderQuotaGrid();
+        box.classList.toggle('active', open);
+    });
+    $('btn-quota-apply').addEventListener('click', () => {
+        const quotas = {};
+        document.querySelectorAll('#quota-grid .quota-item').forEach(item => {
+            const count = parseInt(item.querySelector('input').value, 10) || 0;
+            if (count > 0) quotas[item.dataset.group] = count;
+        });
+        const shown = table.applyGroupDisplayQuotas(currentQuotaDim(), quotas);
+        toast(Object.keys(quotas).length ? `当前展示 ${shown} 条` : '未设置展示数量');
+        refreshButtons();
+        scheduleExportPreview();
+    });
+    $('btn-quota-clear').addEventListener('click', () => {
+        table.clearDisplayQuotas();
+        table.clearSelection();
+        refreshButtons();
+        scheduleExportPreview();
     });
 }
 
 function refreshButtons() {
-    $('btn-start-speed').disabled = currentTaskId !== null || !speedEnabled() || table.getSelectedResults().length === 0;
-    $('btn-speed-filtered').disabled = currentTaskId !== null || !speedEnabled() || table.getAllResults().length === 0;
-    $('btn-append').disabled = table.getSelectedResults().length === 0 && table.getAllResults().length === 0;
+    if (!table) return;
+    const running = currentTaskId !== null;
+    $('btn-start-speed').disabled = running || table.getSelectedResults().length === 0;
+    $('btn-speed-filtered').disabled = running || table.getAllResults().length === 0;
+    refreshExportCount();
 }
 
-/* ---------------- 阶段 3：结果表格 ---------------- */
-
-function bindResultsStage() {
+function bindResults() {
     table = new ResultTable($('result-table-container'));
-
-    $('result-filter').addEventListener('input', e => table.setFilter(e.target.value));
-
-    // 勾选变化时刷新按钮。ResultTable 在勾选后派发 selectionchange，
-    // 无需再靠 setTimeout 等重绘结束（改造前勾选会重建整表）。
-    $('result-table-container').addEventListener('selectionchange', refreshButtons);
-
-    bindSortBar();
+    renderColumnOptions();
+    renderSortOptions();
     bindQuotaPanel();
 
-    // 追加到结果框
-    $('btn-append').addEventListener('click', () => {
-        let selected = table.getSelectedResults();
-        if (!selected.length) selected = table.getAllResults();
-        if (!selected.length) { toast('没有可追加的结果'); return; }
-        const template = $('format-template').value;
-        const text = formatResults(template, selected);
-        const box = $('output-box');
-        box.value = box.value.trim() ? `${box.value.trim()}\n${text}` : text;
-        toast(`已追加 ${selected.length} 条到结果框`);
-    });
-}
-
-/**
- * 排序下拉 + 升降序按钮。
- *
- * 两个控件与表头点击共用 table.setSort() 这一个入口，再靠 table 派发的
- * sortchange 事件回填 UI——所以点表头时下拉也会跟着变，不会出现
- * 「表格按延迟排、下拉却还写着 IP」的分裂状态。
- */
-function bindSortBar() {
-    const sel = $('sort-key');
-    sel.innerHTML = TABLE_COLUMNS
-        .filter(col => col.sortable)
-        .map(col => `<option value="${col.key}">${escapeHTML(col.label)}</option>`)
-        .join('');
-
-    sel.addEventListener('change', () => table.setSort(sel.value, table.sortAsc));
+    $('result-filter').addEventListener('input', applyResultFilters);
+    $('result-country-filter').addEventListener('change', applyResultFilters);
+    $('result-max-latency').addEventListener('input', applyResultFilters);
+    $('result-min-speed').addEventListener('input', applyResultFilters);
+    $('sort-key').addEventListener('change', () => table.setSort($('sort-key').value, table.sortAsc));
     $('btn-sort-dir').addEventListener('click', () => table.setSort(table.sortKey, !table.sortAsc));
-
-    // 回填：唯一改动 UI 的地方，三条入口（下拉 / 按钮 / 表头）都经由它。
-    $('result-table-container').addEventListener('sortchange', e => {
-        const { key, asc } = e.detail;
-        sel.value = key;
-        $('btn-sort-dir').textContent = asc ? '▲ 升序' : '▼ 降序';
+    $('result-table-container').addEventListener('sortchange', event => {
+        $('sort-key').value = event.detail.key;
+        $('btn-sort-dir').textContent = event.detail.asc ? '▲ 升序' : '▼ 降序';
+        scheduleExportPreview();
     });
-
-    sel.value = table.sortKey;
-    $('btn-sort-dir').textContent = table.sortAsc ? '▲ 升序' : '▼ 降序';
-}
-
-/** 当前选中的分组维度 key（country / asnOrg / dataCenter / ipType）。 */
-function currentQuotaDim() {
-    return $('quota-dim').value || GROUP_DIMENSIONS[0].key;
-}
-
-function bindQuotaPanel() {
-    const dimSel = $('quota-dim');
-    dimSel.innerHTML = GROUP_DIMENSIONS
-        .map(d => `<option value="${d.key}">${escapeHTML(d.label)}</option>`)
-        .join('');
-
-    // 「只列出分组」：维度换成「数据中心」时有 300 多个分组，全部铺成配额输入框
-    // 没法用，所以先用多选把关注的几个挑出来。不选 = 不过滤。
-    quotaPicker = createMultiSelect($('quota-picker'), {
-        placeholder: '全部分组',
-        onChange: vals => { quotaGroups = vals; renderQuotaGrid(); },
-    });
-
-    // 换维度时分组名的含义完全变了（国家名 → ASN 名），旧的选择必须丢掉，
-    // 否则「只列出日本」会在 ASN 维度下过滤掉所有分组，界面显示空白。
-    dimSel.addEventListener('change', () => {
-        quotaGroups = [];
-        renderQuotaGrid();
-    });
-
-    $('btn-quota-toggle').addEventListener('click', () => {
-        const box = $('quota-box');
-        const show = !box.classList.contains('active');
-        if (show) renderQuotaGrid();
-        box.classList.toggle('active', show);
-    });
-
-    $('btn-quota-apply').addEventListener('click', () => {
-        const dim = currentQuotaDim();
-        const quotas = {};
-        document.querySelectorAll('#quota-grid .quota-item').forEach(item => {
-            const n = parseInt(item.querySelector('input').value, 10);
-            if (n > 0) quotas[item.dataset.group] = n;
-        });
-        table.applyGroupQuotas(dim, Object.keys(quotas).length ? quotas : null);
+    $('result-table-container').addEventListener('selectionchange', () => {
         refreshButtons();
-        toast(Object.keys(quotas).length ? `已按配额选择 ${table.getSelectedResults().length} 条` : '已清除配额选择');
+        scheduleExportPreview();
     });
 
-    $('btn-quota-clear').addEventListener('click', () => {
-        table.clearSelection();
-        refreshButtons();
+    $('btn-column-toggle').addEventListener('click', () => $('column-box').classList.toggle('active'));
+    $('column-options').addEventListener('change', applyColumnsFromUI);
+    $('btn-column-default').addEventListener('click', () => {
+        visibleColumnKeys = [...DEFAULT_COLUMN_KEYS];
+        renderColumnOptions();
+        table.setColumns(visibleColumnKeys);
+        renderSortOptions();
     });
 }
 
-/**
- * 渲染配额输入格。分组名来自结果数据（ASN 组织名里出现引号/尖括号完全正常），
- * 所以插入 HTML 前必须过 escapeHTML——data-group 属性里同样要过，否则一个
- * 双引号就能提前闭合属性。
- */
-function renderQuotaGrid() {
-    const dim = currentQuotaDim();
-    const stats = table.getGroupStats(dim);
-
-    // 同步多选的候选项（带计数），保留仍然存在的已选项。
-    quotaPicker?.setItems(stats.map(s => ({
-        value: s.name,
-        label: s.emoji ? `${s.emoji} ${s.name}` : s.name,
-        count: s.count,
-    })));
-
-    const keep = new Set(quotaGroups);
-    const shown = keep.size ? stats.filter(s => keep.has(s.name)) : stats;
-
-    $('quota-grid').innerHTML = shown.length
-        ? shown.map(s => `
-            <span class="quota-item" data-group="${escapeHTML(s.name)}">
-                ${escapeHTML(s.emoji)} ${escapeHTML(s.name)} <span class="count">(${s.count})</span>
-                <input type="number" min="0" max="${s.count}" placeholder="0">
-            </span>`).join('')
-        : `<span style="color:var(--text-secondary);font-size:12px">${stats.length ? '所选分组不在当前结果中' : '暂无结果'}</span>`;
+function exportScope() {
+    return document.querySelector('input[name="export-scope"]:checked')?.value || 'all';
 }
 
-/* ---------------- 阶段 4：导出 ---------------- */
+function exportResults() {
+    if (!table) return [];
+    if (exportScope() === 'selected') return table.getSelectedResults();
+    if (exportScope() === 'visible') return table.getAllResults();
+    return table.getResults();
+}
 
-function bindExportStage() {
-    // 预设
-    const sel = $('format-presets');
-    sel.innerHTML = '<option value="">选择预设格式…</option>' +
-        PRESETS.map(p => `<option value="${p.template}">${p.name}</option>`).join('');
-    sel.addEventListener('change', () => {
-        if (sel.value) $('format-template').value = sel.value;
-    });
+function refreshExportCount() {
+    if (!table) return;
+    $('export-count').textContent = `${exportResults().length} 条`;
+}
 
-    // 占位符帮助（点击插入）
-    $('placeholder-help').innerHTML = '可用占位符（点击插入）：' +
-        placeholderNames().map(p => `<code data-ph="${p}">${p}</code>`).join('');
-    $('placeholder-help').addEventListener('click', e => {
-        const ph = e.target.dataset?.ph;
-        if (!ph) return;
-        const input = $('format-template');
-        input.value += ph;
-        input.focus();
-    });
+function regenerateOutput() {
+    clearTimeout(exportPreviewTimer);
+    exportPreviewTimer = null;
+    const results = exportResults();
+    $('output-box').value = results.length ? formatResults($('format-template').value, results) : '';
+    $('output-count').textContent = `${results.length} 行`;
+    $('export-count').textContent = `${results.length} 条`;
+}
 
-    // 结果框工具
-    $('btn-output-dedupe').addEventListener('click', () => {
-        const lines = $('output-box').value.split('\n').map(l => l.trim()).filter(Boolean);
-        const deduped = [...new Set(lines)];
-        $('output-box').value = deduped.join('\n');
-        toast(`去重：${lines.length} → ${deduped.length}`);
-    });
-    $('btn-output-clear').addEventListener('click', () => {
-        $('output-box').value = '';
-    });
+function scheduleExportPreview() {
+    refreshExportCount();
+    clearTimeout(exportPreviewTimer);
+    exportPreviewTimer = setTimeout(regenerateOutput, 140);
+}
 
-    // 复制与下载
+function persistSavedTemplates() {
+    try {
+        localStorage.setItem(SAVED_TEMPLATE_KEY, JSON.stringify(savedTemplates));
+    } catch {
+        toast('浏览器不允许保存模板');
+    }
+}
+
+function renderSavedTemplates() {
+    $('saved-templates').innerHTML = '<option value="">已保存模板</option>' + savedTemplates.map((item, index) =>
+        `<option value="${index}">${escapeHTML(item.name)}</option>`).join('');
+    $('btn-delete-template').disabled = !$('saved-templates').value;
+}
+
+function loadSavedTemplates() {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(SAVED_TEMPLATE_KEY) || '[]');
+        savedTemplates = Array.isArray(parsed)
+            ? parsed.filter(item => item && typeof item.name === 'string' && typeof item.template === 'string')
+            : [];
+    } catch {
+        savedTemplates = [];
+    }
+    renderSavedTemplates();
+}
+
+function bindExport() {
+    const presets = $('format-presets');
+    presets.innerHTML = PRESETS.map(item => `<option value="${item.template}">${item.name}</option>`).join('');
+    presets.value = '{ip}:{port}#{country}';
+    presets.addEventListener('change', () => {
+        $('format-template').value = presets.value;
+        regenerateOutput();
+    });
+    $('format-template').addEventListener('input', regenerateOutput);
+    $('placeholder-help').innerHTML = '字段：' + placeholderNames().map(name => `<code data-ph="${name}">${name}</code>`).join('');
+    $('placeholder-help').addEventListener('click', event => {
+        const placeholder = event.target.dataset?.ph;
+        if (!placeholder) return;
+        $('format-template').value += placeholder;
+        regenerateOutput();
+    });
+    document.querySelectorAll('input[name="export-scope"]').forEach(input =>
+        input.addEventListener('change', regenerateOutput));
+    loadSavedTemplates();
+    $('btn-save-template').addEventListener('click', () => {
+        const name = $('template-name').value.trim();
+        const template = $('format-template').value.trim();
+        if (!name || !template) { toast('请填写模板名称和内容'); return; }
+        const existing = savedTemplates.find(item => item.name === name);
+        if (existing) existing.template = template;
+        else savedTemplates.push({ name, template });
+        persistSavedTemplates();
+        renderSavedTemplates();
+        $('saved-templates').value = String(savedTemplates.findIndex(item => item.name === name));
+        $('btn-delete-template').disabled = false;
+        toast(existing ? '模板已更新' : '模板已保存');
+    });
+    $('saved-templates').addEventListener('change', () => {
+        const rawIndex = $('saved-templates').value;
+        const index = rawIndex === '' ? -1 : Number(rawIndex);
+        const item = savedTemplates[index];
+        $('btn-delete-template').disabled = !item;
+        if (!item) return;
+        $('template-name').value = item.name;
+        $('format-template').value = item.template;
+        regenerateOutput();
+    });
+    $('btn-delete-template').addEventListener('click', () => {
+        const rawIndex = $('saved-templates').value;
+        const index = rawIndex === '' ? -1 : Number(rawIndex);
+        if (!savedTemplates[index]) return;
+        savedTemplates.splice(index, 1);
+        persistSavedTemplates();
+        renderSavedTemplates();
+        toast('模板已删除');
+    });
     $('btn-copy').addEventListener('click', async () => {
-        const text = $('output-box').value.trim();
-        if (!text) { toast('结果框为空'); return; }
+        regenerateOutput();
+        const text = $('output-box').value;
+        if (!text) { toast('没有可复制的结果'); return; }
         await copyToClipboard(text);
-        toast('已复制到剪贴板');
+        toast(`已复制 ${exportResults().length} 条 TXT`);
     });
     $('btn-download-txt').addEventListener('click', () => {
-        const text = $('output-box').value.trim();
-        if (!text) { toast('结果框为空'); return; }
+        regenerateOutput();
+        const text = $('output-box').value;
+        if (!text) { toast('没有可下载的结果'); return; }
         downloadAsText(text);
     });
     $('btn-download-csv').addEventListener('click', () => {
-        let results = table.getSelectedResults();
-        if (!results.length) results = table.getAllResults();
-        if (!results.length) { toast('没有可导出的结果'); return; }
-        const cols = CSV_COLUMNS.filter(c =>
-            document.querySelector(`#csv-columns input[data-key="${c.key}"]`)?.checked);
-        if (!cols.length) { toast('请至少选择一列'); return; }
-        downloadAsCSV(results, cols, { enableTLS: $('lat-tls').checked });
-        toast(`已导出 ${results.length} 条 × ${cols.length} 列`);
+        const results = exportResults();
+        if (!results.length) { toast('当前导出范围没有结果'); return; }
+        const columns = CSV_COLUMNS.filter(column => visibleColumnKeys.includes(column.key));
+        if (!columns.length) { toast('没有可导出的显示字段'); return; }
+        downloadAsCSV(results, columns, { enableTLS: $('lat-tls').checked });
+        toast(`已导出 ${results.length} 条 × ${columns.length} 列`);
     });
-
-    // CSV 列选择器（列与列数都由注册表派生，不再硬编码「共 27 列」）
-    $('csv-columns').innerHTML = CSV_COLUMNS.map(c =>
-        `<label class="checkbox"><input type="checkbox" data-key="${c.key}" checked> ${c.label}</label>`
-    ).join('');
-    $('csv-column-count').textContent = CSV_COLUMNS.length;
+    regenerateOutput();
 }
 
-/* ---------------- 初始化 ---------------- */
-
 async function init() {
-    bindInputStage();
-    bindTestStage();
-    bindResultsStage();
-    bindExportStage();
+    bindModes();
+    bindProxyInput();
+    bindOfficialInput();
+    bindResults();
+    bindRulesAndRun();
+    bindExport();
     bindEvents();
-
-    // store 变化即重绘工作区/候选区，两个框不再有各自的刷新入口
-    subscribe(renderInputStage);
-    renderInputStage();
-
-    // 必须排在 bindResultsStage() 之后：applySpeedEnabled → refreshButtons 会用到 table
-    applySpeedEnabled();
+    renderRawSummary();
+    renderCandidates();
 
     try {
-        const cfg = await api.fetchConfig();
-        defaults = cfg.defaults;
-        $('app-version').textContent = cfg.version || '未知版本';
-        $('lat-concurrency').value = defaults.latency.maxConcurrency;
-        $('lat-timeout').value = defaults.latency.timeoutMs;
-        $('lat-maxlatency').value = defaults.latency.maxLatencyMs;
-        $('lat-maxresults').value = defaults.latency.maxResults;
-        $('lat-tls').checked = defaults.latency.enableTLS;
-        $('lat-ipapi').checked = defaults.latency.enableIPAPI;
-        $('spd-concurrency').value = defaults.speed.maxConcurrency;
-        $('spd-duration').value = defaults.speed.durationSec;
-        $('spd-minspeed').value = defaults.speed.minSpeedKBs;
-        $('spd-maxresults').value = defaults.speed.maxResults;
-        $('spd-url').value = defaults.speed.downloadURL;
-        $('spd-tls').checked = defaults.speed.enableTLS;
-
-        const el = $('res-status');
-        el.textContent = `地理位置 ${cfg.locationCount} 条 · ASN ${cfg.asnLoaded ? '已加载' : '未加载'}`;
-        el.classList.add('ok');
-    } catch (e) {
-        $('res-status').textContent = '无法连接后端：' + e.message;
+        const config = await api.fetchConfig();
+        defaults = config.defaults;
+        $('app-version').textContent = config.version || 'dev';
+        const status = $('res-status');
+        status.textContent = `位置 ${config.locationCount} · ASN ${config.asnLoaded ? '就绪' : '未加载'}`;
+        status.classList.add('ok');
+        resetRules();
+    } catch (error) {
+        $('res-status').textContent = `后端不可用：${error.message}`;
+        resetRules();
     }
 }
 
