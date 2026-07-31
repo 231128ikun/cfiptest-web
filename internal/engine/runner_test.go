@@ -15,7 +15,6 @@ import (
 )
 
 func TestCombinedPipelineUsesMinimumConcurrencyAndFinalLimit(t *testing.T) {
-	t.Skip("RunCombinedTest simplified; restore full pipeline for MaxResults")
 	var active int64
 	var maxActive int64
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {

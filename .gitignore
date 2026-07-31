@@ -1,25 +1,25 @@
-# 构建产物
+# build artifacts
 iptest-web.exe
 iptest-web.exe~
+iptest-web-*.exe
 /release/
 /_temp_archive/
 /DELIVERY.md
 *.log
 
-# 运行时自动下载的数据文件
+# runtime data
 GeoLite2-ASN.mmdb
 locations.json
-
-# Go 测试的项目内临时缓存
-.tmp-go-cache/
-
-# 官方 IP 段本地缓存
 cloudflare-ips-v4.txt
 cloudflare-ips-v6.txt
 data/
 
-# Go
+# go test cache
+.tmp-go-cache/
+
+# tests
 *.test
 *.out
 
-ʹ��˵��.txt
+# usage doc
+使用说明.txt

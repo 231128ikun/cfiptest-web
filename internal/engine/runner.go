@@ -279,45 +279,114 @@ loop:
 	return nil
 }
 
-// RunCombinedTest executes a combined latency + speed pipeline.
+// RunCombinedTest 执行「延迟 → 测速」流水线：每个 IP 先测延迟，延迟合格再测速。
+// 并发模型：取 min(延迟并发, 测速并发) 作为总并发，每个 worker 串行完成 延迟 → 测速 → 判定，
+// 而不是先并发测完全部延迟再并发测速——这样整体约束（如最终保留前 N 个）才能生效。
+// 事件：延迟合格时发 EventResult；测速完成时发 EventSpeed（速度回填）；
+// 最终只有测速达标的 IP 进入返回结果。MaxResults 作用于最终达标结果。
 func (r *Runner) RunCombinedTest(ctx context.Context, targets []Target, latency LatencyOptions, speed SpeedOptions, cb EventCallback) ([]Result, error) {
-	if latency.MaxConcurrency < 1 { latency.MaxConcurrency = 1 }
-	if speed.MaxConcurrency < 1 { speed.MaxConcurrency = 1 }
+	if latency.MaxConcurrency < 1 {
+		latency.MaxConcurrency = 1
+	}
+	if speed.MaxConcurrency < 1 {
+		speed.MaxConcurrency = 1
+	}
 	speed.EnableTLS = latency.EnableTLS
-	var latResults []Result
-	var mu sync.Mutex
-	_, err := r.RunLatencyTest(ctx, targets, latency, func(ev Event) {
-		if ev.Type == EventResult && ev.Result != nil {
-			mu.Lock()
-			latResults = append(latResults, *ev.Result)
-			mu.Unlock()
-		}
-		cb(ev)
-	})
-	if err != nil && err != ErrResultLimitReached {
-		return nil, err
-	}
-	speedTargets := make([]Target, len(latResults))
-	for i, lr := range latResults {
-		speedTargets[i] = Target{IP: lr.IP, Port: lr.Port}
-	}
-	var speedResults []Result
-	_ = r.RunSpeedTest(ctx, speedTargets, speed, func(ev Event) {
-		if ev.Type == EventSpeed && ev.Result != nil {
-			mu.Lock()
-			for i := range latResults {
-				if latResults[i].IP == ev.Result.IP && latResults[i].Port == ev.Result.Port {
-					latResults[i].DownloadSpeedKBs = ev.Result.DownloadSpeedKBs
-					if ev.Result.DownloadSpeedKBs > 0 {
-						speedResults = append(speedResults, latResults[i])
-					}
-					break
-				}
-			}
-			mu.Unlock()
-		}
-		cb(ev)
-	})
-	return speedResults, nil
-}
 
+	total := len(targets)
+	concurrency := latency.MaxConcurrency
+	if speed.MaxConcurrency < concurrency {
+		concurrency = speed.MaxConcurrency
+	}
+	sem := make(chan struct{}, concurrency)
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var hitLimit atomic.Bool
+	var mu sync.Mutex
+	var results []Result
+	var completedCount int64
+	var validCount int64
+	var wg sync.WaitGroup
+
+	emitPipelineProgress := func() {
+		cb(Event{Type: EventProgress, Progress: &Progress{
+			Completed: int(atomic.LoadInt64(&completedCount)),
+			Total:     total,
+			ValidIPs:  int(atomic.LoadInt64(&validCount)),
+			Phase:     "pipeline",
+		}})
+	}
+
+	worker := func(target Target) {
+		defer func() {
+			atomic.AddInt64(&completedCount, 1)
+			<-sem
+			wg.Done()
+			emitPipelineProgress()
+		}()
+
+		res := r.testSingleIP(runCtx, target, latency)
+		if res == nil {
+			return
+		}
+		cb(Event{Type: EventResult, Result: res})
+
+		speedVal := testSingleSpeed(runCtx, target, speed)
+		if speedVal <= 0 {
+			res.DownloadSpeedKBs = -1
+			cb(Event{Type: EventSpeed, Result: res})
+			return
+		}
+		if speed.MinSpeedKBs > 0 && speedVal < speed.MinSpeedKBs {
+			return
+		}
+		res.DownloadSpeedKBs = speedVal
+		cb(Event{Type: EventSpeed, Result: res})
+
+		mu.Lock()
+		if speed.MaxResults > 0 && len(results) >= speed.MaxResults {
+			mu.Unlock()
+			return
+		}
+		results = append(results, *res)
+		n := len(results)
+		mu.Unlock()
+		atomic.AddInt64(&validCount, 1)
+		if speed.MaxResults > 0 && n >= speed.MaxResults {
+			hitLimit.Store(true)
+			cancel()
+		}
+	}
+
+loop:
+	for _, t := range targets {
+		if hitLimit.Load() {
+			break loop
+		}
+		select {
+		case <-runCtx.Done():
+			break loop
+		case sem <- struct{}{}:
+		}
+		wg.Add(1)
+		go worker(t)
+	}
+
+	wg.Wait()
+	cancel()
+
+	switch {
+	case hitLimit.Load():
+		cb(Event{Type: EventDone, Reason: DoneLimit,
+			Message: fmt.Sprintf("已达到最大结果数，延迟+测速均达标 %d 个 IP", len(results))})
+		return results, ErrResultLimitReached
+	case ctx.Err() != nil:
+		cb(Event{Type: EventDone, Reason: DoneStopped,
+			Message: fmt.Sprintf("已停止，保留 %d 个有效结果", len(results))})
+		return results, ctx.Err()
+	}
+	cb(Event{Type: EventDone, Reason: DoneCompleted,
+		Message: fmt.Sprintf("延迟+测速完成，%d/%d 个 IP 达标", len(results), total)})
+	return results, nil
+}
