@@ -29,10 +29,9 @@ import (
 //go:embed web
 var webFS embed.FS
 
-// version 是当前版本号，取构建时刻（形如 2026.07.29-01.21）。
-// 由 build.bat / build.sh 通过 -ldflags "-X main.version=..." 注入；
-// 直接 go build 时保留下面的占位值。
-var version = "dev"
+// version 是当前版本号（形如 2026.07.31-22.06），随每次代码修改更新为当前时间。
+// build.bat / build.sh 直接读取此值命名产物，不再另行生成。
+var version = "2026.07.31-22.06"
 
 func main() {
 	port := flag.Int("port", 18080, "HTTP 服务监听端口")

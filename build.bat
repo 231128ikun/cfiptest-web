@@ -1,8 +1,13 @@
 @echo off
-setlocal
+setlocal EnableDelayedExpansion
 
-set "VER=%~1"
-if not defined VER for /f %%i in ('git log -1 --format=%%cd --date=format:%%Y.%%m.%%d-%%H.%%M') do set "VER=%%i"
+for /f "delims=" %%i in ('findstr /c:"var version" main.go') do set "LINE=%%i"
+set "VER=!LINE:*"=!"
+set "VER=!VER:"=!"
+if not defined VER (
+    echo Cannot read version from main.go
+    exit /b 1
+)
 set "OUTPUT=iptest-web-%VER%.exe"
 
 echo Building %OUTPUT% ...
