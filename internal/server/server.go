@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"io/fs"
+	"net"
 	"net/http"
+	"strings"
 	"sync"
 
 	"iptest-web/internal/config"
@@ -15,13 +17,17 @@ import (
 // Server 是应用层 HTTP 服务器。
 // 单机单用户模型：任意时刻只允许一个活跃任务；SSE 订阅者共享同一条事件总线。
 type Server struct {
-	runner  *engine.Runner
-	assets  fs.FS
-	mux     *http.ServeMux
-	version string
-	cfg     config.Config
+	runner      *engine.Runner
+	assets      fs.FS
+	mux         *http.ServeMux
+	version     string
+	cfg         config.Config
+	dataDir     string
+	configMu    sync.RWMutex
+	rangesMu    sync.Mutex
+	rangesCache *officialRangesResponse
 
-	// 参数默认值：内置默认值叠加 config.json 的覆盖后的结果。
+	// 参数默认值：内置默认值叠加本地 data/config.json 的覆盖结果。
 	// 前端 /api/config 读它做表单初值，请求里缺省的字段也回落到它。
 	latencyDefaults engine.LatencyOptions
 	speedDefaults   engine.SpeedOptions
@@ -37,7 +43,7 @@ type Server struct {
 }
 
 // New 创建 Server 并注册全部路由。assets 为嵌入的前端静态资源。
-func New(runner *engine.Runner, assets fs.FS, version string, cfg config.Config) *Server {
+func New(runner *engine.Runner, assets fs.FS, version string, cfg config.Config, dataDir string) *Server {
 	speedDefaults := engine.DefaultSpeedOptions()
 	if cfg.SpeedTestURL != "" {
 		speedDefaults.DownloadURL = cfg.SpeedTestURL
@@ -49,6 +55,7 @@ func New(runner *engine.Runner, assets fs.FS, version string, cfg config.Config)
 		mux:             http.NewServeMux(),
 		version:         version,
 		cfg:             cfg,
+		dataDir:         dataDir,
 		latencyDefaults: engine.DefaultLatencyOptions(),
 		speedDefaults:   speedDefaults,
 		sseClients:      make(map[chan engine.Event]struct{}),
@@ -58,11 +65,30 @@ func New(runner *engine.Runner, assets fs.FS, version string, cfg config.Config)
 }
 
 // Handler 返回根 http.Handler。
-func (s *Server) Handler() http.Handler { return s.mux }
+func (s *Server) Handler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !isLocalHost(r.Host) {
+			writeError(w, http.StatusForbidden, "仅允许通过本机地址访问")
+			return
+		}
+		s.mux.ServeHTTP(w, r)
+	})
+}
+
+func isLocalHost(hostport string) bool {
+	host := hostport
+	if parsedHost, _, err := net.SplitHostPort(hostport); err == nil {
+		host = parsedHost
+	}
+	host = strings.Trim(strings.ToLower(host), "[]")
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
+}
 
 func (s *Server) registerRoutes() {
 	s.mux.Handle("/", http.FileServer(http.FS(s.assets)))
 	s.mux.HandleFunc("GET /api/config", s.handleConfig)
+	s.mux.HandleFunc("PUT /api/config", s.handleSaveConfig)
+	s.mux.HandleFunc("PUT /api/settings", s.handleSaveSettings)
 	s.mux.HandleFunc("GET /api/official-ranges", s.handleOfficialRanges)
 	s.mux.HandleFunc("POST /api/import/remote", s.handleImportRemote)
 	s.mux.HandleFunc("POST /api/import/text", s.handleImportText)

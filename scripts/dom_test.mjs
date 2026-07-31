@@ -38,16 +38,43 @@ check('index.html 没有重复 id（重复的话 getElementById 只取第一个�
     const dup = declaredIds.filter((id, i) => declaredIds.indexOf(id) !== i);
     assert.deepEqual([...new Set(dup)], []);
 });
+check('版本号按“版本号：时间”格式显示', () => {
+    assert.ok(/id="app-version">版本号：加载中/.test(html), '页面缺少版本号占位');
+    assert.ok(/\$\('app-version'\)\.textContent = `版本号：\$\{config\.version \|\| 'dev'\}`/.test(appJs),
+        '后端版本号没有写入前端版本区域');
+});
+check('导出区只保留一个模板下拉框', () => {
+    assert.ok(/id="format-presets"/.test(html));
+    assert.equal(/id="saved-templates"/.test(html), false, '保存模板不应再使用第二个下拉框');
+});
+check('IPS 检测地址在本地配置中可见', () => {
+    assert.ok(/id="advanced-ips-url"/.test(html));
+    assert.ok(/\$\('advanced-ips-url'\)/.test(appJs));
+});
+check('显示字段支持全选和单独保存', () => {
+    assert.ok(/id="btn-column-all"/.test(html));
+    assert.ok(/id="btn-column-save"/.test(html));
+    assert.ok(/saveDisplayColumns/.test(appJs));
+});
+check('远程地址支持 TXT 与 CSV', () => {
+    assert.ok(/远程 TXT \/ CSV 链接/.test(html));
+    assert.ok(/importCSVText/.test(appJs), '前端缺少远程 CSV 转换逻辑');
+});
+check('筛选说明问号按钮已接线', () => {
+    assert.ok(/id="btn-filter-help"/.test(html), '缺少筛选说明按钮');
+    assert.ok(/id="filter-help"/.test(html), '缺少筛选说明面板');
+    assert.ok(/btn-filter-help/.test(appJs), '问号按钮未绑定事件');
+});
 
 // 静态标记里的 class 选择器。app.js 还用了三处 querySelector：
-//   .mode-tab（静态）/ .field input（静态）/ #quota-grid .quota-item（运行时生成）
+//   .mode-tab（静态）/ .field input（静态）/ .quota-condition（运行时生成）
 console.log('class 选择器:');
 check('.mode-tab 在静态标记里存在', () => {
     assert.ok(/class="mode-tab/.test(html), 'mode-tabs 的按钮绑定会一个都连不上');
 });
-check('.quota-item 由 renderQuotaGrid 生成，且带 data-group', () => {
-    // 这两个必须同时成立：btn-quota-apply 读的是 item.dataset.group
-    assert.ok(/class="quota-item"[^>]*data-group=/.test(appJs), 'data-group 缺失会让配额全部落到 undefined 键上');
+check('.quota-condition 由组合规则编辑器生成', () => {
+    assert.ok(/className = 'quota-condition'/.test(appJs), '组合规则缺少条件编辑行');
+    assert.ok(/picker\.getSelected\(\)/.test(appJs), '组合规则没有读取多选值');
 });
 
 console.log('初次检测是否继续测速:');
@@ -76,7 +103,7 @@ check('速度条件始终可编辑，复选框只控制是否自动继续测速'
 check('统一最大数量按速度规则状态分配到最终阶段', () => {
     const latency = bodyOf('function latencyOptions').slice(0, 700);
     const speed = bodyOf('function speedOptions').slice(0, 700);
-    assert.ok(/speedEnabled\(\) \? 0 : ruleMaxResults\(\)/.test(latency), '启用速度规则时延迟阶段不应先截断');
+    assert.ok(/speedEnabled\(\) \? 0 : ruleMaxResults\(\)/.test(latency), '组合检测的数量限制应只统计最终达标结果');
     assert.ok(/maxResults: ruleMaxResults\(\)/.test(speed), '统一最大数量没有作用到最终测速阶段');
 });
 

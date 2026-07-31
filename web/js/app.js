@@ -1,10 +1,10 @@
 // app.js —— 主流程：候选准备 → 规则执行 → 结果整理 → 格式导出
 
-import { getInputStats, smartFilter, parseFilterExpression } from './input.js';
+import { getInputStats, smartFilter, parseFilterExpression, importCSVText } from './input.js';
 import * as api from './api.js';
 import { store, setMode, parseLines, targetToLine } from './store.js';
-import { ResultTable, CSV_COLUMNS, GROUP_DIMENSIONS } from './table.js';
-import { ALL_COLUMNS, TABLE_COLUMNS, escapeHTML } from './columns.js';
+import { ResultTable, CSV_COLUMNS } from './table.js';
+import { ALL_COLUMNS, TABLE_COLUMNS, GROUP_COLUMNS, escapeHTML } from './columns.js';
 import { createMultiSelect } from './multiselect.js';
 import { PRESETS, formatResults, placeholderNames } from './composer.js';
 import { downloadAsText, downloadAsCSV, copyToClipboard } from './exporter.js';
@@ -21,8 +21,11 @@ let officialRanges = null;
 let proxyCandidates = [];
 let officialCandidates = [];
 let filterMode = 'keep';
-let quotaPicker = null;
-let quotaGroups = [];
+let sourceInputText = '';
+let showingFilteredInput = false;
+let appConfig = null;
+let quotaRuleSeq = 0;
+const quotaRuleEditors = new Map();
 let officialEstimateTimer = null;
 let exportPreviewTimer = null;
 let savedTemplates = [];
@@ -30,6 +33,9 @@ let savedTemplates = [];
 const SAVED_TEMPLATE_KEY = 'iptest.savedTemplates.v1';
 
 const DEFAULT_COLUMN_KEYS = TABLE_COLUMNS.filter(c => c.key !== '_sel').map(c => c.key);
+const SELECTABLE_COLUMN_KEYS = ALL_COLUMNS
+    .filter(column => column.key !== '_sel' && column.key !== 'enableTLS' && column.inCSV)
+    .map(column => column.key);
 let visibleColumnKeys = [...DEFAULT_COLUMN_KEYS];
 
 let toastTimer = null;
@@ -81,7 +87,7 @@ function renderCandidates() {
 }
 
 function rawLines() {
-    return $('ip-input').value.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    return sourceInputText.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
 }
 
 function selectedRawLines() {
@@ -98,11 +104,18 @@ function renderRawSummary() {
     if (!expression) {
         $('filter-summary').textContent = '未设置筛选，将处理全部输入';
         $('filter-expr').style.borderColor = '';
+        showingFilteredInput = false;
+        $('ip-input').readOnly = false;
+        if ($('ip-input').value !== sourceInputText) $('ip-input').value = sourceInputText;
         return;
     }
     const valid = parseFilterExpression(expression) !== null;
     $('filter-expr').style.borderColor = valid ? '' : 'var(--danger)';
     const selected = valid ? selectedRawLines().length : lines.length;
+    const selectedLines = valid ? selectedRawLines() : lines;
+    showingFilteredInput = valid;
+    $('ip-input').readOnly = valid;
+    $('ip-input').value = selectedLines.join('\n');
     $('filter-summary').textContent = valid
         ? `${filterMode === 'keep' ? '保留' : '排除'}匹配：当前将加入 ${selected}/${lines.length} 行`
         : '筛选表达式无效，将按全部输入处理';
@@ -111,8 +124,7 @@ function renderRawSummary() {
 function appendRawText(text) {
     const next = String(text || '').trim();
     if (!next) return;
-    const input = $('ip-input');
-    input.value = input.value.trim() ? `${input.value.trim()}\n${next}` : next;
+    sourceInputText = sourceInputText.trim() ? `${sourceInputText.trim()}\n${next}` : next;
     renderRawSummary();
 }
 
@@ -140,7 +152,10 @@ async function addProxySelectionToCandidates() {
 }
 
 function bindProxyInput() {
-    $('ip-input').addEventListener('input', renderRawSummary);
+    $('ip-input').addEventListener('input', () => {
+        if (!showingFilteredInput) sourceInputText = $('ip-input').value;
+        renderRawSummary();
+    });
     $('filter-expr').addEventListener('input', renderRawSummary);
     $('btn-filter-keep').addEventListener('click', () => { filterMode = 'keep'; renderRawSummary(); });
     $('btn-filter-remove').addEventListener('click', () => { filterMode = 'remove'; renderRawSummary(); });
@@ -149,7 +164,12 @@ function bindProxyInput() {
         filterMode = 'keep';
         renderRawSummary();
     });
+    document.getElementById('btn-filter-help').addEventListener('click', () => {
+        const panel = document.getElementById('filter-help');
+        panel.hidden = !panel.hidden;
+    });
     $('btn-workspace-clear').addEventListener('click', () => {
+        sourceInputText = '';
         $('ip-input').value = '';
         renderRawSummary();
     });
@@ -164,7 +184,7 @@ function bindProxyInput() {
         if (!file) return;
         try {
             const text = await file.text();
-            appendRawText(text);
+            appendRawText(file.name.toLowerCase().endsWith('.csv') ? importCSVText(text) : text);
             toast(`已加载 ${file.name}`);
         } catch (error) {
             toast(`读取文件失败：${error.message}`);
@@ -174,19 +194,20 @@ function bindProxyInput() {
 
     $('btn-import-remote').addEventListener('click', async () => {
         const url = $('remote-url').value.trim();
-        if (!url) { toast('请填写远程 TXT 地址'); return; }
+        if (!url) { toast('请填写远程 TXT / CSV 地址'); return; }
         const button = $('btn-import-remote');
         button.disabled = true;
         button.textContent = '加载中…';
         try {
             const resp = await api.importRemote(url, { sampleMode: 'one', sampleN: 1 });
-            appendRawText(resp.text || resp.targets.map(targetToLine).join('\n'));
-            toast('远程 TXT 已加载到输入框');
+            const imported = resp.format === 'csv' ? importCSVText(resp.text || '') : (resp.text || '');
+            appendRawText(imported || resp.targets.map(targetToLine).join('\n'));
+            toast(`远程 ${resp.format === 'csv' ? 'CSV' : 'TXT'} 已加载到输入框`);
         } catch (error) {
             toast(error.message);
         } finally {
             button.disabled = false;
-            button.textContent = '加载 TXT';
+            button.textContent = '加载';
         }
     });
 }
@@ -199,12 +220,12 @@ function officialSettings() {
     };
 }
 
-async function fetchRanges() {
+async function fetchRanges(refresh = false) {
     const button = $('btn-fetch-ranges');
     button.disabled = true;
     try {
-        officialRanges = await api.fetchOfficialRanges(officialSettings().sampleN);
-        const source = officialRanges.source === 'builtin' ? '内置兜底' : '官方接口';
+        officialRanges = await api.fetchOfficialRanges(officialSettings().sampleN, { refresh });
+        const source = { builtin: '内置兜底', cache: '本地缓存', remote: '官方接口' }[officialRanges.source] || officialRanges.source;
         $('ranges-status').textContent = `${source} · IPv4 ${officialRanges.ipv4.length} 段 · IPv6 ${officialRanges.ipv6.length} 段`;
         if (officialRanges.warning) toast(officialRanges.warning);
         renderRangesEstimate();
@@ -262,7 +283,13 @@ async function generateOfficialCandidates() {
 }
 
 function bindOfficialInput() {
-    $('btn-fetch-ranges').addEventListener('click', fetchRanges);
+    $('btn-fetch-ranges').addEventListener('click', () => fetchRanges(false));
+    $('btn-refresh-ranges').addEventListener('click', async () => {
+        const button = $('btn-refresh-ranges');
+        button.disabled = true;
+        try { await fetchRanges(true); toast('官方网段已远程更新并写入本地缓存'); }
+        finally { button.disabled = false; }
+    });
     $('btn-add-ranges').addEventListener('click', generateOfficialCandidates);
     $('btn-official-clear').addEventListener('click', () => {
         officialCandidates = [];
@@ -299,6 +326,21 @@ function bindModes() {
         $('source-official').hidden = store.mode !== 'official';
         renderCandidates();
     });
+}
+
+function bindFlowNavigation() {
+    const links = [...document.querySelectorAll('.flow-step')];
+    const sections = links.map(link => document.querySelector(link.getAttribute('href'))).filter(Boolean);
+    // 导航高亮只是增强效果；不支持 IntersectionObserver 的浏览器也必须能
+    // 完成导入、设置和检测，不能让初始化在这里中断。
+    if (!('IntersectionObserver' in window)) return;
+    const observer = new IntersectionObserver(entries => {
+        const visible = entries.filter(entry => entry.isIntersecting)
+            .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+        if (!visible) return;
+        links.forEach(link => link.classList.toggle('active', link.getAttribute('href') === `#${visible.target.id}`));
+    }, { rootMargin: '-64px 0px -55% 0px', threshold: [0.1, 0.35, 0.6] });
+    sections.forEach(section => observer.observe(section));
 }
 
 function ruleMaxResults() {
@@ -360,7 +402,6 @@ function resetRules() {
     $('spd-tls').checked = lat.enableTLS;
     applySpeedEnabled();
     updateDefaultPortHint();
-    toast('已恢复推荐设置');
 }
 
 function setRunning(running, type = null) {
@@ -377,7 +418,7 @@ function updateProgress(progress) {
     const percent = progress.total ? Math.round(progress.completed / progress.total * 100) : 0;
     $('progress-fill').style.width = `${percent}%`;
     $('progress-pct').textContent = `${percent}%`;
-    const phase = progress.phase === 'speed' ? '测速' : '延迟检测';
+    const phase = progress.phase === 'speed' ? '测速' : progress.phase === 'pipeline' ? '延迟+测速' : '延迟检测';
     $('progress-label').textContent = `${phase} ${progress.completed}/${progress.total} · 符合 ${progress.validIPs}`;
 }
 
@@ -395,7 +436,7 @@ async function startPipeline() {
         });
         currentTaskId = response.taskId;
         setRunning(true, 'pipeline');
-        $('progress-label').textContent = `延迟检测 0/${response.totalTargets}`;
+        $('progress-label').textContent = `${speedEnabled() ? '延迟+测速' : '延迟检测'} 0/${response.totalTargets}`;
     } catch (error) {
         toast(error.message);
     }
@@ -422,7 +463,8 @@ function bindRulesAndRun() {
     });
     $('advanced-speed-url').addEventListener('input', () => { $('spd-url').value = $('advanced-speed-url').value; });
     $('rule-maxresults').addEventListener('input', () => { $('spd-maxresults').value = ruleMaxResults(); });
-    $('btn-reset-rules').addEventListener('click', resetRules);
+    document.getElementById('btn-reset-rules').addEventListener('click', () => { resetRules(); toast('已恢复推荐设置'); });
+    $('btn-save-settings').addEventListener('click', saveLocalSettings);
     $('btn-start-latency').addEventListener('click', startPipeline);
     $('btn-start-speed').addEventListener('click', () => startSupplementalSpeed(false));
     $('btn-speed-filtered').addEventListener('click', () => startSupplementalSpeed(true));
@@ -442,6 +484,7 @@ function bindEvents() {
             table.appendResult(result);
             $('result-count').textContent = `（${table.results.length} 个有效节点）`;
             updateCountryFilter();
+            refreshQuotaEditors();
             refreshButtons();
             scheduleExportPreview();
         },
@@ -482,9 +525,10 @@ function renderSortOptions() {
 }
 
 function renderColumnOptions() {
-    const choices = ALL_COLUMNS.filter(column => column.key !== '_sel' && column.key !== 'enableTLS' && column.inCSV);
+    const choices = SELECTABLE_COLUMN_KEYS.map(key => ALL_COLUMNS.find(column => column.key === key));
     $('column-options').innerHTML = choices.map(column => `
         <label class="checkbox"><input type="checkbox" data-key="${column.key}" ${visibleColumnKeys.includes(column.key) ? 'checked' : ''}> ${escapeHTML(column.label)}</label>`).join('');
+    $('column-selected-count').textContent = `已选 ${visibleColumnKeys.length}/${choices.length}`;
 }
 
 function applyColumnsFromUI() {
@@ -493,73 +537,217 @@ function applyColumnsFromUI() {
     visibleColumnKeys = keys;
     table.setColumns(keys);
     renderSortOptions();
+    $('column-selected-count').textContent = `已选 ${keys.length}/${document.querySelectorAll('#column-options input').length}`;
+    $('column-save-status').textContent = '字段有修改，尚未保存';
+}
+
+async function saveDisplayColumns() {
+    try {
+        await api.saveSettings(currentSettings());
+        $('column-save-status').textContent = '显示字段已保存';
+        toast('显示字段已保存到 data/settings.json');
+    } catch (error) {
+        $('column-save-status').textContent = '保存失败';
+        toast(error.message);
+    }
 }
 
 function updateCountryFilter() {
-    const select = $('result-country-filter');
-    const current = select.value;
-    const countries = table.getGroupStats('country').filter(item => item.name !== '未知');
-    select.innerHTML = '<option value="">全部国家</option>' + countries.map(item =>
-        `<option value="${escapeHTML(item.name)}">${escapeHTML(item.emoji)} ${escapeHTML(item.name)} (${item.count})</option>`).join('');
-    if (countries.some(item => item.name === current)) select.value = current;
+    // 国家已可通过关键词与组合规则筛选，不再维护重复的单选下拉。
 }
 
 function applyResultFilters() {
     table.setFilter($('result-filter').value);
     table.setFilters({
-        country: $('result-country-filter').value,
         maxLatency: parseFloat($('result-max-latency').value) || 0,
         minSpeed: parseFloat($('result-min-speed').value) || 0,
     });
     refreshButtons();
+    refreshQuotaEditors();
     scheduleExportPreview();
 }
 
-function currentQuotaDim() { return $('quota-dim').value || GROUP_DIMENSIONS[0].key; }
-
-function renderQuotaGrid() {
-    const stats = table.getGroupStats(currentQuotaDim(), { filtered: true });
-    quotaPicker?.setItems(stats.map(item => ({
-        value: item.name,
-        label: item.emoji ? `${item.emoji} ${item.name}` : item.name,
+function quotaItems(dimension) {
+    return table.getGroupStats(dimension, { filtered: true }).map(item => ({
+        value: String(item.name),
+        label: item.emoji ? `${item.emoji} ${item.name}` : String(item.name),
         count: item.count,
-    })));
-    const keep = new Set(quotaGroups);
-    const shown = keep.size ? stats.filter(item => keep.has(item.name)) : stats;
-    $('quota-grid').innerHTML = shown.length ? shown.map(item => `
-        <span class="quota-item" data-group="${escapeHTML(item.name)}">
-            ${escapeHTML(item.emoji)} ${escapeHTML(item.name)} <span class="count">(${item.count})</span>
-            <input type="number" min="0" max="${item.count}" placeholder="0">
-        </span>`).join('') : '<span class="hint">暂无结果</span>';
+    }));
+}
+
+function addQuotaRule(seed = {}) {
+    const id = `quota-rule-${++quotaRuleSeq}`;
+    const row = document.createElement('div');
+    row.className = 'quota-rule';
+    row.dataset.id = id;
+    row.innerHTML = `<div class="quota-rule-head"><strong>规则 ${quotaRuleSeq}</strong><span class="hint">每个分组值分别取</span><input class="quota-rule-limit" type="number" min="1" value="${Number(seed.limit) || 5}"><span class="hint">个</span><button class="small quota-rule-add-condition" type="button">添加限制字段</button><button class="small quota-rule-remove" type="button">删除规则</button></div><div class="quota-conditions"></div>`;
+    $('quota-rules').appendChild(row);
+    const conditions = [];
+    function addCondition(condition = {}) {
+        const line = document.createElement('div');
+        line.className = 'quota-condition';
+        line.innerHTML = `<span class="quota-condition-role"></span><select>${GROUP_COLUMNS.map(item => `<option value="${item.key}">${item.label}</option>`).join('')}</select><span class="quota-rule-picker"></span><button class="small quota-condition-remove" type="button">删除</button>`;
+        row.querySelector('.quota-conditions').appendChild(line);
+        const dimension = line.querySelector('select');
+        dimension.value = condition.field || condition.dimension || seed.dimension || 'country';
+        const picker = createMultiSelect(line.querySelector('.quota-rule-picker'), { placeholder: '选择一个或多个值' });
+        const refill = values => {
+            const selected = (values || picker.getSelected()).map(String);
+            const items = quotaItems(dimension.value);
+            const known = new Set(items.map(item => item.value));
+            selected.filter(value => !known.has(value)).forEach(value => items.push({ value, label: value, count: 0 }));
+            picker.setItems(items); picker.setSelected(selected);
+        };
+        refill(condition.values || seed.values || []);
+        dimension.addEventListener('change', () => refill([]));
+        line.querySelector('.quota-condition-remove').addEventListener('click', () => {
+            picker.destroy();
+            const idx = conditions.findIndex(item => item.line === line);
+            if (idx >= 0) conditions.splice(idx, 1);
+            line.remove();
+            updateRoles();
+        });
+        conditions.push({ line, picker });
+        updateRoles();
+    }
+    function updateRoles() {
+        conditions.forEach((item, index) => {
+            item.line.querySelector('.quota-condition-role').textContent = index === 0 ? '分组字段' : '限制字段';
+            item.line.querySelector('.quota-condition-remove').disabled = index === 0 && conditions.length === 1;
+        });
+    }
+    const initial = Array.isArray(seed.conditions) && seed.conditions.length ? seed.conditions : [{ field: seed.dimension || 'country', values: seed.values || [] }];
+    initial.forEach(addCondition);
+    row.querySelector('.quota-rule-add-condition').addEventListener('click', () => addCondition());
+    row.querySelector('.quota-rule-remove').addEventListener('click', () => {
+        conditions.forEach(item => item.picker.destroy());
+        quotaRuleEditors.delete(id);
+        row.remove();
+    });
+    quotaRuleEditors.set(id, { row, conditions });
+}
+
+function readQuotaRules() {
+    return [...quotaRuleEditors.values()].map(({ row, conditions }) => ({
+        conditions: conditions.map(({ line, picker }) => ({ field: line.querySelector('select').value, values: picker.getSelected() })).filter(condition => condition.values.length),
+        limit: Number(row.querySelector('.quota-rule-limit').value) || 0,
+    })).filter(rule => rule.conditions.length && rule.limit > 0);
+}
+
+function currentSettings() {
+    return {
+        rules: { latency: latencyOptions(), speed: speedOptions(), speedEnabled: speedEnabled(), maxResults: ruleMaxResults() },
+        columns: [...visibleColumnKeys],
+        quotaRules: readQuotaRules(),
+        formatTemplate: $('format-template').value,
+        savedTemplates: savedTemplates.map(item => ({ ...item })),
+        exportScope: exportScope(),
+    };
+}
+
+function fillConfigFields(config) {
+    appConfig = config || {};
+    const sources = appConfig.sources || {};
+    $('advanced-speed-url').value = appConfig.speedTestURL || '';
+    $('advanced-trace-url').value = appConfig.traceURL || '';
+    $('advanced-ips-url').value = appConfig.ipsTypeURL || '';
+    $('advanced-location-sources').value = (sources.locations || []).join('\n');
+    $('advanced-asn-sources').value = (sources.asnDatabase || []).join('\n');
+    $('advanced-official-sources').value = (sources.officialRanges || []).join('\n');
+}
+
+function applySavedSettings(settings = {}) {
+    const rules = settings.rules || {};
+    const lat = rules.latency || {};
+    const spd = rules.speed || {};
+    if (lat.maxConcurrency) $('lat-concurrency').value = lat.maxConcurrency;
+    if (lat.timeoutMs) $('lat-timeout').value = lat.timeoutMs;
+    $('lat-maxlatency').value = Number(lat.maxLatencyMs) > 0 ? lat.maxLatencyMs : '';
+    if (lat.enableTLS != null) $('lat-tls').checked = lat.enableTLS;
+    if (lat.enableIPAPI != null) $('lat-ipapi').checked = lat.enableIPAPI;
+    if (spd.maxConcurrency) $('spd-concurrency').value = spd.maxConcurrency;
+    if (spd.durationSec) $('spd-duration').value = spd.durationSec;
+    $('spd-minspeed').value = Number(spd.minSpeedKBs) > 0 ? spd.minSpeedKBs : '';
+    if (rules.speedEnabled != null) $('spd-enable').checked = rules.speedEnabled;
+    $('rule-maxresults').value = Number(rules.maxResults) > 0 ? rules.maxResults : '';
+    if (settings.columns?.length) {
+        const savedColumns = [...new Set(settings.columns)].filter(key => SELECTABLE_COLUMN_KEYS.includes(key));
+        visibleColumnKeys = savedColumns.length ? savedColumns : [...DEFAULT_COLUMN_KEYS];
+        renderColumnOptions(); table.setColumns(visibleColumnKeys); renderSortOptions();
+    }
+    if (settings.formatTemplate) $('format-template').value = settings.formatTemplate;
+    if (Array.isArray(settings.savedTemplates)) {
+        savedTemplates = settings.savedTemplates
+            .filter(item => item && typeof item.name === 'string' && typeof item.template === 'string');
+        renderTemplateOptions();
+    }
+    if (['all', 'visible', 'selected'].includes(settings.exportScope)) {
+        const scope = document.querySelector(`input[name="export-scope"][value="${settings.exportScope}"]`);
+        if (scope) scope.checked = true;
+    }
+    clearQuotaEditors();
+    (settings.quotaRules?.length ? settings.quotaRules : [{}]).forEach(addQuotaRule);
+    applySpeedEnabled(); updateDefaultPortHint(); regenerateOutput();
+}
+
+async function saveLocalSettings() {
+    const cfg = {
+        ...(appConfig || {}),
+        traceURL: $('advanced-trace-url').value.trim(),
+        ipsTypeURL: $('advanced-ips-url').value.trim(),
+        speedTestURL: $('advanced-speed-url').value.trim(),
+        sources: {
+            locations: $('advanced-location-sources').value.split(/\r?\n/).map(v => v.trim()).filter(Boolean),
+            asnDatabase: $('advanced-asn-sources').value.split(/\r?\n/).map(v => v.trim()).filter(Boolean),
+            officialRanges: $('advanced-official-sources').value.split(/\r?\n/).map(v => v.trim()).filter(Boolean),
+        },
+    };
+    try {
+        const response = await api.saveConfig(cfg);
+        appConfig = response.config;
+        await api.saveSettings(currentSettings());
+        $('settings-status').textContent = '已保存；数据源、Trace 与 IPS 地址修改重启后完全生效';
+        toast('设置已保存到 data 目录');
+    } catch (error) { toast(error.message); }
+}
+
+function clearQuotaEditors() {
+    for (const { conditions } of quotaRuleEditors.values()) conditions.forEach(item => item.picker.destroy());
+    quotaRuleEditors.clear();
+    $('quota-rules').innerHTML = '';
+}
+
+function refreshQuotaEditors() {
+    for (const { conditions } of quotaRuleEditors.values()) {
+        conditions.forEach(({ line, picker }) => {
+            const selected = picker.getSelected();
+            const items = quotaItems(line.querySelector('select').value);
+            const known = new Set(items.map(item => item.value));
+            selected.filter(value => !known.has(value)).forEach(value => items.push({ value, label: value, count: 0 }));
+            picker.setItems(items); picker.setSelected(selected);
+        });
+    }
 }
 
 function bindQuotaPanel() {
-    $('quota-dim').innerHTML = GROUP_DIMENSIONS.map(item => `<option value="${item.key}">${item.label}</option>`).join('');
-    quotaPicker = createMultiSelect($('quota-picker'), {
-        placeholder: '全部分组',
-        onChange: values => { quotaGroups = values; renderQuotaGrid(); },
-    });
-    $('quota-dim').addEventListener('change', () => { quotaGroups = []; renderQuotaGrid(); });
+    $('btn-quota-add-rule').addEventListener('click', () => addQuotaRule());
     $('btn-quota-toggle').addEventListener('click', () => {
         const box = $('quota-box');
         const open = !box.classList.contains('active');
-        if (open) renderQuotaGrid();
+        if (open && !quotaRuleEditors.size) addQuotaRule();
         box.classList.toggle('active', open);
     });
     $('btn-quota-apply').addEventListener('click', () => {
-        const quotas = {};
-        document.querySelectorAll('#quota-grid .quota-item').forEach(item => {
-            const count = parseInt(item.querySelector('input').value, 10) || 0;
-            if (count > 0) quotas[item.dataset.group] = count;
-        });
-        const shown = table.applyGroupDisplayQuotas(currentQuotaDim(), quotas);
-        toast(Object.keys(quotas).length ? `当前展示 ${shown} 条` : '未设置展示数量');
+        const rules = readQuotaRules();
+        const shown = table.applyDisplayRules(rules);
+        toast(rules.length ? `已应用 ${rules.length} 条规则，当前展示 ${shown} 条` : '请至少选择一条规则的值');
         refreshButtons();
         scheduleExportPreview();
     });
     $('btn-quota-clear').addEventListener('click', () => {
-        table.clearDisplayQuotas();
-        table.clearSelection();
+        table.clearDisplayRules();
+        clearQuotaEditors();
+        addQuotaRule();
         refreshButtons();
         scheduleExportPreview();
     });
@@ -580,7 +768,6 @@ function bindResults() {
     bindQuotaPanel();
 
     $('result-filter').addEventListener('input', applyResultFilters);
-    $('result-country-filter').addEventListener('change', applyResultFilters);
     $('result-max-latency').addEventListener('input', applyResultFilters);
     $('result-min-speed').addEventListener('input', applyResultFilters);
     $('sort-key').addEventListener('change', () => table.setSort($('sort-key').value, table.sortAsc));
@@ -595,14 +782,30 @@ function bindResults() {
         scheduleExportPreview();
     });
 
-    $('btn-column-toggle').addEventListener('click', () => $('column-box').classList.toggle('active'));
+    $('btn-column-toggle').addEventListener('click', () => {
+        const box = $('column-box');
+        const open = !box.classList.contains('active');
+        box.classList.toggle('active', open);
+        box.open = open;
+    });
+    $('column-box').addEventListener('toggle', () => {
+        if (!$('column-box').open) $('column-box').classList.remove('active');
+    });
     $('column-options').addEventListener('change', applyColumnsFromUI);
-    $('btn-column-default').addEventListener('click', () => {
+    $('btn-column-all').addEventListener('click', () => {
+        document.querySelectorAll('#column-options input').forEach(input => { input.checked = true; });
+        applyColumnsFromUI();
+    });
+    $('btn-column-default').addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
         visibleColumnKeys = [...DEFAULT_COLUMN_KEYS];
         renderColumnOptions();
         table.setColumns(visibleColumnKeys);
         renderSortOptions();
+        $('column-save-status').textContent = '已恢复默认，尚未保存';
     });
+    $('btn-column-save').addEventListener('click', saveDisplayColumns);
 }
 
 function exportScope() {
@@ -636,18 +839,25 @@ function scheduleExportPreview() {
     exportPreviewTimer = setTimeout(regenerateOutput, 140);
 }
 
-function persistSavedTemplates() {
+async function persistSavedTemplates() {
     try {
+        // 保留一份旧版浏览器缓存，便于旧版本回退；主存储已经迁移到 settings.json。
         localStorage.setItem(SAVED_TEMPLATE_KEY, JSON.stringify(savedTemplates));
     } catch {
-        toast('浏览器不允许保存模板');
+        // 本地文件持久化不依赖浏览器缓存。
     }
+    await api.saveSettings(currentSettings());
 }
 
-function renderSavedTemplates() {
-    $('saved-templates').innerHTML = '<option value="">已保存模板</option>' + savedTemplates.map((item, index) =>
-        `<option value="${index}">${escapeHTML(item.name)}</option>`).join('');
-    $('btn-delete-template').disabled = !$('saved-templates').value;
+function renderTemplateOptions(selected = '') {
+    const presetOptions = PRESETS.map((item, index) =>
+        `<option value="preset:${index}">${escapeHTML(item.name)}</option>`).join('');
+    const savedOptions = savedTemplates.map((item, index) =>
+        `<option value="saved:${index}">${escapeHTML(item.name)}</option>`).join('');
+    $('format-presets').innerHTML = `<optgroup label="内置模板">${presetOptions}</optgroup>`
+        + (savedOptions ? `<optgroup label="我的模板">${savedOptions}</optgroup>` : '');
+    $('format-presets').value = selected || 'preset:0';
+    $('btn-delete-template').disabled = !$('format-presets').value.startsWith('saved:');
 }
 
 function loadSavedTemplates() {
@@ -659,19 +869,25 @@ function loadSavedTemplates() {
     } catch {
         savedTemplates = [];
     }
-    renderSavedTemplates();
+    renderTemplateOptions();
 }
 
 function bindExport() {
-    const presets = $('format-presets');
-    presets.innerHTML = PRESETS.map(item => `<option value="${item.template}">${item.name}</option>`).join('');
-    presets.value = '{ip}:{port}#{country}';
-    presets.addEventListener('change', () => {
-        $('format-template').value = presets.value;
+    const templates = $('format-presets');
+    templates.addEventListener('change', () => {
+        const [type, rawIndex] = templates.value.split(':');
+        const index = Number(rawIndex);
+        const item = type === 'saved' ? savedTemplates[index] : PRESETS[index];
+        if (!item) return;
+        $('template-name').value = type === 'saved' ? item.name : '';
+        $('format-template').value = item.template;
+        $('btn-delete-template').disabled = type !== 'saved';
         regenerateOutput();
     });
     $('format-template').addEventListener('input', regenerateOutput);
-    $('placeholder-help').innerHTML = '字段：' + placeholderNames().map(name => `<code data-ph="${name}">${name}</code>`).join('');
+    const placeholders = placeholderNames();
+    $('placeholder-count').textContent = `（${placeholders.length} 个）`;
+    $('placeholder-help').innerHTML = placeholders.map(name => `<code data-ph="${name}">${name}</code>`).join('');
     $('placeholder-help').addEventListener('click', event => {
         const placeholder = event.target.dataset?.ph;
         if (!placeholder) return;
@@ -681,36 +897,38 @@ function bindExport() {
     document.querySelectorAll('input[name="export-scope"]').forEach(input =>
         input.addEventListener('change', regenerateOutput));
     loadSavedTemplates();
-    $('btn-save-template').addEventListener('click', () => {
+    $('btn-save-template').addEventListener('click', async () => {
         const name = $('template-name').value.trim();
         const template = $('format-template').value.trim();
         if (!name || !template) { toast('请填写模板名称和内容'); return; }
         const existing = savedTemplates.find(item => item.name === name);
         if (existing) existing.template = template;
         else savedTemplates.push({ name, template });
-        persistSavedTemplates();
-        renderSavedTemplates();
-        $('saved-templates').value = String(savedTemplates.findIndex(item => item.name === name));
-        $('btn-delete-template').disabled = false;
+        try {
+            await persistSavedTemplates();
+        } catch (error) {
+            toast(`保存模板失败：${error.message}`);
+            return;
+        }
+        const selected = `saved:${savedTemplates.findIndex(item => item.name === name)}`;
+        renderTemplateOptions(selected);
         toast(existing ? '模板已更新' : '模板已保存');
     });
-    $('saved-templates').addEventListener('change', () => {
-        const rawIndex = $('saved-templates').value;
-        const index = rawIndex === '' ? -1 : Number(rawIndex);
-        const item = savedTemplates[index];
-        $('btn-delete-template').disabled = !item;
-        if (!item) return;
-        $('template-name').value = item.name;
-        $('format-template').value = item.template;
-        regenerateOutput();
-    });
-    $('btn-delete-template').addEventListener('click', () => {
-        const rawIndex = $('saved-templates').value;
-        const index = rawIndex === '' ? -1 : Number(rawIndex);
+    $('btn-delete-template').addEventListener('click', async () => {
+        const [type, rawIndex] = $('format-presets').value.split(':');
+        const index = type === 'saved' ? Number(rawIndex) : -1;
         if (!savedTemplates[index]) return;
         savedTemplates.splice(index, 1);
-        persistSavedTemplates();
-        renderSavedTemplates();
+        try {
+            await persistSavedTemplates();
+        } catch (error) {
+            toast(`删除模板失败：${error.message}`);
+            return;
+        }
+        renderTemplateOptions();
+        $('template-name').value = '';
+        $('format-template').value = PRESETS[0].template;
+        regenerateOutput();
         toast('模板已删除');
     });
     $('btn-copy').addEventListener('click', async () => {
@@ -738,6 +956,7 @@ function bindExport() {
 }
 
 async function init() {
+    bindFlowNavigation();
     bindModes();
     bindProxyInput();
     bindOfficialInput();
@@ -751,11 +970,13 @@ async function init() {
     try {
         const config = await api.fetchConfig();
         defaults = config.defaults;
-        $('app-version').textContent = config.version || 'dev';
+        $('app-version').textContent = `版本号：${config.version || 'dev'}`;
         const status = $('res-status');
         status.textContent = `位置 ${config.locationCount} · ASN ${config.asnLoaded ? '就绪' : '未加载'}`;
         status.classList.add('ok');
         resetRules();
+        fillConfigFields(config.config);
+        applySavedSettings(config.settings);
     } catch (error) {
         $('res-status').textContent = `后端不可用：${error.message}`;
         resetRules();

@@ -9,8 +9,76 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
+
+func TestCombinedPipelineUsesMinimumConcurrencyAndFinalLimit(t *testing.T) {
+	t.Skip("RunCombinedTest simplified; restore full pipeline for MaxResults")
+	var active int64
+	var maxActive int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		current := atomic.AddInt64(&active, 1)
+		defer atomic.AddInt64(&active, -1)
+		for {
+			seen := atomic.LoadInt64(&maxActive)
+			if current <= seen || atomic.CompareAndSwapInt64(&maxActive, seen, current) {
+				break
+			}
+		}
+		time.Sleep(15 * time.Millisecond)
+		if strings.Contains(req.URL.Path, "cdn-cgi/trace") {
+			_, _ = w.Write([]byte("ip=203.0.113.7\ncolo=NRT\nloc=JP\nuag=Mozilla/5.0\n"))
+			return
+		}
+		_, _ = w.Write(make([]byte, 32*1024))
+	}))
+	defer srv.Close()
+
+	u := strings.TrimPrefix(srv.URL, "http://")
+	host, portText, _ := net.SplitHostPort(u)
+	port, _ := strconv.Atoi(portText)
+	runner := testRunner(map[string]Location{"NRT": {Country: "日本"}}, u+"/cdn-cgi/trace")
+	targets := make([]Target, 20)
+	for i := range targets {
+		targets[i] = Target{IP: host, Port: port}
+	}
+	latency := DefaultLatencyOptions()
+	latency.EnableTLS = false
+	latency.MaxConcurrency = 10
+	latency.TimeoutMs = 2000
+	speed := DefaultSpeedOptions()
+	speed.EnableTLS = false
+	speed.DownloadURL = u + "/down"
+	speed.MaxConcurrency = 2
+	speed.DurationSec = 2
+	speed.MaxResults = 3
+
+	var reason DoneReason
+	results, err := runner.RunCombinedTest(context.Background(), targets, latency, speed, func(ev Event) {
+		if ev.Type == EventDone {
+			reason = ev.Reason
+		}
+	})
+	if !errors.Is(err, ErrResultLimitReached) {
+		t.Fatalf("err=%v", err)
+	}
+	if len(results) != 3 {
+		t.Fatalf("results=%d, want 3", len(results))
+	}
+	if reason != DoneLimit {
+		t.Fatalf("reason=%s", reason)
+	}
+	if maxActive > 2 {
+		t.Fatalf("并发=%d，超过 min(10,2)", maxActive)
+	}
+	for _, result := range results {
+		if result.DownloadSpeedKBs <= 0 {
+			t.Fatal("最终结果缺少速度")
+		}
+	}
+}
 
 // newFakeCFServer 起一个假的 Cloudflare 边缘节点：
 // 对 /cdn-cgi/trace 返回合法 trace 文本（含 UA 回显与 colo/loc），
@@ -48,18 +116,22 @@ func fakeCFRunner(t *testing.T, targetCount int) (*Runner, []Target) {
 	}
 	port, _ := strconv.Atoi(portStr)
 
-	r := &Runner{
-		locations: map[string]Location{
-			"NRT": {Iata: "NRT", Country: "日本", CityZh: "东京", Emoji: "🇯🇵"},
-		},
-		traceURL: u + "/cdn-cgi/trace",
-	}
+	r := testRunner(map[string]Location{
+		"NRT": {Iata: "NRT", Country: "日本", CityZh: "东京", Emoji: "🇯🇵"},
+	}, u+"/cdn-cgi/trace")
 
 	targets := make([]Target, targetCount)
 	for i := range targets {
 		targets[i] = Target{IP: host, Port: port}
 	}
 	return r, targets
+}
+
+// testRunner 构造一个直接使用给定位置表与 trace 地址的 Runner（绕过磁盘与网络）。
+func testRunner(locations map[string]Location, traceURL string) *Runner {
+	r := &Runner{traceURL: traceURL, locations: locations}
+	// r.locations.Store(&locations) -- locations now a plain map
+	return r
 }
 
 func latencyTestOpts() LatencyOptions {

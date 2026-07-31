@@ -1,7 +1,6 @@
 // iptest-web：Cloudflare IP 测速本地 Web 应用。
 //
-// 双击启动后在浏览器中使用；数据文件（locations.json、GeoLite2-ASN.mmdb）
-// 存放在 exe 同目录，首次启动时自动下载。
+// 双击启动后在浏览器中使用；配置、设置和运行数据统一存放在 exe 同级 data 目录。
 package main
 
 import (
@@ -40,38 +39,49 @@ func main() {
 	noBrowser := flag.Bool("no-browser", false, "启动后不自动打开浏览器")
 	flag.Parse()
 
-	dataDir := exeDir()
+	executableDir := exeDir()
+	dataDir, err := config.PrepareDataDir(executableDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "创建数据目录失败: %v\n", err)
+		os.Exit(1)
+	}
+	sub, err := fs.Sub(webFS, "web")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "加载内嵌页面失败: %v\n", err)
+		os.Exit(1)
+	}
 	cfg := config.Load(dataDir)
 
-	fmt.Println("正在加载地理位置与 ASN 数据库（首次运行需下载）...")
+	fmt.Println("启动中：地理位置与 ASN 数据库若有缺失将在后台下载，不影响使用...")
 	runner, err := engine.NewRunner(engine.RunnerConfig{
 		DataDir:         dataDir,
 		LocationSources: cfg.Sources.Locations,
 		ASNSources:      cfg.Sources.ASNDatabase,
 		TraceURL:        cfg.TraceURL,
+		IPSTypeURL:      cfg.IPSTypeURL,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "初始化失败: %v\n", err)
 		os.Exit(1)
 	}
 	defer runner.Close()
-	fmt.Printf("资源就绪：地理位置 %d 条，ASN 数据库%s\n",
-		runner.LocationCount(), map[bool]string{true: "已加载", false: "未加载"}[runner.ASNLoaded()])
+	fmt.Printf("资源状态：地理位置 %d 条，ASN 数据库%s\n",
+		runner.LocationCount(), map[bool]string{true: "已加载", false: "后台加载中"}[runner.ASNLoaded()])
 
-	sub, err := fs.Sub(webFS, "web")
+	srv := server.New(runner, sub, version, cfg, dataDir)
+
+	addr, ln, err := listenOnPort(*port)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "加载内嵌页面失败: %v\n", err)
+		fmt.Fprintf(os.Stderr, "端口 %d-%d 均无法使用: %v\n", *port, *port+20, err)
+		fmt.Fprintln(os.Stderr, "请关闭已有 iptest-web 实例，或使用 -port 指定其他端口。")
 		os.Exit(1)
 	}
-	srv := server.New(runner, sub, version, cfg)
-
-	addr := fmt.Sprintf("127.0.0.1:%d", *port)
-	httpServer := &http.Server{Addr: addr, Handler: srv.Handler()}
-
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "端口 %d 被占用: %v\n（可用 -port 指定其他端口）\n", *port, err)
-		os.Exit(1)
+	httpServer := &http.Server{
+		Addr:              addr,
+		Handler:           srv.Handler(),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	url := fmt.Sprintf("http://%s", addr)
@@ -87,16 +97,30 @@ func main() {
 		}
 	}()
 
-	// 优雅退出
+	// Ctrl+C、系统终止和 Windows 控制台关闭按钮统一走优雅退出。
+	shutdownCh := make(chan struct{}, 1)
+	shutdownDone := make(chan struct{})
+	uninstallConsoleHandler := installConsoleCloseHandler(shutdownCh, shutdownDone)
+	defer uninstallConsoleHandler()
+
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	<-sigCh
+	defer signal.Stop(sigCh)
+	go func() {
+		<-sigCh
+		select {
+		case shutdownCh <- struct{}{}:
+		default:
+		}
+	}()
+	<-shutdownCh
 
 	fmt.Println("\n正在退出...")
 	srv.CancelActive()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	_ = httpServer.Shutdown(ctx)
+	close(shutdownDone)
 }
 
 // exeDir 返回可执行文件所在目录；获取失败时退回当前工作目录。
@@ -106,6 +130,21 @@ func exeDir() string {
 		return "."
 	}
 	return filepath.Dir(exe)
+}
+
+// listenOnPort 优先使用用户指定端口；默认端口被旧实例占用时顺延尝试一小段范围，
+// 避免双击启动因旧窗口未关闭而立即退出。调用方会使用实际监听地址打开浏览器。
+func listenOnPort(port int) (string, net.Listener, error) {
+	var lastErr error
+	for candidate := port; candidate <= port+20; candidate++ {
+		addr := fmt.Sprintf("127.0.0.1:%d", candidate)
+		ln, err := net.Listen("tcp", addr)
+		if err == nil {
+			return addr, ln, nil
+		}
+		lastErr = err
+	}
+	return "", nil, lastErr
 }
 
 // openBrowser 按平台调起默认浏览器。
@@ -120,5 +159,7 @@ func openBrowser(url string) {
 	default:
 		cmd = exec.Command("xdg-open", url)
 	}
-	_ = cmd.Start()
+	if err := cmd.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "无法自动打开浏览器，请手动访问 %s: %v\n", url, err)
+	}
 }

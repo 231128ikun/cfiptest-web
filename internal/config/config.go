@@ -1,14 +1,4 @@
-// Package config 负责 exe 同目录下 config.json 的读写。
-//
-// 设计取向：配置文件的唯一职责是「把硬编码的外部依赖挪到程序外面」，
-// 让用户换源、换 trace 接口不需要重新编译。因此
-//
-//   - 每个源都是**字符串数组**，运行时依次尝试，全失败才报错；
-//   - 缺失字段回落到内置默认值，所以删掉整个 config.json 也能正常启动；
-//   - 首次启动会把当前生效的完整配置写回磁盘，用户可以直接看到有哪些可调项。
-//
-// 默认值本身定义在 engine 包（DefaultLocationSources 等），此处只做引用，
-// 避免同一个 URL 在两个包里各写一份而漂移。
+// Package config manages local application configuration under data/.
 package config
 
 import (
@@ -16,28 +6,29 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"iptest-web/internal/engine"
 )
 
-// FileName 是配置文件名，位于 exe 同目录。
-const FileName = "config.json"
+const (
+	FileName     = "config.json"
+	SettingsName = "settings.json"
+)
 
-// Sources 汇总所有需要联网获取的资源地址。
 type Sources struct {
-	Locations      []string `json:"locations"`      // 地理位置数据（IATA -> 国家/城市/国旗）
-	ASNDatabase    []string `json:"asnDatabase"`    // GeoLite2-ASN.mmdb
-	OfficialRanges []string `json:"officialRanges"` // Cloudflare 官方 IP 段
+	Locations      []string `json:"locations"`
+	ASNDatabase    []string `json:"asnDatabase"`
+	OfficialRanges []string `json:"officialRanges"`
 }
 
-// Config 是 config.json 的完整结构。
 type Config struct {
 	Sources      Sources `json:"sources"`
-	SpeedTestURL string  `json:"speedTestURL"` // 下载测速地址（不含协议头）
-	TraceURL     string  `json:"traceURL"`     // CF 节点验证接口（不含协议头）
+	SpeedTestURL string  `json:"speedTestURL"`
+	TraceURL     string  `json:"traceURL"`
+	IPSTypeURL   string  `json:"ipsTypeURL"`
 }
 
-// Default 返回内置默认配置。
 func Default() Config {
 	return Config{
 		Sources: Sources{
@@ -47,42 +38,80 @@ func Default() Config {
 		},
 		SpeedTestURL: engine.DefaultSpeedOptions().DownloadURL,
 		TraceURL:     engine.DefaultTraceURL,
+		IPSTypeURL:   engine.DefaultIPSTypeURL,
 	}
 }
 
-// Load 读取 dataDir/config.json。
-//
-// 文件不存在时写入一份默认配置并返回它。文件存在但字段缺失/为空时，
-// 该字段回落到默认值——这样用户只写自己关心的几项也能工作。
-// 解析失败不致命：告警后按默认值运行，避免一个手写错的逗号让程序起不来。
-func Load(dataDir string) Config {
-	path := filepath.Join(dataDir, FileName)
-	def := Default()
-
-	body, err := os.ReadFile(path)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			fmt.Printf("警告: 读取 %s 失败（%v），使用默认配置\n", FileName, err)
-			return def
+// PrepareDataDir creates exeDir/data and copies legacy runtime files from the
+// executable directory when no managed copy exists yet.
+func PrepareDataDir(exeDir string) (string, error) {
+	dataDir := filepath.Join(exeDir, "data")
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		return "", err
+	}
+	for _, name := range []string{
+		FileName, SettingsName, "locations.json", "GeoLite2-ASN.mmdb",
+		"cloudflare-ips-v4.txt", "cloudflare-ips-v6.txt",
+	} {
+		dst := filepath.Join(dataDir, name)
+		if _, err := os.Stat(dst); err == nil {
+			continue
 		}
-		if werr := Save(dataDir, def); werr != nil {
-			fmt.Printf("警告: 无法写入默认 %s: %v\n", FileName, werr)
+		src := filepath.Join(exeDir, name)
+		body, err := os.ReadFile(src)
+		if err != nil {
+			continue
+		}
+		if err := os.WriteFile(dst, body, 0644); err != nil {
+			return "", fmt.Errorf("迁移 %s: %w", name, err)
+		}
+	}
+	return dataDir, nil
+}
+
+func Load(dataDir string) Config {
+	def := Default()
+	body, err := os.ReadFile(filepath.Join(dataDir, FileName))
+	if err != nil {
+		if os.IsNotExist(err) {
+			_ = Save(dataDir, def)
+		} else {
+			fmt.Printf("警告: 读取 %s 失败: %v\n", FileName, err)
 		}
 		return def
 	}
-
 	var cfg Config
 	if err := json.Unmarshal(body, &cfg); err != nil {
-		fmt.Printf("警告: %s 不是合法 JSON（%v），本次使用默认配置\n", FileName, err)
+		fmt.Printf("警告: %s 格式错误（%v），使用默认配置\n", FileName, err)
 		return def
 	}
-
-	cfg.fillDefaults(def)
+	cfg.FillDefaults(def)
 	return cfg
 }
 
-// fillDefaults 用 def 补齐 c 中缺失或为空的字段。
-func (c *Config) fillDefaults(def Config) {
+func Save(dataDir string, cfg Config) error {
+	cfg.FillDefaults(Default())
+	body, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeJSONFile(filepath.Join(dataDir, FileName), body)
+}
+
+func nonEmpty(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func (c *Config) FillDefaults(def Config) {
+	c.Sources.Locations = nonEmpty(c.Sources.Locations)
+	c.Sources.ASNDatabase = nonEmpty(c.Sources.ASNDatabase)
+	c.Sources.OfficialRanges = nonEmpty(c.Sources.OfficialRanges)
 	if len(c.Sources.Locations) == 0 {
 		c.Sources.Locations = def.Sources.Locations
 	}
@@ -92,19 +121,59 @@ func (c *Config) fillDefaults(def Config) {
 	if len(c.Sources.OfficialRanges) == 0 {
 		c.Sources.OfficialRanges = def.Sources.OfficialRanges
 	}
-	if c.SpeedTestURL == "" {
+	if strings.TrimSpace(c.SpeedTestURL) == "" {
 		c.SpeedTestURL = def.SpeedTestURL
 	}
-	if c.TraceURL == "" {
+	if strings.TrimSpace(c.TraceURL) == "" {
 		c.TraceURL = def.TraceURL
+	}
+	if strings.TrimSpace(c.IPSTypeURL) == "" {
+		c.IPSTypeURL = def.IPSTypeURL
 	}
 }
 
-// Save 把配置写入 dataDir/config.json（缩进格式，便于手工编辑）。
-func Save(dataDir string, cfg Config) error {
-	body, err := json.MarshalIndent(cfg, "", "  ")
+func LoadSettings(dataDir string) map[string]any {
+	body, err := os.ReadFile(filepath.Join(dataDir, SettingsName))
+	if err != nil {
+		return map[string]any{}
+	}
+	var settings map[string]any
+	if json.Unmarshal(body, &settings) != nil {
+		return map[string]any{}
+	}
+	return settings
+}
+
+func SaveSettings(dataDir string, settings map[string]any) error {
+	body, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dataDir, FileName), append(body, '\n'), 0644)
+	return writeJSONFile(filepath.Join(dataDir, SettingsName), body)
+}
+
+// writeJSONFile 先写同目录临时文件，再原子替换目标，避免异常退出留下半个 JSON。
+func writeJSONFile(path string, body []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".iptest-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(0644); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(append(body, '\n')); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"sync"
 	"sync/atomic"
 
@@ -16,6 +17,7 @@ type Runner struct {
 	locations map[string]Location
 	asnDB     *geoip2.Reader
 	traceURL  string
+	ipsTypeURL string
 }
 
 // RunnerConfig 是创建 Runner 所需的外部资源配置。
@@ -27,6 +29,7 @@ type RunnerConfig struct {
 	LocationSources []string // locations.json 下载源，依次尝试
 	ASNSources      []string // GeoLite2-ASN.mmdb 下载源，依次尝试
 	TraceURL        string   // CF 节点验证接口（不含协议头），空则用 DefaultTraceURL
+	IPSTypeURL      string   // IPS类型检测接口，空则用 DefaultIPSTypeURL
 }
 
 // NewRunner 加载 dataDir 下的 locations.json 与 GeoLite2-ASN.mmdb（缺失时自动下载）。
@@ -44,6 +47,10 @@ func NewRunner(rc RunnerConfig) (*Runner, error) {
 	if traceURL == "" {
 		traceURL = DefaultTraceURL
 	}
+	ipsTypeURL := rc.IPSTypeURL
+	if ipsTypeURL == "" {
+		ipsTypeURL = DefaultIPSTypeURL
+	}
 
 	locations, err := loadLocations(rc.DataDir, locSources)
 	if err != nil {
@@ -56,7 +63,7 @@ func NewRunner(rc RunnerConfig) (*Runner, error) {
 		asnDB = nil
 	}
 
-	return &Runner{locations: locations, asnDB: asnDB, traceURL: traceURL}, nil
+	return &Runner{locations: locations, asnDB: asnDB, traceURL: traceURL, ipsTypeURL: ipsTypeURL}, nil
 }
 
 // Close 释放 ASN 数据库等资源。
@@ -71,6 +78,26 @@ func (r *Runner) ASNLoaded() bool { return r.asnDB != nil }
 
 // LocationCount 返回已加载的地理位置条目数。
 func (r *Runner) LocationCount() int { return len(r.locations) }
+
+func (r *Runner) lookupLocation(colocode string) (Location, bool) {
+	loc, ok := r.locations[colocode]
+	return loc, ok
+}
+
+func (r *Runner) lookupASN(ip string) (uint, string) {
+	if r.asnDB == nil {
+		return 0, ""
+	}
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return 0, ""
+	}
+	record, err := r.asnDB.ASN(parsed)
+	if err != nil {
+		return 0, ""
+	}
+	return uint(record.AutonomousSystemNumber), record.AutonomousSystemOrganization
+}
 
 // ErrResultLimitReached 表示测试因达到 MaxResults 而提前结束。
 // 这是正常收工而非故障，上层不应作为错误展示给用户。
@@ -209,6 +236,11 @@ loop:
 
 			speed := testSingleSpeed(runCtx, target, opts)
 			if speed <= 0 {
+				cb(Event{Type: EventSpeed, Result: &Result{
+					IP:               target.IP,
+					Port:             target.Port,
+					DownloadSpeedKBs: -1,
+				}})
 				return
 			}
 			if opts.MinSpeedKBs > 0 && speed < opts.MinSpeedKBs {
@@ -246,3 +278,46 @@ loop:
 		Message: fmt.Sprintf("测速完成，%d/%d 个达标", valid, total)})
 	return nil
 }
+
+// RunCombinedTest executes a combined latency + speed pipeline.
+func (r *Runner) RunCombinedTest(ctx context.Context, targets []Target, latency LatencyOptions, speed SpeedOptions, cb EventCallback) ([]Result, error) {
+	if latency.MaxConcurrency < 1 { latency.MaxConcurrency = 1 }
+	if speed.MaxConcurrency < 1 { speed.MaxConcurrency = 1 }
+	speed.EnableTLS = latency.EnableTLS
+	var latResults []Result
+	var mu sync.Mutex
+	_, err := r.RunLatencyTest(ctx, targets, latency, func(ev Event) {
+		if ev.Type == EventResult && ev.Result != nil {
+			mu.Lock()
+			latResults = append(latResults, *ev.Result)
+			mu.Unlock()
+		}
+		cb(ev)
+	})
+	if err != nil && err != ErrResultLimitReached {
+		return nil, err
+	}
+	speedTargets := make([]Target, len(latResults))
+	for i, lr := range latResults {
+		speedTargets[i] = Target{IP: lr.IP, Port: lr.Port}
+	}
+	var speedResults []Result
+	_ = r.RunSpeedTest(ctx, speedTargets, speed, func(ev Event) {
+		if ev.Type == EventSpeed && ev.Result != nil {
+			mu.Lock()
+			for i := range latResults {
+				if latResults[i].IP == ev.Result.IP && latResults[i].Port == ev.Result.Port {
+					latResults[i].DownloadSpeedKBs = ev.Result.DownloadSpeedKBs
+					if ev.Result.DownloadSpeedKBs > 0 {
+						speedResults = append(speedResults, latResults[i])
+					}
+					break
+				}
+			}
+			mu.Unlock()
+		}
+		cb(ev)
+	})
+	return speedResults, nil
+}
+

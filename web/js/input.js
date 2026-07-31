@@ -16,21 +16,23 @@ function isValidPort(port) {
  * 规范化单行输入。显式端口保留为 "IP:PORT"（IPv6 为 "[IP]:PORT"）；
  * 没写端口时只返回 IP，实际端口在执行阶段根据 TLS 规则补 443/80。
  * 支持：1.2.3.4:443 / 1.2.3.4 / 1.2.3.4 443 / 中文冒号 / [v6]:443 / 纯v6 /
- *       行内 # 注释（丢弃）/ CSV 元数据行（取首列）
+ *       行内 # 注释（丢弃）/ CSV 导出行（识别 IP、端口、国家列）
  */
 export function normalizeIPFormat(input) {
     if (!input) return null;
     input = input.trim();
     if (!input || input.startsWith('#')) return null;
 
-    // 去掉行内注释
+	// CSV 优先于 # 注释处理，避免国家/备注列影响地址识别。
+	if (input.includes(',')) {
+		const imported = csvRowToInputLine(input);
+		if (imported) input = imported;
+	}
+
+	// 去掉行内注释
     let mainPart = input;
     const commentIndex = input.indexOf('#');
     if (commentIndex > 0) mainPart = input.substring(0, commentIndex).trim();
-
-    // CSV 元数据行：取首列递归
-    const fields = mainPart.split(',').map(s => s.trim());
-    if (fields.length > 1) return normalizeIPFormat(fields[0]);
 
     // [IPv6]:port
     let match = mainPart.match(/^\[([0-9a-fA-F:]+)\]:(\d+)$/);
@@ -51,6 +53,10 @@ export function normalizeIPFormat(input) {
 
     // 空格分隔
     const parts = mainPart.split(/\s+/);
+	if (parts.length >= 2 && /^\d{1,3}(?:\.\d{1,3}){3}$/.test(parts[0])
+		&& /^\d+$/.test(parts[1]) && isValidIPv4(parts[0]) && isValidPort(parts[1])) {
+		return `${parts[0]}:${parts[1]}`;
+	}
     if (parts.length === 2 && /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(parts[0])
         && /^\d+$/.test(parts[1]) && isValidIPv4(parts[0]) && isValidPort(parts[1])) {
         return `${parts[0]}:${parts[1]}`;
@@ -66,6 +72,72 @@ export function normalizeIPFormat(input) {
     if (match && isValidIPv4(match[1]) && isValidPort(match[2])) return `${match[1]}:${match[2]}`;
 
     return null;
+}
+
+function parseCSVRow(line) {
+	const cells = [];
+	let cell = '', quoted = false;
+	for (let i = 0; i < line.length; i++) {
+		const ch = line[i];
+		if (ch === '"') {
+			if (quoted && line[i + 1] === '"') { cell += '"'; i++; }
+			else quoted = !quoted;
+		} else if (ch === ',' && !quoted) {
+			cells.push(cell.trim()); cell = '';
+		} else cell += ch;
+	}
+	cells.push(cell.trim());
+	return cells;
+}
+
+const normHeader = value => String(value || '').replace(/^\uFEFF/, '').trim().toLowerCase().replace(/[\s_()-]/g, '');
+const IP_HEADERS = new Set(['ip', 'ip地址', 'ipaddress']);
+const PORT_HEADERS = new Set(['port', '端口', '端口号']);
+const COUNTRY_HEADERS = ['country', '国家', '出站ip位置'];
+const CITY_HEADERS = ['cityzh', '城市中文', 'city', '城市'];
+
+function findHeader(headers, aliases) {
+	for (const alias of aliases) {
+		const index = headers.indexOf(alias);
+		if (index >= 0) return index;
+	}
+	return -1;
+}
+
+function formatImportedAddress(ip, port) {
+	return ip.includes(':') ? `[${ip}]:${port}` : `${ip}:${port}`;
+}
+
+/** 将本程序导出的 CSV 转成输入框的一行：IP PORT COUNTRY。 */
+export function csvRowToInputLine(line, headerMap = null) {
+	const cells = parseCSVRow(String(line || ''));
+	if (cells.length < 2) return null;
+	let ipIndex = 0, portIndex = 1, countryIndex = 2, cityIndex = 3;
+	if (headerMap) ({ ip: ipIndex, port: portIndex, country: countryIndex, city: cityIndex } = headerMap);
+	const ip = cells[ipIndex]?.trim();
+	const port = cells[portIndex]?.trim();
+	if (!ip || !isValidPort(port)) return null;
+	const country = countryIndex >= 0 ? cells[countryIndex]?.trim() : '';
+	const city = cityIndex >= 0 ? cells[cityIndex]?.trim() : '';
+	const location = [country, city].filter(Boolean).join('-').replaceAll('#', '');
+	return `${formatImportedAddress(ip, port)}${location ? `#${location}` : ''}`;
+}
+
+/** 识别 CSV 表头并输出适合输入框筛选/查看的文本。 */
+export function importCSVText(rawText) {
+	const lines = String(rawText || '').split(/\r?\n/).filter(line => line.trim());
+	if (!lines.length) return '';
+	const headers = parseCSVRow(lines[0]).map(normHeader);
+	const map = {
+		ip: headers.findIndex(value => IP_HEADERS.has(value)),
+		port: headers.findIndex(value => PORT_HEADERS.has(value)),
+		country: findHeader(headers, COUNTRY_HEADERS),
+		city: findHeader(headers, CITY_HEADERS),
+	};
+	const hasHeader = map.ip >= 0 && map.port >= 0;
+	const rows = hasHeader ? lines.slice(1) : lines;
+	const fallback = hasHeader ? map : { ip: 0, port: 1, country: 2, city: 3 };
+	return rows.map(line => csvRowToInputLine(line, fallback)).filter(Boolean).join('\n');
 }
 
 /** 批量规范化：返回 { valid: 规范化后的唯一列表, invalidCount, dupCount } */
@@ -94,9 +166,10 @@ export function quickDeduplicate(lines) {
 }
 
 /* ---------------- 筛选 DSL ----------------
- * 语法：空格=且，逗号=或，| = 分组或
- * 例："port:443,8443 country:JP,US 东京" / "port:443 | port:2053"
- * 支持键：port（支持 800-900 范围）、country、asn/as、关键词（任意文本）
+ * 语法：空格或 && = 且，| 或 || = 条件组之间的或，逗号 = 同字段多个值。
+ * 排除：条件前加 -/!，或使用 !=。例如 -port:9443、country!=美国、-测试。
+ * 例："port:443,8443 country:日本 -测试" / "port:8000-9000 | port:2053"
+ * 支持键：port（精确值或范围）、country、asn/as、关键词（任意文本）。
  */
 
 function parsePortFilter(portStr) {
@@ -119,25 +192,34 @@ function parsePortFilter(portStr) {
 }
 
 function parseUniversalFilter(query) {
-    const tokens = String(query || '').split(/\s+/).map(v => v.trim()).filter(Boolean);
+    const tokens = String(query || '').replace(/&&/g, ' ').split(/\s+/).map(v => v.trim()).filter(Boolean);
     if (!tokens.length) return null;
-    const criteria = { ports: [], countries: [], asns: [], text: [] };
-    for (const token of tokens) {
-        const match = token.match(/^([a-zA-Z]+):(.*)$/);
-        if (!match) { criteria.text.push(token.toLowerCase()); continue; }
+    const criteria = {
+        ports: [], countries: [], asns: [], text: [],
+        excludePorts: [], excludeCountries: [], excludeASNs: [], excludeText: [],
+    };
+    for (let token of tokens) {
+        let excluded = token.startsWith('-') || token.startsWith('!');
+        if (excluded) token = token.slice(1);
+        const match = token.match(/^([a-zA-Z]+)(!=|:|=)(.*)$/);
+        if (!match) {
+            (excluded ? criteria.excludeText : criteria.text).push(token.toLowerCase());
+            continue;
+        }
         const key = match[1].toLowerCase();
-        const values = match[2].split(',').map(v => v.trim()).filter(Boolean);
+        excluded ||= match[2] === '!=';
+        const values = match[3].split(',').map(v => v.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
         if (!values.length) continue;
         if (key === 'port') {
             const parsed = parsePortFilter(values.join(','));
             if (!parsed) return null;
-            criteria.ports.push(...parsed);
+            (excluded ? criteria.excludePorts : criteria.ports).push(...parsed);
         } else if (key === 'country') {
-            criteria.countries.push(...values.map(v => v.toUpperCase()));
+            (excluded ? criteria.excludeCountries : criteria.countries).push(...values.map(v => v.toUpperCase()));
         } else if (key === 'asn' || key === 'as') {
-            criteria.asns.push(...values.map(v => v.replace(/^AS/i, '').toUpperCase()));
+            (excluded ? criteria.excludeASNs : criteria.asns).push(...values.map(v => v.replace(/^AS/i, '').toUpperCase()));
         } else {
-            criteria.text.push(token.toLowerCase());
+            (excluded ? criteria.excludeText : criteria.text).push(token.toLowerCase());
         }
     }
     return criteria;
@@ -145,32 +227,56 @@ function parseUniversalFilter(query) {
 
 /** 解析完整筛选表达式（| 分组或） */
 export function parseFilterExpression(query) {
-    const groups = String(query || '').split('|').map(parseUniversalFilter).filter(Boolean);
+    const normalized = String(query || '').replace(/\|\|/g, '|');
+    const groups = normalized.split('|').map(parseUniversalFilter).filter(Boolean);
     return groups.length ? groups : null;
+}
+
+function linePort(line) {
+    const text = String(line || '').trim();
+    const patterns = [
+        /^\[[^\]]+\]:(\d+)(?:\s|#|$)/,
+        /^\d{1,3}(?:\.\d{1,3}){3}[:：](\d+)(?:\s|#|$)/,
+        /^(?:\[[^\]]+\]|\S+)\s+(\d+)(?:\s|#|$)/,
+    ];
+    for (const pattern of patterns) {
+        const match = text.match(pattern);
+        if (match) return Number(match[1]);
+    }
+    return NaN;
+}
+
+function portMatches(port, rules) {
+    return rules.some(rule => typeof rule === 'number'
+        ? port === rule
+        : port >= rule.start && port <= rule.end);
 }
 
 /** 判断一行（已规范化的 IP:PORT 文本）是否匹配条件组 */
 export function lineMatchesFilter(line, criteria) {
     if (Array.isArray(criteria)) return criteria.some(g => lineMatchesFilter(line, g));
 
-    const portMatch = line.match(/:(\d+)(?:\s*#.*)?$/);
-    const portNum = portMatch ? parseInt(portMatch[1], 10) : NaN;
-    if (criteria.ports.length && !criteria.ports.some(p =>
-        typeof p === 'number' ? portNum === p : portNum >= p.start && portNum <= p.end)) {
+    const portNum = linePort(line);
+    if (criteria.ports.length && !portMatches(portNum, criteria.ports)) {
         return false;
     }
+    if (criteria.excludePorts.length && portMatches(portNum, criteria.excludePorts)) return false;
+    const upper = line.toUpperCase();
     if (criteria.countries.length || criteria.asns.length) {
         // 输入阶段的行通常只有 IP:PORT，没有国家/ASN 元数据
-        const upper = line.toUpperCase();
         if (criteria.countries.length && !criteria.countries.some(c => upper.includes(c))) return false;
         if (criteria.asns.length && !criteria.asns.some(a => upper.includes(a))) return false;
     }
+    if (criteria.excludeCountries.some(c => upper.includes(c))) return false;
+    if (criteria.excludeASNs.some(a => upper.includes(a))) return false;
     if (criteria.text.length) {
         // 裸关键词之间是「且」：占位符与文档都写明「空格=且」，
         // 改造前这里用 .some() 实际是「或」，"东京 443" 会匹配只含 443 的行。
         const lower = line.toLowerCase();
         if (!criteria.text.every(t => lower.includes(t))) return false;
     }
+    const lower = line.toLowerCase();
+    if (criteria.excludeText.some(t => lower.includes(t))) return false;
     return true;
 }
 

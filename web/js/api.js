@@ -1,8 +1,8 @@
 // api.js —— 后端 API 客户端：fetch 封装 + SSE 事件订阅
 
-async function postJSON(url, body) {
+async function postJSON(url, body, method = 'POST') {
     const resp = await fetch(url, {
-        method: 'POST',
+        method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
     });
@@ -19,6 +19,9 @@ export async function fetchConfig() {
     return resp.json();
 }
 
+export function saveConfig(config) { return postJSON('/api/config', config, 'PUT'); }
+export function saveSettings(settings) { return postJSON('/api/settings', settings, 'PUT'); }
+
 /**
  * 启动延迟测试。
  * targets 为 [{ip, port}]，由候选区提供（网段已在导入阶段展开）。
@@ -29,15 +32,18 @@ export function startLatencyTest(targets, options, { enableSpeed = false, speedO
 }
 
 /** 官方 IP 段 + 各抽样模式的预估数量；n 为「每 /24 取 N 个」模式的 N */
-export async function fetchOfficialRanges(n) {
-    const query = n > 0 ? `?n=${n}` : '';
+export async function fetchOfficialRanges(n, { refresh = false } = {}) {
+	const params = new URLSearchParams();
+	if (n > 0) params.set('n', n);
+	if (refresh) params.set('refresh', '1');
+	const query = params.size ? `?${params}` : '';
     const resp = await fetch(`/api/official-ranges${query}`);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     return resp.json();
 }
 
 /**
- * 导入远程 IP 列表。
+ * 导入远程 TXT / CSV IP 列表。
  * 由后端代取而非前端 fetch：订阅地址基本都不带 CORS 头，浏览器直连会被拦。
  */
 export function importRemote(url, { sampleMode = 'one', sampleN = 1 } = {}) {

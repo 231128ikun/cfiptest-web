@@ -10,9 +10,16 @@ iptest-web.exe~
 GeoLite2-ASN.mmdb
 locations.json
 
-# 运行时生成的配置（每台机器自己的换源设置）
-config.json
+# Go 测试的项目内临时缓存
+.tmp-go-cache/
+
+# 官方 IP 段本地缓存
+cloudflare-ips-v4.txt
+cloudflare-ips-v6.txt
+data/
 
 # Go
 *.test
 *.out
+
+ʹ��˵��.txt

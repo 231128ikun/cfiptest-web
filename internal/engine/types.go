@@ -141,7 +141,7 @@ func DefaultSpeedOptions() SpeedOptions {
 type EventType string
 
 const (
-	EventResult   EventType = "result"   // 延迟阶段单条有效结果
+	EventResult   EventType = "result"   // 单条有效或最终结果
 	EventProgress EventType = "progress" // 进度更新
 	EventSpeed    EventType = "speed"    // 测速阶段单条速度更新
 	EventDone     EventType = "done"     // 阶段完成

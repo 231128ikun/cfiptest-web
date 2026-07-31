@@ -2,14 +2,6 @@
 
 import { TABLE_COLUMNS, columnByKey, escapeHTML } from './columns.js';
 
-/** 可用于配额分组的维度（界面上的维度下拉直接由此派生） */
-export const GROUP_DIMENSIONS = [
-    { key: 'country', label: '国家' },
-    { key: 'asnOrg', label: 'ASN 组织' },
-    { key: 'dataCenter', label: '数据中心' },
-    { key: 'ipType', label: '出站类型' },
-];
-
 // 虚拟滚动参数。行数不多时全量渲染最简单也最快，超过阈值才切窗口渲染——
 // 官方段每 /24 取 1 个就是 5956 个目标，全测出来一次 innerHTML 拼 6000 行
 // 会让每次勾选/排序都卡住半秒。
@@ -28,7 +20,7 @@ export class ResultTable {
         this.sortAsc = true;
         this.filterText = '';
         this.filters = {};
-        this.displayQuota = null;
+        this.displayRules = null;
         this._renderScheduled = false; // 渲染节流：SSE 高频事件时合并重绘
         this._sortedCache = null;      // _sortedResults 的缓存
         this._rowH = 0;                // 实测行高（虚拟滚动用）
@@ -131,7 +123,7 @@ export class ResultTable {
     clear() {
         this.results = [];
         this.selectedKeys.clear();
-        this.displayQuota = null;
+        this.displayRules = null;
         this._invalidate();
         this.render();
     }
@@ -175,34 +167,53 @@ export class ResultTable {
         this.render();
     }
 
-    /** 按当前筛选和排序，把每组前 N 个作为当前展示集合。 */
-    applyGroupDisplayQuotas(groupBy, quotas) {
-        const normalized = Object.fromEntries(Object.entries(quotas || {})
-            .map(([group, value]) => [group, Math.max(0, Number(value) || 0)])
-            .filter(([, value]) => value > 0));
-        this.displayQuota = Object.keys(normalized).length ? { groupBy, quotas: normalized } : null;
+    /**
+     * 应用组合前 N 规则。第一项条件是分组字段：其中每个值分别取前 N；
+     * 后续条件是共同限制。多条规则合并并去重。
+     */
+    applyDisplayRules(rules) {
+        const normalized = (rules || []).map(rule => ({
+            limit: Math.max(0, Number(rule.limit) || 0),
+            conditions: (Array.isArray(rule.conditions) ? rule.conditions : Object.entries(rule.conditions || {}).map(([field, values]) => ({ field, values })))
+                .map(condition => ({ field: condition.field, values: [...new Set((condition.values || []).map(String))] }))
+                .filter(condition => condition.field && condition.values.length),
+        })).filter(rule => rule.limit > 0 && rule.conditions.length);
+        this.displayRules = normalized.length ? { rules: normalized } : null;
         const shown = this._filteredResults(true).length;
         this.render();
         return shown;
     }
 
-    clearDisplayQuotas() {
-        this.displayQuota = null;
+    /** 兼容单字段旧入口。 */
+    applyGroupDisplayQuotas(groupBy, quotas) {
+        const rules = Object.entries(quotas || {}).map(([value, limit]) => ({
+            conditions: [{ field: groupBy, values: [value] }], limit,
+        }));
+        return this.applyDisplayRules(rules);
+    }
+
+    clearDisplayRules() {
+        this.displayRules = null;
         this.render();
     }
 
-    _applyDisplayQuota(rows) {
-        if (!this.displayQuota) return rows;
-        const { groupBy, quotas } = this.displayQuota;
-        const taken = new Map();
-        return rows.filter(r => {
-            const group = r[groupBy] || '未知';
-            const quota = quotas[group] || 0;
-            const used = taken.get(group) || 0;
-            if (quota <= 0 || used >= quota) return false;
-            taken.set(group, used + 1);
-            return true;
-        });
+    _applyDisplayRules(rows) {
+        if (!this.displayRules) return rows;
+        const selected = new Set();
+        for (const rule of this.displayRules.rules) {
+            const [primary, ...constraints] = rule.conditions;
+            for (const primaryValue of primary.values) {
+                let taken = 0;
+                for (const result of rows) {
+                    if (String(result[primary.field] || '未知') !== primaryValue) continue;
+                    if (!constraints.every(condition => condition.values.includes(String(result[condition.field] || '未知')))) continue;
+                    selected.add(ResultTable.keyOf(result));
+                    taken++;
+                    if (taken >= rule.limit) break;
+                }
+            }
+        }
+        return rows.filter(result => selected.has(ResultTable.keyOf(result)));
     }
 
     /**
@@ -223,65 +234,6 @@ export class ResultTable {
         return [...stats.values()].sort((a, b) => b.count - a.count);
     }
 
-    /** 兼容旧调用名。 */
-    getCountryStats() { return this.getGroupStats('country'); }
-
-    /**
-     * 按分组配额选择：每组取前 N 个。
-     *
-     * 语义（本次明确）：在【当前筛选后】的结果集上，按【当前排序】分组取前 N。
-     * 改造前用的是 _sortedResults()，忽略了筛选——用户先筛日本再配额，
-     * 配额却从全量里挑，是个静默的 quirk。
-     *
-     * 配额只是「批量写入 selectedKeys」的一种手段，不再是独立的第二个集合：
-     * 改造前 getSelectedResults() 取 selectedKeys ∪ quotaPicks，导致
-     * 取消勾选某个配额行时它仍留在 quotaPicks 里，界面上取消不掉。
-     */
-    applyGroupQuota(groupBy, n, { replace = true } = {}) {
-        if (replace) this.selectedKeys.clear();
-        const limit = Number(n);
-        if (!Number.isInteger(limit) || limit <= 0) { this.render(); return 0; }
-
-        const taken = new Map();
-        let added = 0;
-        for (const r of this._visibleResults()) {
-            const group = r[groupBy] || '未知';
-            const used = taken.get(group) || 0;
-            if (used >= limit) continue;
-            taken.set(group, used + 1);
-            this.selectedKeys.add(ResultTable.keyOf(r));
-            added++;
-        }
-        this.render();
-        return added;
-    }
-
-    /**
-     * 按「每组各自的配额」选择：applyGroupQuotas('country', { 日本: 5, 美国: 10 })。
-     * 与 applyGroupQuota（统一 N）的区别只在配额来源，语义完全一致：
-     * 在当前筛选后的集合上、按当前排序、每组取前 N。同样只写 selectedKeys。
-     */
-    applyGroupQuotas(groupBy, quotas) {
-        this.selectedKeys.clear();
-        if (quotas) {
-            const taken = new Map();
-            for (const r of this._visibleResults()) {
-                const group = r[groupBy] || '未知';
-                const quota = quotas[group];
-                if (!quota) continue;
-                const used = taken.get(group) || 0;
-                if (used >= quota) continue;
-                taken.set(group, used + 1);
-                this.selectedKeys.add(ResultTable.keyOf(r));
-            }
-        }
-        this.render();
-        return this.selectedKeys.size;
-    }
-
-    /** 兼容旧调用名（国家维度）。 */
-    applyCountryQuotas(quotas) { return this.applyGroupQuotas('country', quotas); }
-
     /** 清除全部勾选。 */
     clearSelection() {
         this.selectedKeys.clear();
@@ -299,7 +251,7 @@ export class ResultTable {
         if (country) rows = rows.filter(r => r.country === country || r.locCode === country);
         if (Number(maxLatency) > 0) rows = rows.filter(r => Number(r.tcpLatencyMs) <= Number(maxLatency));
         if (Number(minSpeed) > 0) rows = rows.filter(r => Number(r.downloadSpeedKBs) >= Number(minSpeed));
-        if (includeDisplayLimit) rows = this._applyDisplayQuota(rows);
+        if (includeDisplayLimit) rows = this._applyDisplayRules(rows);
         return rows;
     }
 

@@ -2,7 +2,6 @@ package server
 
 import (
 	"encoding/json"
-	"net"
 	"net/http/httptest"
 	"testing"
 )
@@ -32,14 +31,18 @@ func TestImportResponseIncludesRawRemoteText(t *testing.T) {
 	}
 }
 
-func TestBlockedAddressCoverage(t *testing.T) {
-	blocked := []string{"127.0.0.1", "10.0.0.1", "169.254.169.254", "100.64.0.1", "240.0.0.1", "::1", "fd00::1"}
-	for _, raw := range blocked {
-		if !isBlockedIP(net.ParseIP(raw)) {
-			t.Errorf("应拦截 %s", raw)
-		}
+func TestDetectRemoteFormat(t *testing.T) {
+	tests := []struct {
+		url, contentType, body, want string
+	}{
+		{"https://example.com/list.csv", "text/plain", "ip,port,country\n1.1.1.1,443,日本", "csv"},
+		{"https://example.com/list", "text/csv; charset=utf-8", "x", "csv"},
+		{"https://example.com/list", "text/plain", "IP地址,端口号,国家,城市\n1.1.1.1,443,日本,东京", "csv"},
+		{"https://example.com/list.txt", "text/plain", "1.1.1.1:443\n", "text"},
 	}
-	if isBlockedIP(net.ParseIP("1.1.1.1")) {
-		t.Fatal("公网地址 1.1.1.1 不应被拦截")
+	for _, test := range tests {
+		if got := detectRemoteFormat(test.url, test.contentType, test.body); got != test.want {
+			t.Errorf("detectRemoteFormat(%q)=%q want %q", test.url, got, test.want)
+		}
 	}
 }

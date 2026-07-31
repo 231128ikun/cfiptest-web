@@ -14,8 +14,8 @@
                 <div><h1>IP 优选工作台</h1><p>导入候选、设置规则、检测并导出</p></div>
             </div>
             <div class="header-status">
+                <span class="version" id="app-version">版本号：加载中…</span>
                 <span class="local-badge">本地运行</span>
-                <span class="version" id="app-version">…</span>
                 <span id="res-status" class="res-status">资源加载中…</span>
             </div>
         </div>
@@ -42,20 +42,31 @@
             </div>
 
             <div id="source-proxy" class="source-panel">
-                <div class="source-toolbar">
-                    <label class="file-btn">选择本地文件<input type="file" id="file-input" accept=".txt,.csv,.text" hidden></label>
-                    <input type="text" id="remote-url" placeholder="远程 TXT 地址">
-                    <button id="btn-import-remote">加载 TXT</button>
+                <div class="source-toolbar compact-toolbar">
+                    <label class="file-btn">导入 TXT / CSV<input type="file" id="file-input" accept=".txt,.csv,.text" hidden></label>
+                    <input type="text" id="remote-url" placeholder="远程 TXT / CSV 链接">
+                    <button id="btn-import-remote">加载</button>
                 </div>
                 <div class="input-candidate-grid">
                     <div class="input-pane">
                         <div class="pane-head"><span>原始 IP 列表</span><span id="source-line-count" class="hint">0 行</span></div>
-                        <textarea id="ip-input" rows="13" placeholder="每行一个，支持 IP、IP:端口、IPv6、CSV 首列和 #备注"></textarea>
+                        <textarea id="ip-input" rows="13" placeholder="1.1.1.1&#10;1.1.1.1:443&#10;1.1.1.1:443#美国-洛杉矶&#10;[2606:4700::1]:443#日本-东京&#10;每行一个；支持 IP、端口、国家-城市备注、CIDR、TXT 与本程序导出的 CSV"></textarea>
                         <div class="filter-row">
-                            <input type="text" id="filter-expr" placeholder="筛选端口或备注，例如 port:443 日本">
+                            <input type="text" id="filter-expr" placeholder="如 port:443、port:8000-9000、country:日本、-port:9443、条件1 | 条件2">
                             <button id="btn-filter-keep" class="small">保留匹配</button>
                             <button id="btn-filter-remove" class="small">排除匹配</button>
                             <button id="btn-filter-clear" class="small">重置筛选</button>
+                            <button type="button" id="btn-filter-help" class="small help-icon" title="筛选说明" aria-label="筛选说明">?</button>
+                        </div>
+                        <div id="filter-help" class="filter-help" hidden>
+                            <p><b>筛选表达式说明</b>：输入框会实时显示筛选后的内容。</p>
+                            <ul>
+                                <li>空格或 <code>&&</code> 表示“且”，<code>|</code> 表示“或”，逗号表示同字段多个值。</li>
+                                <li>支持字段：<code>port:443</code>（精确端口）、<code>port:8000-9000</code>（范围）、<code>country:日本</code>、<code>asn:AS906</code>（或 <code>as:906</code>）；裸关键词匹配任意文本。</li>
+                                <li>排除：前缀 <code>-</code> 或 <code>!</code>，如 <code>-port:9443</code>、<code>-东京</code>；也可用 <code>!=</code>，如 <code>country!=美国</code>。</li>
+                                <li>示例：<code>port:443,8443 country:日本 -测试</code>；<code>port:8000-9000 | port:2053</code>。</li>
+                                <li>保留匹配＝只保留符合条件的行；排除匹配＝删掉符合条件的行。</li>
+                            </ul>
                         </div>
                         <div class="input-feedback">
                             <span id="filter-summary">未设置筛选</span>
@@ -94,7 +105,8 @@
                         </div>
                         <div class="official-note" id="sample-hint">IPv4 按每个 /24 抽样，避免直接检测百万级地址；官方模式端口固定 443。</div>
                         <div class="official-actions">
-                            <button id="btn-fetch-ranges">加载官方网段</button>
+                            <button id="btn-fetch-ranges">加载本地缓存</button>
+                            <button id="btn-refresh-ranges">远程更新</button>
                             <button id="btn-add-ranges" class="primary">生成官方候选</button>
                         </div>
                         <div id="ranges-estimate" class="estimate-box">加载后显示预计候选数量</div>
@@ -114,6 +126,8 @@
                 <button id="btn-reset-rules" class="secondary-button">恢复推荐设置</button>
             </div>
 
+            <details class="rules-settings" open>
+                <summary>检测参数设置</summary>
             <div class="rules-grid">
                 <div class="rule-group">
                     <div class="rule-group-head"><h3>连接与延迟</h3><span id="default-port-hint">未指定端口使用 443</span></div>
@@ -139,11 +153,18 @@
             </div>
 
             <details class="advanced-settings">
-                <summary>其他检测规则</summary>
-                <div class="advanced-inline">
+                <summary>其他检测规则与本地配置</summary>
+                <div class="advanced-config-grid">
                     <label class="checkbox"><input type="checkbox" id="lat-ipapi"> 检测 IPS 类型</label>
+                    <label>IPS 检测地址 <input type="text" id="advanced-ips-url" placeholder="使用 {ip} 表示被测 IP"></label>
                     <label>测速地址 <input type="text" id="advanced-speed-url"></label>
+                    <label>Trace 地址 <input type="text" id="advanced-trace-url"></label>
+                    <label>地理位置数据源 <textarea id="advanced-location-sources" rows="3" placeholder="每行一个地址"></textarea></label>
+                    <label>ASN 数据源 <textarea id="advanced-asn-sources" rows="3" placeholder="每行一个地址"></textarea></label>
+                    <label>官方 IP 段源 <textarea id="advanced-official-sources" rows="2" placeholder="每行一个地址"></textarea></label>
                 </div>
+                <div class="settings-actions"><button id="btn-save-settings" class="primary">保存到本地</button><span id="settings-status" class="hint">保存在 data/config.json 与 data/settings.json</span></div>
+            </details>
             </details>
 
         </section>
@@ -166,7 +187,6 @@
 
             <div class="result-toolbar">
                 <input type="text" id="result-filter" placeholder="筛选 IP、国家、城市、数据中心、ASN">
-                <select id="result-country-filter"><option value="">全部国家</option></select>
                 <input type="number" id="result-max-latency" min="0" placeholder="延迟上限 ms">
                 <input type="number" id="result-min-speed" min="0" placeholder="最低速度 kB/s">
                 <span class="sort-bar"><label for="sort-key">排序</label><select id="sort-key"></select><button id="btn-sort-dir" class="small">▲ 升序</button></span>
@@ -174,20 +194,26 @@
                 <button id="btn-quota-toggle">分组取前 N</button>
             </div>
 
-            <div class="column-box" id="column-box">
-                <div class="column-box-head"><span>表格显示字段，同时作为 CSV 导出字段</span><button id="btn-column-default" class="text-button">恢复默认字段</button></div>
+            <details class="column-box" id="column-box">
+                <summary class="column-box-head"><span>表格显示字段，同时作为 CSV 导出字段</span><span id="column-selected-count" class="hint"></span></summary>
+                <div class="column-actions">
+                    <button id="btn-column-all" class="small" type="button">全选</button>
+                    <button id="btn-column-default" class="small" type="button">恢复默认</button>
+                    <button id="btn-column-save" class="small primary" type="button">保存字段</button>
+                    <span id="column-save-status" class="hint">保存到 data/settings.json</span>
+                </div>
                 <div class="column-options" id="column-options"></div>
-            </div>
+            </details>
 
             <div class="quota-box" id="quota-box">
-                <div class="quota-title">按当前筛选和排序，每组展示前 N 个</div>
+                <div class="quota-title">组合规则取前 N</div>
                 <div class="quota-controls">
-                    <label for="quota-dim">分组</label><select id="quota-dim"></select>
-                    <span class="ctl">只列出 <span id="quota-picker"></span></span>
+                    <span>第一个字段按每个选中值分别取前 N；后续字段作为共同限制。多条规则自动合并并去重。</span>
+                    <button id="btn-quota-add-rule" class="small">添加规则</button>
                 </div>
-                <div class="quota-grid" id="quota-grid"></div>
+                <div class="quota-rules" id="quota-rules"></div>
                 <button id="btn-quota-apply" class="small primary">应用展示规则</button>
-                <button id="btn-quota-clear" class="small">清除选择</button>
+                <button id="btn-quota-clear" class="small">清除规则</button>
             </div>
 
             <div class="result-actions">
@@ -207,19 +233,19 @@
                 </div>
                 <div class="export-layout">
                 <div class="format-settings">
-                    <label for="format-presets">TXT 格式预设</label>
+                    <label for="format-presets">TXT 模板</label>
                     <select id="format-presets"></select>
-                    <label for="format-template">自定义模板</label>
+                    <label for="format-template">模板内容</label>
                     <input type="text" id="format-template" class="template" value="{ip}:{port}#{country}">
                     <div class="template-save-row">
-                        <input type="text" id="template-name" placeholder="模板名称">
-                        <button id="btn-save-template">保存模板</button>
+                        <input type="text" id="template-name" placeholder="新模板名称，或修改当前自定义模板">
+                        <button id="btn-save-template">保存</button>
+                        <button id="btn-delete-template" class="danger" disabled>删除</button>
                     </div>
-                    <div class="template-save-row">
-                        <select id="saved-templates"><option value="">已保存模板</option></select>
-                        <button id="btn-delete-template" class="danger">删除</button>
-                    </div>
-                    <div class="placeholder-help" id="placeholder-help"></div>
+                    <details class="template-fields">
+                        <summary>可用模板字段 <span id="placeholder-count"></span></summary>
+                        <div class="placeholder-help" id="placeholder-help"></div>
+                    </details>
                     <div class="export-actions">
                         <button id="btn-copy" class="primary">复制 TXT</button>
                         <button id="btn-download-txt">下载 TXT</button>

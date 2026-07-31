@@ -12,8 +12,11 @@ import (
 )
 
 // DefaultTraceURL 是验证 Cloudflare 节点用的 trace 接口（不含协议头）。
-// 可在 config.json 中覆盖，例如换成自建 Worker 的 /cdn-cgi/trace。
+// 可在本地 data/config.json 中覆盖，例如换成自建 Worker 的 /cdn-cgi/trace。
 const DefaultTraceURL = "speed.cloudflare.com/cdn-cgi/trace"
+
+// DefaultIPSTypeURL 是 IPS 类型检测接口；{ip} 会替换为当前被测 IP。
+const DefaultIPSTypeURL = "https://api.ipapi.is/?q={ip}"
 
 var reColoLoc = regexp.MustCompile(`colo=([A-Z]+)[\s\S]*?loc=([A-Z]+)`)
 
@@ -109,7 +112,7 @@ func (r *Runner) testSingleIP(ctx context.Context, target Target, opts LatencyOp
 	}
 
 	// 7. 地理位置查表
-	if loc, ok := r.locations[dataCenter]; ok {
+	if loc, ok := r.lookupLocation(dataCenter); ok {
 		res.Region = loc.Region
 		res.City = loc.City
 		res.RegionZh = loc.RegionZh
@@ -118,12 +121,12 @@ func (r *Runner) testSingleIP(ctx context.Context, target Target, opts LatencyOp
 		res.Emoji = loc.Emoji
 	}
 
-	// 8. ASN 查询
-	res.ASN, res.ASNOrg = lookupASN(r.asnDB, outboundIP)
+	// 8. ASN 查询的是被测 Cloudflare 节点，而不是 trace 回显的本机出口 IP。
+	res.ASN, res.ASNOrg = r.lookupASN(target.IP)
 
 	// 9. 可选：IPS 类型检测
 	if opts.EnableIPAPI && outboundIP != "" {
-		res.IPSType = queryIPAPI(ctx, target.IP)
+		res.IPSType = queryIPAPI(ctx, r.ipsTypeURL, target.IP)
 	}
 
 	return res
@@ -173,8 +176,12 @@ type ipapiResponse struct {
 }
 
 // queryIPAPI 调用 ipapi.is 判断 IP 的网络类型（机房/教育网/政府/金融/企业/家宽）。
-func queryIPAPI(ctx context.Context, ip string) string {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.ipapi.is/?q="+ip, nil)
+func queryIPAPI(ctx context.Context, endpoint, ip string) string {
+	requestURL := strings.ReplaceAll(endpoint, "{ip}", ip)
+	if requestURL == endpoint {
+		requestURL += ip
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
 		return ""
 	}

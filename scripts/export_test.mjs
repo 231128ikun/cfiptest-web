@@ -5,7 +5,7 @@
 // 用最小桩件覆盖），所以能直接在 node 里跑。
 import assert from 'node:assert/strict';
 
-const { ALL_COLUMNS, TABLE_COLUMNS, CSV_COLUMNS, csvValue, columnByKey, escapeHTML } =
+const { ALL_COLUMNS, TABLE_COLUMNS, CSV_COLUMNS, GROUP_COLUMNS, csvValue, columnByKey, escapeHTML } =
     await import('../web/js/columns.js');
 
 let pass = 0;
@@ -62,6 +62,12 @@ check('可排序列都不是伪列，且 number 型列声明了 type', () => {
 });
 check('columnByKey 未知 key 返回 undefined 而非抛错', () => {
     assert.equal(columnByKey('nope'), undefined);
+});
+check('分组字段来自统一列注册表且不依赖当前显示列', () => {
+    assert.ok(GROUP_COLUMNS.some(c => c.key === 'country'));
+    assert.ok(GROUP_COLUMNS.some(c => c.key === 'asn'));
+    assert.ok(GROUP_COLUMNS.some(c => c.key === 'ipsType'));
+    assert.equal(new Set(GROUP_COLUMNS.map(c => c.key)).size, GROUP_COLUMNS.length);
 });
 
 console.log('csvValue 取值规则:');

@@ -1,4 +1,4 @@
-// 校验 A5 的表格改动：配额 union bug、排序缓存、勾选唯一来源。
+// 校验结果表格的排序、筛选、勾选、组合规则和虚拟滚动。
 // ResultTable 依赖 DOM，这里用最小桩件模拟所需的 API。
 import assert from 'node:assert/strict';
 
@@ -45,7 +45,7 @@ function makeContainer() {
     return { container, tbody, selAll };
 }
 
-const { ResultTable, GROUP_DIMENSIONS } = await import('../web/js/table.js');
+const { ResultTable } = await import('../web/js/table.js');
 
 let pass = 0;
 const check = (name, fn) => {
@@ -79,77 +79,12 @@ const MIXED = [
     { ...R('1.1.1.5', '新加坡', 50), dataCenter: 'SIN', asnOrg: 'Amazon', ipType: 'IPv4' },
 ];
 
-console.log('配额 union bug（A5 核心）:');
-check('应用国家配额后可以取消其中一行', () => {
-    const { t } = makeTable(SAMPLE);
-    t.applyCountryQuotas({ 日本: 2 });
-    assert.equal(t.getSelectedResults().length, 2);
-    // 模拟用户取消勾选被配额选中的第一行
-    const first = t.getSelectedResults()[0];
-    t.selectedKeys.delete(ResultTable.keyOf(first));
-    assert.equal(t.getSelectedResults().length, 1,
-        '取消勾选无效——配额选择仍留在第二个集合里（union bug）');
-});
-check('配额是替换而非累加', () => {
-    const { t } = makeTable(SAMPLE);
-    t.applyCountryQuotas({ 日本: 2 });
-    t.applyCountryQuotas({ 美国: 1 });
-    const sel = t.getSelectedResults();
-    assert.equal(sel.length, 1);
-    assert.equal(sel[0].country, '美国');
-});
 check('clearSelection 清空全部勾选', () => {
     const { t } = makeTable(SAMPLE);
-    t.applyCountryQuotas({ 日本: 3 });
+    t.selectedKeys.add(ResultTable.keyOf(SAMPLE[0]));
     t.clearSelection();
     assert.equal(t.getSelectedResults().length, 0);
 });
-check('手动勾选与配额共用一个集合', () => {
-    const { t } = makeTable(SAMPLE);
-    t.selectedKeys.add(ResultTable.keyOf(SAMPLE[5])); // 手动勾新加坡
-    t.applyCountryQuotas({ 日本: 1 });                // 配额会替换掉手动勾选
-    const sel = t.getSelectedResults();
-    assert.equal(sel.length, 1);
-    assert.equal(sel[0].country, '日本');
-});
-
-console.log('配额语义：跟随筛选与排序:');
-check('配额在筛选后的集合上取（改造前忽略筛选）', () => {
-    const { t } = makeTable(SAMPLE);
-    t.setFilter('日本');
-    t.applyGroupQuota('country', 5);
-    const sel = t.getSelectedResults();
-    assert.equal(sel.length, 3, '筛选为日本时配额不该选到其他国家');
-    assert.ok(sel.every(r => r.country === '日本'));
-});
-check('配额按当前排序取前 N（延迟升序 → 取最快）', () => {
-    const { t } = makeTable(SAMPLE);
-    t.applyGroupQuota('country', 1);
-    const sel = t.getSelectedResults();
-    assert.equal(sel.length, 3); // 三个国家各 1
-    const jp = sel.find(r => r.country === '日本');
-    assert.equal(jp.tcpLatencyMs, 10, '应取日本最快的那个');
-});
-check('每组取前 N：N 大于组内数量时取完', () => {
-    const { t } = makeTable(SAMPLE);
-    const n = t.applyGroupQuota('country', 10);
-    assert.equal(n, 6);
-});
-check('N=0 或非法时不选任何行', () => {
-    const { t } = makeTable(SAMPLE);
-    t.applyGroupQuota('country', 0);
-    assert.equal(t.getSelectedResults().length, 0);
-    t.applyGroupQuota('country', -1);
-    assert.equal(t.getSelectedResults().length, 0);
-});
-check('可按 ASN / 数据中心 / 出站类型分组', () => {
-    const { t } = makeTable(SAMPLE);
-    for (const d of GROUP_DIMENSIONS) {
-        t.applyGroupQuota(d.key, 1);
-        assert.ok(t.getSelectedResults().length >= 1, `${d.key} 分组失败`);
-    }
-});
-
 console.log('排序与缓存:');
 check('排序缓存命中同一数组', () => {
     const { t } = makeTable(SAMPLE);
@@ -213,6 +148,30 @@ check('未测速结果不会通过最低速度筛选', () => {
 });
 
 console.log('展示前 N:');
+check('组合规则支持国家+端口，并按当前排序取前 N', () => {
+    const { t } = makeTable(SAMPLE);
+    t.appendResult({ ip: '4.4.4.4', port: 2053, country: '日本', asnOrg: 'CF', tcpLatencyMs: 5 });
+    const shown = t.applyDisplayRules([{ conditions: [
+        { field: 'country', values: ['日本'] },
+        { field: 'port', values: ['443'] },
+    ], limit: 1 }]);
+    assert.equal(shown, 1);
+    assert.equal(t.getAllResults()[0].port, 443);
+});
+check('多条规则可按或合并', () => {
+    const { t } = makeTable(SAMPLE);
+    const shown = t.applyDisplayRules([
+        { conditions: [{ field: 'country', values: ['日本'] }], limit: 1 },
+        { conditions: [{ field: 'country', values: ['美国'] }], limit: 1 },
+    ], 'or');
+    assert.equal(shown, 2);
+});
+check('同一分组字段的多个值分别取前 N', () => {
+    const { t } = makeTable(SAMPLE);
+    const shown = t.applyDisplayRules([{ conditions: [{ field: 'country', values: ['日本', '美国'] }], limit: 1 }]);
+    assert.equal(shown, 2);
+    assert.deepEqual(new Set(t.getAllResults().map(r => r.country)), new Set(['日本', '美国']));
+});
 check('按当前筛选与排序限制每组展示数量', () => {
     const { t } = makeTable(SAMPLE);
     t.setFilters({ maxLatency: 25 });
@@ -231,7 +190,7 @@ check('展示前 N 会随排序变化重新计算', () => {
 check('清除展示限制恢复当前筛选全集', () => {
     const { t } = makeTable(SAMPLE);
     t.applyGroupDisplayQuotas('country', { 日本: 1 });
-    t.clearDisplayQuotas();
+    t.clearDisplayRules();
     assert.equal(t.getAllResults().length, SAMPLE.length);
 });
 check('分组统计可只统计当前筛选结果', () => {
@@ -255,28 +214,6 @@ check('setSort 换列后排序结果真的变了', () => {
     assert.equal(t._sortedResults()[0].tcpLatencyMs, 30, '降序未生效（缓存没失效？）');
 });
 
-console.log('非国家维度的配额:');
-check('按 ASN 组织分组取前 N', () => {
-    const { t } = makeTable(MIXED);
-    t.applyGroupQuotas('asnOrg', { 'Cloudflare, Inc.': 2, Amazon: 1 });
-    const sel = t.getSelectedResults();
-    assert.equal(sel.length, 3);
-    assert.equal(sel.filter(r => r.asnOrg === 'Cloudflare, Inc.').length, 2);
-    assert.equal(sel.filter(r => r.asnOrg === 'Amazon').length, 1);
-});
-check('未在配额表里的分组一个都不选', () => {
-    const { t } = makeTable(MIXED);
-    t.applyGroupQuotas('dataCenter', { NRT: 1 });
-    const sel = t.getSelectedResults();
-    assert.equal(sel.length, 1);
-    assert.equal(sel[0].dataCenter, 'NRT');
-});
-check('quotas 为 null 时清空勾选', () => {
-    const { t } = makeTable(MIXED);
-    t.applyGroupQuotas('dataCenter', { NRT: 1 });
-    assert.equal(t.applyGroupQuotas('dataCenter', null), 0);
-    assert.equal(t.getSelectedResults().length, 0);
-});
 check('getGroupStats 只在国家维度给 emoji', () => {
     const { t } = makeTable(MIXED);
     assert.ok(t.getGroupStats('country')[0].emoji, '国家维度应带国旗');
@@ -304,17 +241,18 @@ check('getGroupStats 按数量降序', () => {
     assert.equal(stats[0].name, '日本');
     assert.equal(stats[0].count, 3);
 });
-check('getCountryStats 兼容旧名', () => {
+check('按国家统计', () => {
     const { t } = makeTable(SAMPLE);
-    assert.deepEqual(t.getCountryStats(), t.getGroupStats('country'));
+    const stats = t.getGroupStats('country');
+    assert.equal(stats.find(item => item.name === '日本')?.count, 3);
 });
 check('clear 重置结果与勾选', () => {
     const { t } = makeTable(SAMPLE);
-    t.applyCountryQuotas({ 日本: 2 });
+    t.selectedKeys.add(ResultTable.keyOf(SAMPLE[0]));
     t.clear();
     assert.equal(t.results.length, 0);
     assert.equal(t.getSelectedResults().length, 0);
-    assert.equal(t.displayQuota, null);
+    assert.equal(t.displayRules, null);
 });
 
 console.log(`\n通过 ${pass} 项`);

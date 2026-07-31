@@ -20,7 +20,9 @@ function latencyBadge(ms) {
 
 /** 速度徽章：未测速时明确显示「未测」，避免与 0 kB/s 混淆。 */
 function speedText(kbs) {
-    if (!kbs) return '<span class="badge none">未测</span>';
+    if (kbs == null || kbs === 0) return '<span class="badge none">未测</span>';
+    if (kbs < 0) return '<span class="badge fail">失败</span>';
+    
     const cls = kbs >= 1000 ? 'fast' : kbs >= 100 ? 'mid' : 'slow';
     const text = kbs >= 1024 ? `${(kbs / 1024).toFixed(1)} MB/s` : `${kbs.toFixed(0)} kB/s`;
     return `<span class="badge ${cls}">${text}</span>`;
@@ -48,18 +50,18 @@ export const ALL_COLUMNS = [
     { key: '_sel', label: '', inTable: true, inCSV: false, sortable: false },
 
     { key: 'ip', label: 'IP 地址', csvLabel: 'IP地址', inTable: true, inCSV: true, sortable: true },
-    { key: 'port', label: '端口', csvLabel: '端口号', inTable: true, inCSV: true, sortable: true, type: 'number' },
+    { key: 'port', label: '端口', csvLabel: '端口号', inTable: true, inCSV: true, sortable: true, type: 'number', groupable: true },
     // enableTLS 不在结果对象上，来自当次测试配置，由导出时通过 ctx 传入
     { key: 'enableTLS', label: 'TLS', inTable: false, inCSV: true, csv: (r, ctx) => String(ctx.enableTLS) },
-    { key: 'dataCenter', label: '数据中心', inTable: true, inCSV: true, sortable: true },
-    { key: 'locCode', label: 'IP位置', inTable: false, inCSV: true },
+    { key: 'dataCenter', label: '数据中心', inTable: true, inCSV: true, sortable: true, groupable: true },
+    { key: 'locCode', label: 'IP位置', inTable: false, inCSV: true, groupable: true },
     { key: 'region', label: '地区', inTable: false, inCSV: true },
     { key: 'city', label: '城市', inTable: false, inCSV: true },
-    { key: 'regionZh', label: '地区(中文)', inTable: false, inCSV: true },
-    { key: 'country', label: '国家', csvLabel: '出站IP位置', inTable: true, inCSV: true, sortable: true },
+    { key: 'regionZh', label: '地区(中文)', inTable: false, inCSV: true, groupable: true },
+    { key: 'country', label: '国家', csvLabel: '出站IP位置', inTable: true, inCSV: true, sortable: true, groupable: true },
     {
         key: 'cityZh', label: '城市', csvLabel: '城市(中文)', inTable: true, inCSV: true,
-        sortable: true, render: r => escapeHTML(r.cityZh || r.city || ''),
+        sortable: true, groupable: true, render: r => escapeHTML(r.cityZh || r.city || ''),
     },
     { key: 'emoji', label: '国旗', inTable: true, inCSV: true, sortable: false },
     {
@@ -73,14 +75,14 @@ export const ALL_COLUMNS = [
         csv: r => (r.downloadSpeedKBs ? `${r.downloadSpeedKBs.toFixed(0)} kB/s` : ''),
     },
     { key: 'outboundIP', label: '出站IP', inTable: false, inCSV: true },
-    { key: 'ipType', label: '出站', csvLabel: '出站IP类型', inTable: true, inCSV: true, sortable: true },
-    { key: 'ipsType', label: 'IPS类型', inTable: false, inCSV: true },
-    { key: 'asn', label: 'ASN号码', inTable: false, inCSV: true },
-    { key: 'asnOrg', label: 'ASN 组织', csvLabel: 'ASN组织', inTable: true, inCSV: true, sortable: true },
+    { key: 'ipType', label: '出站类型', csvLabel: '出站IP类型', inTable: true, inCSV: true, sortable: true, groupable: true },
+    { key: 'ipsType', label: 'IPS 类型', inTable: false, inCSV: true, groupable: true },
+    { key: 'asn', label: 'ASN 号码', inTable: false, inCSV: true, groupable: true },
+    { key: 'asnOrg', label: 'ASN 组织', csvLabel: 'ASN组织', inTable: true, inCSV: true, sortable: true, groupable: true },
     { key: 'visitScheme', label: '访问协议', inTable: false, inCSV: true },
-    { key: 'tlsVersion', label: 'TLS版本', inTable: false, inCSV: true },
+    { key: 'tlsVersion', label: 'TLS版本', inTable: false, inCSV: true, groupable: true },
     { key: 'sni', label: 'SNI', inTable: false, inCSV: true },
-    { key: 'httpVersion', label: 'HTTP版本', inTable: false, inCSV: true },
+    { key: 'httpVersion', label: 'HTTP版本', inTable: false, inCSV: true, groupable: true },
     { key: 'warp', label: 'WARP', inTable: false, inCSV: true },
     { key: 'gateway', label: 'Gateway', inTable: false, inCSV: true },
     { key: 'rbi', label: 'RBI', inTable: false, inCSV: true },
@@ -111,6 +113,11 @@ export const TABLE_COLUMNS = TABLE_ORDER.map(key => {
 export const CSV_COLUMNS = ALL_COLUMNS
     .filter(c => c.inCSV)
     .map(c => ({ key: c.key, label: c.csvLabel ?? c.label }));
+
+/** 分组取前 N 可用字段，与表格/CSV 共用同一份字段定义，但不依赖当前是否显示。 */
+export const GROUP_COLUMNS = ALL_COLUMNS
+    .filter(c => c.groupable)
+    .map(c => ({ key: c.key, label: c.label }));
 
 /** 取某列的 CSV 值；ctx 提供结果对象之外的上下文（如 enableTLS）。 */
 export function csvValue(col, result, ctx = {}) {

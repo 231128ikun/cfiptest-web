@@ -1,9 +1,10 @@
 #!/bin/sh
-# 构建 iptest-web.exe；可传入版本号，不传时使用构建时刻。
+# Build with a timestamp version unless an explicit version is provided.
 set -e
 
-VER=${1:-$(date +%Y.%m.%d-%H.%M)}
+VER=${1:-$(git log -1 --format='%cd' --date=format:'%Y.%m.%d-%H.%M')}
+OUTPUT="iptest-web-$VER.exe"
 
 echo "构建版本 $VER ..."
-go build -ldflags "-s -w -X main.version=$VER" -o iptest-web.exe .
-echo "完成：iptest-web.exe ($VER)"
+go build -ldflags "-s -w -X main.version=$VER" -o "$OUTPUT" .
+echo "完成：$OUTPUT"

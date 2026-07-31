@@ -41,7 +41,14 @@ export function lineToTarget(line) {
         return { ip: normalized, port: 0 };
     }
 
-    const idx = normalized.lastIndexOf(':');
+	// CSV 导入展示为 "IP PORT COUNTRY"，解析目标时保留前两个字段。
+	const fields = normalized.split(/\s+/);
+	if (fields.length >= 2 && /^\d{1,3}(?:\.\d{1,3}){3}$/.test(fields[0])) {
+		const port = Number(fields[1]);
+		if (Number.isInteger(port) && port >= 1 && port <= 65535) return { ip: fields[0], port };
+	}
+
+	const idx = normalized.lastIndexOf(':');
     if (idx <= 0) return null;
     const ip = normalized.slice(0, idx);
     const port = Number(normalized.slice(idx + 1));
@@ -251,7 +258,7 @@ export function addResult(result) {
 }
 
 /**
- * 回填测速结果。测速阶段只回传 ip/port/速度，需要按键找到原结果补字段。
+ * 回填补充测速结果。补充测速事件只携带 ip/port/速度，需要按键找到原结果补字段。
  * 找不到对应项时作为新结果收下——总比静默丢弃一次真实测速好。
  */
 export function updateSpeed(partial) {
