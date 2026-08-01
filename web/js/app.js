@@ -47,7 +47,9 @@ const SELECTABLE_COLUMN_KEYS = ALL_COLUMNS
 let visibleColumnKeys = [...DEFAULT_COLUMN_KEYS];
 
 let toastTimer = null;
-let tasksPage = null;`nlet libPage = null;`nlet runsPage = null;
+let tasksPage = null;
+let libPage = null;
+let runsPage = null;
 function toast(message) {
     const el = $('toast');
     el.textContent = message;
@@ -472,8 +474,6 @@ function setRunning(running, type = null) {
     $('btn-start-latency').disabled = running || activeCandidates().length === 0;
     $('btn-start-speed').disabled = running || table.getSelectedResults().length === 0;
     $('btn-speed-filtered').disabled = running || table.getAllResults().length === 0;
-    $('btn-import-filtered').disabled = running || table.getAllResults().length === 0;
-    $('btn-import-selected').disabled = running || table.getSelectedResults().length === 0;
     $('btn-stop').disabled = !running;
     $('progress-wrap').classList.toggle('active', running);
 }
@@ -524,9 +524,10 @@ async function startSupplementalSpeed(useVisible) {
     }
 }
 
-async function importResultsToLib(useVisible) {
-    const results = useVisible ? table.getAllResults() : table.getSelectedResults();
-    if (!results.length) { toast(useVisible ? '当前没有展示结果' : '请先勾选结果'); return; }
+// 导入到 IP 库：与复制/下载平级，按当前导出范围（全部/当前规则/自定义）取结果
+async function importResultsToLib() {
+    const results = exportResults();
+    if (!results.length) { toast('当前导出范围没有结果'); return; }
     const lib = $('lib-target-select').value || '';
     const libName = $('lib-target-select').selectedOptions[0]?.textContent || '默认库';
     try {
@@ -566,8 +567,7 @@ function bindRulesAndRun() {
     $('btn-start-latency').addEventListener('click', startPipeline);
     $('btn-start-speed').addEventListener('click', () => startSupplementalSpeed(false));
     $('btn-speed-filtered').addEventListener('click', () => startSupplementalSpeed(true));
-    $('btn-import-filtered').addEventListener('click', () => importResultsToLib(true));
-    $('btn-import-selected').addEventListener('click', () => importResultsToLib(false));
+
     $('btn-stop').addEventListener('click', async () => {
         try {
             await api.stopTask(currentTaskId);
@@ -989,8 +989,6 @@ function refreshButtons() {
     const running = currentTaskId !== null;
     $('btn-start-speed').disabled = running || table.getSelectedResults().length === 0;
     $('btn-speed-filtered').disabled = running || table.getAllResults().length === 0;
-    $('btn-import-filtered').disabled = running || table.getAllResults().length === 0;
-    $('btn-import-selected').disabled = running || table.getSelectedResults().length === 0;
     $('btn-custom-append').disabled = running || table.getSelectedResultsInDisplayOrder().length === 0;
 }
 
@@ -1095,6 +1093,7 @@ function regenerateOutput() {
     renderCSVPreview(results);
     $('btn-copy').disabled = !content;
     $('btn-download').disabled = !content;
+    $('btn-import-lib').disabled = results.length === 0;
     $('output-count').textContent = `${results.length} 条`;
     $('output-title').textContent = `${exportFormat() === 'csv' ? 'CSV' : 'TXT'} 预览`;
     updateCustomExportUI();
@@ -1306,6 +1305,7 @@ function bindExport() {
             toast(error.message);
         }
     });
+    $('btn-import-lib').addEventListener('click', importResultsToLib);
     $('btn-download').addEventListener('click', () => {
         regenerateOutput();
         const text = $('output-box').value;
@@ -1324,6 +1324,21 @@ function bindExport() {
 }
 
 function bindPageNav() {
+    // 折叠状态持久化
+    const SIDEBAR_KEY = 'iptest.sidebarCollapsed.v1';
+    const sidebar = $('sidebar');
+    try {
+        if (localStorage.getItem(SIDEBAR_KEY) === '1') sidebar.classList.add('collapsed');
+    } catch { /* 忽略 */ }
+    // 帮助面板
+    $('btn-help').addEventListener('click', () => { $('help-overlay').hidden = false; });
+    $('btn-help-close').addEventListener('click', () => { $('help-overlay').hidden = true; });
+    $('help-overlay').addEventListener('click', e => { if (e.target === $('help-overlay')) $('help-overlay').hidden = true; });
+
+    $('sidebar-toggle').addEventListener('click', () => {
+        const collapsed = sidebar.classList.toggle('collapsed');
+        try { localStorage.setItem(SIDEBAR_KEY, collapsed ? '1' : '0'); } catch { /* 忽略 */ }
+    });
     document.querySelectorAll('.side-item').forEach(item => {
         item.addEventListener('click', e => {
             e.preventDefault();

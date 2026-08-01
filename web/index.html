@@ -17,18 +17,27 @@
                 <span class="version" id="app-version">版本号：加载中…</span>
                 <span class="local-badge">本地运行</span>
                 <span id="res-status" class="res-status">资源加载中…</span>
+                <button type="button" id="btn-help" class="help-btn" title="使用说明" aria-label="使用说明">?</button>
             </div>
         </div>
     </header>
 
     <div class="app-shell">
-    <aside class="sidebar">
+    <aside class="sidebar" id="sidebar">
+        <div class="side-head">
+            <span class="side-head-title">导航</span>
+            <button type="button" id="sidebar-toggle" class="side-toggle" title="折叠 / 展开侧边栏" aria-label="折叠 / 展开侧边栏">«</button>
+        </div>
         <nav class="sidebar-nav" aria-label="主导航">
-            <a href="#page-workspace" class="side-item active" data-page="workspace"><span class="side-icon">◎</span>测速工作台</a>
-            <a href="#page-tasks" class="side-item" data-page="tasks"><span class="side-icon">♻</span>自动维护</a>
-            <a href="#page-library" class="side-item" data-page="library"><span class="side-icon">▤</span>IP 库</a>
-            <a href="#page-runs" class="side-item" data-page="runs"><span class="side-icon">◷</span>运行记录</a>
-            <a href="#page-settings" class="side-item" data-page="settings"><span class="side-icon">⚙</span>设置</a>
+            <div class="side-group">
+                <a href="#page-workspace" class="side-item active" data-page="workspace" title="测速工作台"><span class="side-icon">◎</span><span class="side-label">测速工作台</span></a>
+                <a href="#page-tasks" class="side-item" data-page="tasks" title="自动维护"><span class="side-icon">♻</span><span class="side-label">自动维护</span></a>
+                <a href="#page-library" class="side-item" data-page="library" title="IP 库"><span class="side-icon">▤</span><span class="side-label">IP 库</span></a>
+                <a href="#page-runs" class="side-item" data-page="runs" title="运行记录"><span class="side-icon">◷</span><span class="side-label">运行记录</span></a>
+            </div>
+            <div class="side-group side-bottom">
+                <a href="#page-settings" class="side-item" data-page="settings" title="设置"><span class="side-icon">⚙</span><span class="side-label">设置</span></a>
+            </div>
         </nav>
     </aside>
     <main class="content">
@@ -221,10 +230,6 @@
             <div class="result-actions">
                 <button id="btn-speed-filtered">对当前展示结果测速</button>
                 <button id="btn-start-speed" disabled>对勾选结果测速</button>
-                <span class="result-actions-divider" aria-hidden="true"></span>
-                <select id="lib-target-select" aria-label="导入目标 IP 库" title="选择导入到哪个 IP 库"><option value="">导入到：默认库</option></select>
-                <button id="btn-import-filtered">导入当前展示</button>
-                <button id="btn-import-selected" disabled>导入勾选</button>
             </div>
             <div id="result-table-container"></div>
 
@@ -278,6 +283,9 @@
                         <div class="export-actions">
                             <button id="btn-copy" class="primary">复制到粘贴板</button>
                             <button id="btn-download">下载文件</button>
+                            <span class="result-actions-divider" aria-hidden="true"></span>
+                            <select id="lib-target-select" aria-label="导入目标 IP 库" title="按当前导出范围导入到所选 IP 库"><option value="">导入到：默认库</option></select>
+                            <button id="btn-import-lib">导入到 IP 库</button>
                         </div>
                     </div>
                     <div class="export-preview">
@@ -487,6 +495,27 @@
     </main>
 </div></main>
 
+        <div id="help-overlay" class="help-overlay" hidden>
+        <div class="help-panel" role="dialog" aria-modal="true" aria-label="使用说明">
+            <div class="help-panel-head">
+                <strong>使用说明</strong>
+                <button type="button" id="btn-help-close" class="side-toggle" aria-label="关闭">×</button>
+            </div>
+            <div class="help-panel-body">
+                <h4>① 测速工作台</h4>
+                <p>三步流水线：<b>准备候选</b>（粘贴 / 文件 / 远程 URL / 官方段，或「从本地库导入」）→ <b>检测规则</b>（延迟、测速、数量）→ <b>检测及结果</b>（筛选、排序、自定义展示）。结果可复制、下载，或按<b>导出范围</b>（全部 / 当前规则 / 自定义）导入到指定 IP 库。</p>
+                <h4>② 自动维护</h4>
+                <p>新建任务 → 绑定 IP 库，设<b>规则</b>：字段（国家/城市/端口）多值=或、多字段=交集，每个组合取前 N 条；延迟/速度范围（测速总开关开启后可用）；总数限制。保存并勾选「启用」后，点顶部「一键维护」依次执行；输出按模板写入 data/out/（未填输出文件时直接更新输入文件）。</p>
+                <h4>③ IP 库</h4>
+                <p>多个命名库（data/ipdb/），可新建/改名/删除/清空。库内条目随检测自动更新：延迟失败移除、测速失败保留、结果回写。</p>
+                <h4>④ 运行记录</h4>
+                <p>每次维护的摘要与明细（data/runs.jsonl），可追溯。</p>
+                <h4>⑤ 设置</h4>
+                <p>全局默认检测参数、数据源与颜色阈值（data/config.json、data/settings.json）。</p>
+                <p class="help-note">提示：本程序为本地单机应用，双击 exe 即启动服务；关闭黑色控制台窗口会停止服务。</p>
+            </div>
+        </div>
+    </div>
     <div id="toast" role="status" aria-live="polite"></div>
     <script type="module" src="js/app.js"></script>
 </body>

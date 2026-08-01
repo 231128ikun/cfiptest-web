@@ -1,11 +1,9 @@
 // api.js —— 后端 API 客户端：fetch 封装 + SSE 事件订阅
 
 async function postJSON(url, body, method = 'POST') {
-    const resp = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-    });
+    const options = { method, headers: { 'Content-Type': 'application/json' } };
+    if (method !== 'GET') options.body = JSON.stringify(body); // GET 带 body 会被浏览器拒绝
+    const resp = await fetch(url, options);
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) {
         throw new Error(data.error || `HTTP ${resp.status}`);
