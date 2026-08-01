@@ -470,6 +470,8 @@ function setRunning(running, type = null) {
     $('btn-start-latency').disabled = running || activeCandidates().length === 0;
     $('btn-start-speed').disabled = running || table.getSelectedResults().length === 0;
     $('btn-speed-filtered').disabled = running || table.getAllResults().length === 0;
+    $('btn-import-filtered').disabled = running || table.getAllResults().length === 0;
+    $('btn-import-selected').disabled = running || table.getSelectedResults().length === 0;
     $('btn-stop').disabled = !running;
     $('progress-wrap').classList.toggle('active', running);
 }
@@ -520,6 +522,18 @@ async function startSupplementalSpeed(useVisible) {
     }
 }
 
+async function importResultsToLib(useVisible) {
+    const results = useVisible ? table.getAllResults() : table.getSelectedResults();
+    if (!results.length) { toast(useVisible ? '当前没有展示结果' : '请先勾选结果'); return; }
+    try {
+        const response = await api.importAutoLibrary({ results });
+        toast(`已导入 IP 库：新增 ${response.added} 条，更新 ${response.updated} 条（共 ${response.total} 条）`);
+        autoPage?.refreshLibrary?.();
+    } catch (error) {
+        toast(`导入失败：${error.message}`);
+    }
+}
+
 function bindRulesAndRun() {
     $('spd-enable').addEventListener('change', applySpeedEnabled);
     ['badge-latency-green-end', 'badge-latency-yellow-end', 'badge-speed-red-end', 'badge-speed-yellow-end'].forEach(id => {
@@ -539,6 +553,8 @@ function bindRulesAndRun() {
     $('btn-start-latency').addEventListener('click', startPipeline);
     $('btn-start-speed').addEventListener('click', () => startSupplementalSpeed(false));
     $('btn-speed-filtered').addEventListener('click', () => startSupplementalSpeed(true));
+    $('btn-import-filtered').addEventListener('click', () => importResultsToLib(true));
+    $('btn-import-selected').addEventListener('click', () => importResultsToLib(false));
     $('btn-stop').addEventListener('click', async () => {
         try {
             await api.stopTask(currentTaskId);
@@ -960,6 +976,8 @@ function refreshButtons() {
     const running = currentTaskId !== null;
     $('btn-start-speed').disabled = running || table.getSelectedResults().length === 0;
     $('btn-speed-filtered').disabled = running || table.getAllResults().length === 0;
+    $('btn-import-filtered').disabled = running || table.getAllResults().length === 0;
+    $('btn-import-selected').disabled = running || table.getSelectedResults().length === 0;
     $('btn-custom-append').disabled = running || table.getSelectedResultsInDisplayOrder().length === 0;
 }
 

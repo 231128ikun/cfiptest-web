@@ -1,10 +1,12 @@
-﻿package library
+package library
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"iptest-web/internal/engine"
 )
 
 func TestOpenEmptyWhenMissing(t *testing.T) {
@@ -109,6 +111,26 @@ func TestSkipsCorruptLines(t *testing.T) {
 	}
 	if s.Len() != 2 {
 		t.Fatalf("期望跳过损坏行后剩 2 条，实际 %d", s.Len())
+	}
+}
+
+func TestEntryFromResult(t *testing.T) {
+	now := time.Now()
+	e := EntryFromResult(engine.Result{
+		IP: "1.2.3.4", Port: 443, LocCode: "US", Country: "美国", CityZh: "洛杉矶",
+		Emoji: "🇺🇸", DataCenter: "LAX", ASN: 13335, ASNOrg: "Cloudflare, Inc.",
+		TCPLatencyMs: 88, DownloadSpeedKBs: 5200,
+	}, now)
+	if e.Status != StatusActive || e.CountryCode != "US" || !e.SpeedValid || e.SpeedKBs != 5200 {
+		t.Fatalf("结果转条目错误: %+v", e)
+	}
+	if e.TCPLatencyMs != 88 || e.Checks != 1 || e.FirstSeenAt.IsZero() {
+		t.Fatalf("字段错误: %+v", e)
+	}
+	// 未测速时 SpeedValid 应为 false
+	e2 := EntryFromResult(engine.Result{IP: "5.6.7.8", Port: 80}, now)
+	if e2.SpeedValid {
+		t.Fatal("未测速结果不应标记 SpeedValid")
 	}
 }
 

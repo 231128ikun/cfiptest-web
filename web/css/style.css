@@ -194,6 +194,7 @@ button.primary:active:not(:disabled) { box-shadow: none; }
 .result-summary span { color: var(--text-secondary); font-size: 11px; }
 .result-summary strong { font-size: 16px; }
 .result-toolbar, .result-actions { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.result-actions-divider { width: 1px; height: 22px; margin: 0 4px; background: var(--border-light); }
 .result-toolbar { padding: 10px 12px; border: 1px solid var(--border-light); border-radius: var(--radius); background: var(--surface-soft); }
 .result-filter-group { display: flex; flex: 1 1 420px; gap: 8px; min-width: 0; flex-wrap: wrap; }
 .result-filter-group > input { flex: 1 1 160px; min-width: 150px; }
@@ -346,6 +347,7 @@ table.results .empty-row td { padding: 34px 0; text-align: center; color: var(--
     .advanced-inline input[type="text"] { min-width: 0; width: 100%; }
     .run-strip { display: grid; }
     .result-toolbar > *, .result-actions > * { width: 100%; }
+    .result-actions-divider { display: none; }
     #result-filter, #result-max-latency, #result-min-speed { flex: 1 1 100%; min-width: 0; }
     .result-view-controls { align-items: stretch; }
     .result-view-controls > * { width: 100%; }

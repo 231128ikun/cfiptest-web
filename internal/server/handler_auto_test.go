@@ -108,6 +108,40 @@ func TestAutoLibraryImportAndList(t *testing.T) {
 	}
 }
 
+func TestAutoLibraryResultsImport(t *testing.T) {
+	s := autoServer(t)
+	// 先导入目标（未测），再以检测结果导入 → 应更新为 active 并带元数据
+	doJSON(t, s.handleAutoLibraryImport, http.MethodPost, "/api/auto/library/import", autoImportRequest{
+		Targets: []engine.Target{{IP: "1.1.1.1", Port: 443}},
+	})
+	rec := doJSON(t, s.handleAutoLibraryImport, http.MethodPost, "/api/auto/library/import", autoImportRequest{
+		Results: []engine.Result{{
+			IP: "1.1.1.1", Port: 443, LocCode: "US", Country: "美国",
+			TCPLatencyMs: 120, DownloadSpeedKBs: 4500,
+		}, {
+			IP: "2.2.2.2", Port: 2053, LocCode: "JP", Country: "日本",
+			TCPLatencyMs: 90,
+		}},
+	})
+	var imp autoImportResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &imp)
+	if imp.Added != 1 || imp.Updated != 1 {
+		t.Fatalf("结果导入统计错误: %+v", imp)
+	}
+	lib, err := library.Open(s.dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, ok := lib.Get("1.1.1.1", 443)
+	if !ok || e.Status != library.StatusActive || e.CountryCode != "US" || e.TCPLatencyMs != 120 || !e.SpeedValid {
+		t.Fatalf("结果未回写: %+v", e)
+	}
+	e2, _ := lib.Get("2.2.2.2", 2053)
+	if e2.CountryCode != "JP" || e2.SpeedValid {
+		t.Fatalf("JP 条目错误: %+v", e2)
+	}
+}
+
 func TestAutoLibraryTextImport(t *testing.T) {
 	s := autoServer(t)
 	rec := doJSON(t, s.handleAutoLibraryImport, http.MethodPost, "/api/auto/library/import", autoImportRequest{

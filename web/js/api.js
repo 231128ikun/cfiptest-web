@@ -76,8 +76,8 @@ export function fetchAutoLibrary(params = {}) {
     return postJSON(`/api/auto/library${qs}`, {}, 'GET');
 }
 
-export function importAutoLibrary({ targets, text, source }) {
-    return postJSON('/api/auto/library/import', { targets, text, source });
+export function importAutoLibrary({ targets, text, source, results }) {
+    return postJSON('/api/auto/library/import', { targets, text, source, results });
 }
 export function removeAutoLibrary(keys) { return postJSON('/api/auto/library/remove', { keys }); }
 export function clearAutoLibrary() { return postJSON('/api/auto/library/clear', { confirm: true }); }

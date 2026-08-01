@@ -363,5 +363,5 @@ export function initAuto({ toast }) {
     loadSubs();
     loadLibrary();
 
-    return { onAuto, onDone, isAutoRunning: () => state.running };
+    return { onAuto, onDone, isAutoRunning: () => state.running, refreshLibrary: loadLibrary };
 }

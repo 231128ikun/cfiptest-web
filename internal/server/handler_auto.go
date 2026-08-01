@@ -131,11 +131,12 @@ func (s *Server) handleAutoLibraryGet(w http.ResponseWriter, r *http.Request) {
 
 // autoImportRequest 对应 POST /api/auto/library/import。
 type autoImportRequest struct {
-	Targets    []engine.Target `json:"targets"`    // 已解析目标（前端可直接用现有导入结果）
-	Text       string          `json:"text"`       // 或原始文本（后端解析）
-	SampleMode string          `json:"sampleMode"` // CIDR 抽样
-	SampleN    int             `json:"sampleN"`
-	Source     string          `json:"source"` // manual | import | official
+	Targets    []engine.Target  `json:"targets"`    // 已解析目标（前端可直接用现有导入结果）
+	Results    []engine.Result  `json:"results"`    // 检测结果（带元数据，导入后状态 active）
+	Text       string           `json:"text"`       // 或原始文本（后端解析）
+	SampleMode string           `json:"sampleMode"` // CIDR 抽样
+	SampleN    int              `json:"sampleN"`
+	Source     string           `json:"source"` // manual | import | official
 }
 
 // autoImportResponse 返回入库统计。
@@ -151,6 +152,39 @@ func (s *Server) handleAutoLibraryImport(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON: "+err.Error())
 		return
 	}
+	// 检测结果导入：直接带元数据入库（状态 active），覆盖式更新
+	if len(req.Results) > 0 {
+		lib, err := library.Open(s.dataDir)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		now := time.Now()
+		added, updated := 0, 0
+		for _, res := range req.Results {
+			if res.IP == "" {
+				continue
+			}
+			e := library.EntryFromResult(res, now)
+			if existing, ok := lib.Get(res.IP, res.Port); ok {
+				// 已存在：保留首见时间与来源，累计检测次数
+				e.FirstSeenAt = existing.FirstSeenAt
+				e.Source = existing.Source
+				e.Checks = existing.Checks + 1
+				updated++
+			} else {
+				added++
+			}
+			lib.Upsert(e)
+		}
+		if err := lib.Save(); err != nil {
+			writeError(w, http.StatusInternalServerError, "保存 IP 库失败: "+err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, autoImportResponse{Added: added, Updated: updated, Total: lib.Len()})
+		return
+	}
+
 	var targets []engine.Target
 	if len(req.Targets) > 0 {
 		targets = req.Targets

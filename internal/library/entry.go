@@ -1,4 +1,4 @@
-﻿// Package library 提供 IP 库的持久化存储：data/ipdb.jsonl。
+// Package library 提供 IP 库的持久化存储：data/ipdb.jsonl。
 //
 // 每条记录以 ip|port 为唯一键，保存最近一次检测得到的元数据与测量值。
 // 库本身不做过期淘汰：是否重新检测由上层（subscription 编排器）在“用到时现测”决定。
@@ -7,6 +7,8 @@ package library
 import (
 	"strconv"
 	"time"
+
+	"iptest-web/internal/engine"
 )
 
 // 条目状态。
@@ -65,3 +67,28 @@ func (e *Entry) Key() string { return Key(e.IP, e.Port) }
 
 // IsActive 判断条目当前是否视为有效。
 func (e *Entry) IsActive() bool { return e.Status == StatusActive }
+
+// EntryFromResult 从一次检测结果构造库条目（状态 active，来源 import）。
+// 用于把「手动三步检测」通过的结果一键导入 IP 库。
+func EntryFromResult(res engine.Result, now time.Time) Entry {
+	return Entry{
+		IP:           res.IP,
+		Port:         res.Port,
+		CountryCode:  res.LocCode,
+		Country:      res.Country,
+		CityZh:       res.CityZh,
+		Emoji:        res.Emoji,
+		DataCenter:   res.DataCenter,
+		RegionZh:     res.RegionZh,
+		ASN:          res.ASN,
+		ASNOrg:       res.ASNOrg,
+		TCPLatencyMs: res.TCPLatencyMs,
+		SpeedKBs:     res.DownloadSpeedKBs,
+		SpeedValid:   res.DownloadSpeedKBs > 0,
+		Source:       SourceImport,
+		Status:       StatusActive,
+		FirstSeenAt:  now,
+		LastCheckedAt: now,
+		Checks:       1,
+	}
+}
