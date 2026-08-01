@@ -580,3 +580,42 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
     .export-modal-body { grid-template-columns: 1fr; }
     .side-log-body { max-height: 120px; }
 }
+
+/* ---- 开关（Toggle）---- */
+.toggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+.toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
+.toggle-track { width: 36px; height: 20px; border-radius: 999px; background: #c3ccc9; position: relative; transition: background .18s ease; flex: none; }
+.toggle-track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .18s ease; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+.toggle input:checked + .toggle-track { background: #2f9e78; }
+.toggle input:checked + .toggle-track::after { transform: translateX(16px); }
+.toggle input:disabled + .toggle-track { opacity: .5; }
+.toggle-label { font-size: 12px; color: var(--text-secondary); }
+.toggle:hover .toggle-track { box-shadow: 0 0 0 2px rgba(47,158,120,.15); }
+
+/* ---- 导出右侧抽屉 ---- */
+.export-drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 90; width: min(560px, 96vw); background: var(--surface); box-shadow: -8px 0 28px rgba(15,35,31,.18); display: flex; flex-direction: column; }
+.export-drawer[hidden] { display: none; }
+.export-drawer-panel { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+.export-drawer .help-panel-head { flex: none; }
+.export-drawer .help-panel-body { flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: 1fr; gap: 14px; }
+.export-actions-right { justify-content: flex-end; }
+.export-lib-field { flex-direction: row; align-items: center; gap: 6px; }
+.export-lib-field select { min-width: 130px; }
+#log-viewer.log-viewer { min-height: 200px; }
+.log-line { white-space: pre-wrap; word-break: break-all; }
+.log-line.ok { color: var(--success); }
+.log-line.warn { color: var(--warning); }
+.log-line.error { color: var(--danger); }
+.log-line.file { color: var(--text-secondary); }
+
+/* ---- 反代导入来源收敛 ---- */
+.proxy-source-toolbar { grid-template-columns: auto minmax(220px, 360px) auto; width: fit-content; max-width: 100%; }
+.proxy-source-toolbar select, .proxy-source-toolbar input { min-width: 0; }
+
+/* ---- IP 库列表卡片 ---- */
+.lib-list { display: flex; flex-direction: column; gap: 8px; }
+.lib-item { border: 1px solid var(--border-light); background: var(--surface); border-radius: var(--radius); padding: 10px 12px; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.lib-item:hover { border-color: var(--border); }
+.lib-item.selected { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+.lib-item-name { font-weight: 650; font-size: 13px; }
+.lib-item-stats { margin-top: 4px; font-size: 11px; color: var(--text-secondary); }

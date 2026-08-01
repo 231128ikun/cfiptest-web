@@ -86,7 +86,7 @@ export function initTasks({ toast }) {
                     库：${escapeHTML(state.libNames[task.libraryId] || task.libraryId || '默认库')} · 输出：${escapeHTML(task.output?.path || '未设置')}${limit}${speed}
                 </div>
                 <div class="task-card-actions">
-                    <label class="checkbox" title="一键维护时是否执行"><input type="checkbox" class="task-enable" data-i="${i}" ${task.enabled ? 'checked' : ''}> 启用</label>
+                    <label class="toggle" title="一键维护时是否执行"><input type="checkbox" class="task-enable" data-i="${i}" ${task.enabled ? 'checked' : ''}><span class="toggle-track"></span></label>
                     <button type="button" class="small task-edit" data-i="${i}">编辑</button>
                     <button type="button" class="small primary task-run-one" data-i="${i}">维护</button>
                     <button type="button" class="small danger task-del" data-i="${i}">删除</button>

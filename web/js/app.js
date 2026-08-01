@@ -202,8 +202,18 @@ function bindProxyInput() {
         event.target.value = '';
     });
 
+    $('import-source').addEventListener('change', () => {
+        const source = $('import-source').value;
+        $('import-remote-url').hidden = source !== 'remote';
+        $('import-library-select').hidden = source !== 'library';
+        if (source === 'file') $('file-input').click();
+        if (source === 'paste') $('ip-input').focus();
+    });
     $('btn-import-remote').addEventListener('click', async () => {
-        const url = $('remote-url').value.trim();
+        const source = $('import-source').value;
+        if (source === 'file') { $('file-input').click(); return; }
+        if (source === 'library') { await importFromLibrary(); return; }
+        const url = $('import-remote-url').value.trim();
         if (!url) { toast('请填写远程 TXT / CSV 地址'); return; }
         const button = $('btn-import-remote');
         button.disabled = true;
@@ -217,7 +227,7 @@ function bindProxyInput() {
             toast(error.message);
         } finally {
             button.disabled = false;
-            button.textContent = '加载';
+            button.textContent = '导入';
         }
     });
 }
@@ -907,7 +917,7 @@ function applySavedSettings(settings = {}) {
     if (settings.exportFormat === 'txt' || settings.exportFormat === 'csv') {
         $('export-format').value = settings.exportFormat;
     }
-    $('side-log-enable').checked = settings.debugLog === true;
+    $('log-enable').checked = settings.debugLog === true;
     if (Array.isArray(settings.savedTemplates)) {
         savedTemplates = settings.savedTemplates
             .filter(item => item && typeof item.name === 'string' && typeof item.template === 'string');
@@ -1364,43 +1374,42 @@ function bindPageNav() {
 }
 
 // 第 1 步：从本地库导入候选
+async function importFromLibrary() {
+    const sel = $('import-library-select');
+    const id = sel.value;
+    if (!id) { toast('请先选择本地库'); return; }
+    try {
+        const libData = await api.fetchAutoLibrary({ lib: id, limit: 2000 });
+        const targets = (libData.entries || [])
+            .filter(e => e.ip && (e.status === 'active' || e.status === 'new'))
+            .map(e => ({ ip: e.ip, port: Number(e.port) || 0 }));
+        const { added } = addUnique(proxyCandidates, targets);
+        renderCandidates();
+        toast(`已从库导入 ${added} 条候选（库内共 ${libData.total} 条）`);
+    } catch (error) {
+        toast(`导入候选失败：${error.message}`);
+    }
+}
+
 async function bindLibraryCandidateImport() {
     try {
         await refreshLibraryCandidateOptions();
-        const sel = $('lib-candidates-select');
-        sel.addEventListener('change', async () => {
-            const id = sel.value;
-            if (!id) return;
-            try {
-                const libData = await api.fetchAutoLibrary({ lib: id, limit: 2000 });
-                const targets = (libData.entries || [])
-                    .filter(e => e.ip && (e.status === 'active' || e.status === 'new'))
-                    .map(e => ({ ip: e.ip, port: Number(e.port) || 0 }));
-                const { added } = addUnique(proxyCandidates, targets);
-                renderCandidates();
-                toast(`已从库导入 ${added} 条候选（库内共 ${libData.total} 条）`);
-            } catch (error) {
-                toast(`导入候选失败：${error.message}`);
-            } finally {
-                sel.value = '';
-            }
-        });
     } catch { /* 忽略 */ }
 }
 
 // 侧边栏日志：所有日志集中在这里（运行进度 / 错误 / 调试记录）
 function sideLog(line, kind = '') {
-    const body = $('side-log-body');
+    const body = $('log-viewer');
     const div = document.createElement('div');
-    div.className = `side-log-line ${kind}`;
+    div.className = `log-line ${kind}`;
     div.textContent = `[${new Date().toLocaleTimeString('zh-CN', { hour12: false })}] ${line}`;
     body.appendChild(div);
-    while (body.children.length > 300) body.removeChild(body.firstChild);
+    while (body.children.length > 500) body.removeChild(body.firstChild);
     body.scrollTop = body.scrollHeight;
 }
 
 function bindDebugLog() {
-    const checkbox = $('side-log-enable');
+    const checkbox = $('log-enable');
     checkbox.addEventListener('change', async () => {
         try {
             const config = await api.fetchConfig();
@@ -1410,20 +1419,21 @@ function bindDebugLog() {
             toast(`保存失败：${error.message}`);
         }
     });
-    $('side-log-refresh').addEventListener('click', async () => {
+    $('log-refresh').addEventListener('click', async () => {
         try {
             const data = await api.fetchLog(300);
-            const body = $('side-log-body');
-            body.innerHTML = (data.lines || []).map(l => `<div class="side-log-line file">${escapeHTML(l)}</div>`).join('');
+            const body = $('log-viewer');
+            body.innerHTML = (data.lines || []).map(l => `<div class="log-line file">${escapeHTML(l)}</div>`).join('');
             body.scrollTop = body.scrollHeight;
         } catch (error) {
             toast(`读取日志失败：${error.message}`);
         }
     });
-    $('side-log-clear').addEventListener('click', async () => {
+    $('log-clear').addEventListener('click', async () => {
         if (!confirm('确认清空日志文件？')) return;
         try {
             await api.clearLog();
+            $('log-viewer').innerHTML = '';
             toast('日志已清空');
         } catch (error) {
             toast(`清空失败：${error.message}`);
@@ -1438,14 +1448,7 @@ function bindExportPopovers() {
     $('btn-export-open').addEventListener('click', () => open('export-modal'));
     $('btn-export-close').addEventListener('click', () => close('export-modal'));
     $('export-modal').addEventListener('click', e => { if (e.target === $('export-modal')) close('export-modal'); });
-    $('btn-import-open').addEventListener('click', () => {
-        const scope = $('input[name="export-scope"]:checked')?.value || 'direct';
-        const label = { direct: '全部（所有检测结果）', rules: '当前规则（当前展示范围与字段）', custom: '自定义（勾选追加的列表）' }[scope] || '全部';
-        $('import-scope-hint').textContent = label;
-        open('import-modal');
-    });
-    $('btn-import-close').addEventListener('click', () => close('import-modal'));
-    $('import-modal').addEventListener('click', e => { if (e.target === $('import-modal')) close('import-modal'); });
+
     $('btn-template-toggle').addEventListener('click', () => {
         templateEditorOpen = !templateEditorOpen;
         $('txt-template-editor').hidden = !templateEditorOpen;
@@ -1463,8 +1466,8 @@ function bindLibraryChanged() {
 async function refreshLibraryCandidateOptions() {
     try {
         const data = await api.fetchLibraries();
-        const sel = $('lib-candidates-select');
-        sel.innerHTML = '<option value="">从本地库导入…</option>'
+        const sel = $('import-library-select');
+        sel.innerHTML = '<option value="">选择库…</option>'
             + (data.libraries || []).map(l => `<option value="${escapeHTML(l.id)}">${escapeHTML(l.name)}</option>`).join('');
     } catch { /* 忽略 */ }
 }

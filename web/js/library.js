@@ -145,20 +145,6 @@ export function initLibrary({ toast }) {
         $('lib-count').textContent = `共 ${state.total} 条，当前显示 ${state.entries.length} 条`;
     }
 
-    async function importText() {
-        const text = $('lib-import-text').value.trim();
-        if (!text) { toast('请先粘贴要导入的 IP'); return; }
-        if (!state.current) { toast('请先选择库'); return; }
-        try {
-            const result = await api.importAutoLibrary({ lib: state.current.id, text, source: 'import' });
-            toast(`已导入：新增 ${result.added} 条，更新 ${result.updated} 条（共 ${result.total} 条）`);
-            $('lib-import-text').value = '';
-            await loadEntries();
-        } catch (error) {
-            toast(`导入失败：${error.message}`);
-        }
-    }
-
     async function removeSelected() {
         const keys = [...state.selected];
         if (!keys.length) { toast('请先勾选要移除的条目'); return; }
@@ -236,7 +222,6 @@ export function initLibrary({ toast }) {
         loadEntries();
     });
     $('lib-new').addEventListener('click', createNew);
-    $('lib-import').addEventListener('click', importText);
     $('lib-remove-selected').addEventListener('click', removeSelected);
     $('lib-clear').addEventListener('click', clearCurrent);
     $('lib-rename').addEventListener('click', renameCurrent);
