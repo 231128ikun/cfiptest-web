@@ -1,4 +1,4 @@
-﻿package server
+package server
 
 import (
 	"bytes"
@@ -157,7 +157,7 @@ func TestLibraryImportListAndResults(t *testing.T) {
 	}
 	// 检测结果导入（更新已有 + 新增）
 	rec = doJSON(t, s.handleLibraryImport, http.MethodPost, "/api/auto/library/import", autoImportRequest{
-		Results: []engine.Result{{IP: "1.1.1.1", Port: 443, LocCode: "US", Country: "美国", TCPLatencyMs: 120, DownloadSpeedKBs: 4500}},
+		Results: []engine.Result{{IP: "1.1.1.1", Port: 443, CountryCode: "US", Country: "美国", TCPLatencyMs: 120, DownloadSpeedKBs: 4500}},
 	})
 	_ = json.Unmarshal(rec.Body.Bytes(), &imp)
 	if imp.Added != 0 || imp.Updated != 1 {

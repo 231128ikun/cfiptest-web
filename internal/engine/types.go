@@ -63,7 +63,8 @@ type Result struct {
 	Region   string `json:"region"`
 	City     string `json:"city"`
 	RegionZh string `json:"regionZh"`
-	Country  string `json:"country"`
+	Country  string `json:"country"`     // 边缘节点国家中文名（locations 表按 colo 查）
+	CountryCode string `json:"countryCode"` // 边缘节点 ISO 二字母码（locations.cca2；非 trace loc）
 	CityZh   string `json:"cityZh"`
 	Emoji    string `json:"emoji"`
 

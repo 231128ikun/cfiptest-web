@@ -117,7 +117,7 @@ func TestSkipsCorruptLines(t *testing.T) {
 func TestEntryFromResult(t *testing.T) {
 	now := time.Now()
 	e := EntryFromResult(engine.Result{
-		IP: "1.2.3.4", Port: 443, LocCode: "US", Country: "美国", CityZh: "洛杉矶",
+		IP: "1.2.3.4", Port: 443, CountryCode: "US", Country: "美国", CityZh: "洛杉矶",
 		Emoji: "🇺🇸", DataCenter: "LAX", ASN: 13335, ASNOrg: "Cloudflare, Inc.",
 		TCPLatencyMs: 88, DownloadSpeedKBs: 5200,
 	}, now)
@@ -131,6 +131,21 @@ func TestEntryFromResult(t *testing.T) {
 	e2 := EntryFromResult(engine.Result{IP: "5.6.7.8", Port: 80}, now)
 	if e2.SpeedValid {
 		t.Fatal("未测速结果不应标记 SpeedValid")
+	}
+}
+
+// 回归：trace 的 loc 是本机国家，不能当作 IP 国家；CountryCode 必须来自边缘节点 cca2。
+func TestEntryFromResultUsesEdgeCountryNotTraceLoc(t *testing.T) {
+	now := time.Now()
+	// 模拟：本机在中国（loc=CN），边缘节点是洛杉矶（colo=LAX, cca2=US）
+	e := EntryFromResult(engine.Result{
+		IP: "104.16.0.1", Port: 443,
+		LocCode: "CN",            // 访客/本机国家（不得用作 IP 国家）
+		CountryCode: "US",        // 边缘节点国家码
+		Country: "美国", CityZh: "洛杉矶",
+	}, now)
+	if e.CountryCode != "US" {
+		t.Fatalf("入库国家码应来自边缘节点 cca2(US)，实际 %q（trace 的 loc=CN 是本机国家，不应作为 IP 国家）", e.CountryCode)
 	}
 }
 

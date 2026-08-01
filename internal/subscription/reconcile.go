@@ -563,7 +563,7 @@ func applyResult(e library.Entry, res engine.Result, now time.Time) (library.Ent
 		}
 		return b
 	}
-	e.CountryCode = mark(res.LocCode, e.CountryCode)
+	e.CountryCode = mark(res.CountryCode, e.CountryCode)
 	e.Country = mark(res.Country, e.Country)
 	e.CityZh = mark(res.CityZh, e.CityZh)
 	e.Emoji = mark(res.Emoji, e.Emoji)

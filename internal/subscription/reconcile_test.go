@@ -51,7 +51,7 @@ func (f *fakeTester) RunLatencyTest(_ context.Context, targets []engine.Target, 
 		if !f.latencyOK[key] {
 			continue
 		}
-		out = append(out, engine.Result{IP: t.IP, Port: t.Port, TCPLatencyMs: latencyOf(t.IP), LocCode: f.countries[key], Country: countryName(f.countries[key])})
+		out = append(out, engine.Result{IP: t.IP, Port: t.Port, TCPLatencyMs: latencyOf(t.IP), CountryCode: f.countries[key], Country: countryName(f.countries[key])})
 		cb(engine.Event{Type: engine.EventResult, Result: &out[len(out)-1]})
 	}
 	return out, nil

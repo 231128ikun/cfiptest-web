@@ -74,7 +74,7 @@ func EntryFromResult(res engine.Result, now time.Time) Entry {
 	return Entry{
 		IP:           res.IP,
 		Port:         res.Port,
-		CountryCode:  res.LocCode,
+		CountryCode:  res.CountryCode,
 		Country:      res.Country,
 		CityZh:       res.CityZh,
 		Emoji:        res.Emoji,

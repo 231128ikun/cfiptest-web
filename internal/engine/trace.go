@@ -117,6 +117,7 @@ func (r *Runner) testSingleIP(ctx context.Context, target Target, opts LatencyOp
 		res.City = loc.City
 		res.RegionZh = loc.RegionZh
 		res.Country = loc.Country
+		res.CountryCode = loc.Cca2
 		res.CityZh = loc.CityZh
 		res.Emoji = loc.Emoji
 	}
