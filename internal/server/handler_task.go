@@ -148,8 +148,10 @@ func (s *Server) broadcastTaskEvent(taskID string, ev engine.Event) {
 	switch ev.Type {
 	case engine.EventDone:
 		log.Printf("任务 %s 结束: reason=%s message=%s", taskID, ev.Reason, ev.Message)
+		s.log.Log("info", "任务 %s 结束: reason=%s message=%s", taskID, ev.Reason, ev.Message)
 	case engine.EventError:
 		log.Printf("任务 %s 错误: %s", taskID, ev.Message)
+		s.log.Log("error", "任务 %s 错误: %s", taskID, ev.Message)
 	}
 	s.broadcast(ev)
 }

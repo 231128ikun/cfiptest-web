@@ -11,7 +11,6 @@ import { download, copyToClipboard, serialize as serializeExport } from './expor
 import { boundedNumber } from './validation.js';
 import { initTasks } from './tasks.js';
 import { initLibrary } from './library.js';
-import { initRuns } from './runs.js';
 
 const $ = id => document.getElementById(id);
 const keyOf = item => `${item.ip}|${item.port || 0}`;
@@ -49,7 +48,6 @@ let visibleColumnKeys = [...DEFAULT_COLUMN_KEYS];
 let toastTimer = null;
 let tasksPage = null;
 let libPage = null;
-let runsPage = null;
 function toast(message) {
     const el = $('toast');
     el.textContent = message;
@@ -894,6 +892,7 @@ function applySavedSettings(settings = {}) {
     if (settings.exportFormat === 'txt' || settings.exportFormat === 'csv') {
         $('export-format').value = settings.exportFormat;
     }
+    $('set-debug-log').checked = settings.debugLog === true;
     if (Array.isArray(settings.savedTemplates)) {
         savedTemplates = settings.savedTemplates
             .filter(item => item && typeof item.name === 'string' && typeof item.template === 'string');
@@ -1376,11 +1375,45 @@ async function bindLibraryCandidateImport() {
     } catch { /* 忽略 */ }
 }
 
+// 设置页：调试日志
+function bindDebugLog() {
+    const checkbox = $('set-debug-log');
+    checkbox.addEventListener('change', async () => {
+        try {
+            const config = await api.fetchConfig();
+            await api.saveSettings({ ...(config.settings || {}), debugLog: checkbox.checked });
+            toast(checkbox.checked ? '调试日志已开启（写入 data/logs/app.log）' : '调试日志已关闭');
+        } catch (error) {
+            toast(`保存失败：${error.message}`);
+        }
+    });
+    $('btn-log-view').addEventListener('click', async () => {
+        try {
+            const data = await api.fetchLog(300);
+            $('log-viewer').textContent = data.lines?.join('\n') || '（无日志）';
+            $('log-viewer').hidden = false;
+            $('log-status').textContent = data.enabled ? `日志位置：data/${data.path}` : '日志未开启（当前不会记录）';
+        } catch (error) {
+            toast(`读取日志失败：${error.message}`);
+        }
+    });
+    $('btn-log-clear').addEventListener('click', async () => {
+        if (!confirm('确认清空日志文件？')) return;
+        try {
+            await api.clearLog();
+            $('log-viewer').textContent = '';
+            toast('日志已清空');
+        } catch (error) {
+            toast(`清空失败：${error.message}`);
+        }
+    });
+}
+
 async function init() {
     tasksPage = initTasks({ toast });
     libPage = initLibrary({ toast });
-    runsPage = initRuns({ toast });
     bindPageNav();
+    bindDebugLog();
     bindLibraryCandidateImport();
     refreshLibraryTargets();
     bindFlowNavigation();

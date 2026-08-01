@@ -1,4 +1,4 @@
-﻿package server
+package server
 
 import (
 	"context"
@@ -478,38 +478,29 @@ func (s *Server) runAutoTask(ctx context.Context, taskID string, task subscripti
 		s.broadcast(engine.Event{Type: engine.EventAuto, Message: string(body)})
 		return ctx.Err()
 	}
-	record := func(status, errMsg string, report *subscription.Report) {
-		rec := recordFromReport(report, status, errMsg)
-		if rec.Name == "" {
-			rec.Name = task.Name
-		}
-		if rec.TaskID == "" {
-			rec.TaskID = task.ID
-		}
-		_ = appendRun(s.dataDir, rec)
-	}
+	s.log.Log("info", "维护任务开始: %s (taskId=%s, 库=%s)", task.Name, task.ID, task.LibraryID)
 
 	mgr, err := s.libraryManager()
 	if err != nil {
 		s.broadcast(engine.Event{Type: engine.EventError, Message: "打开 IP 库失败: " + err.Error()})
-		record("error", err.Error(), nil)
+		s.log.Log("error", "维护任务 %s 打开 IP 库失败: %v", task.Name, err)
 		return
 	}
 	lib, err := mgr.Open(task.LibraryID)
 	if err != nil {
 		s.broadcast(engine.Event{Type: engine.EventError, Message: "打开 IP 库失败: " + err.Error()})
-		record("error", err.Error(), nil)
+		s.log.Log("error", "维护任务 %s 打开 IP 库失败: %v", task.Name, err)
 		return
 	}
 	report, err := subscription.RunTask(ctx, s.runner, lib, task, opts, emit)
 	if err != nil {
 		if ctx.Err() != nil {
 			s.broadcast(engine.Event{Type: engine.EventDone, Reason: engine.DoneStopped, Message: "自动化已停止"})
-			record("stopped", "已停止", report)
+			s.log.Log("warn", "维护任务 %s 已停止", task.Name)
 			return
 		}
 		s.broadcast(engine.Event{Type: engine.EventDone, Reason: engine.DoneCompleted, Message: "自动化运行出错: " + err.Error()})
-		record("error", err.Error(), report)
+		s.log.Log("error", "维护任务 %s 出错: %v", task.Name, err)
 		return
 	}
 	summary := fmt.Sprintf("自动化完成：%d 条输出 → %s", report.TotalLines, report.OutputPath)
@@ -519,22 +510,30 @@ func (s *Server) runAutoTask(ctx context.Context, taskID string, task subscripti
 	reportJSON, _ := json.Marshal(report)
 	s.broadcast(engine.Event{Type: engine.EventDone, Reason: engine.DoneCompleted, Message: summary})
 	s.broadcast(engine.Event{Type: engine.EventAuto, Message: `{"stage":"report","report":` + string(reportJSON) + `}`})
-	record("completed", "", report)
+	s.log.Log("info", "维护任务 %s 完成: %s", task.Name, summary)
 }
 
-// ---- 运行历史 ----
 
-func (s *Server) handleRunsGet(w http.ResponseWriter, r *http.Request) {
-	limit := 200
-	if v := r.URL.Query().Get("limit"); v != "" {
-		fmt.Sscanf(v, "%d", &limit)
+// ---- 调试日志 ----
+
+func (s *Server) handleLogGet(w http.ResponseWriter, r *http.Request) {
+	lines := 200
+	if v := r.URL.Query().Get("lines"); v != "" {
+		fmt.Sscanf(v, "%d", &lines)
 	}
-	recs, err := listRuns(s.dataDir, limit)
-	if err != nil {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"enabled": s.log.Enabled(),
+		"path":    filepath.Join(LogDir, LogFileName),
+		"lines":   s.log.Tail(lines),
+	})
+}
+
+func (s *Server) handleLogClear(w http.ResponseWriter, _ *http.Request) {
+	if err := s.log.Clear(); err != nil && !errors.Is(err, os.ErrNotExist) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"runs": recs})
+	writeJSON(w, http.StatusOK, map[string]bool{"cleared": true})
 }
 
 // ---- 输出下载 ----

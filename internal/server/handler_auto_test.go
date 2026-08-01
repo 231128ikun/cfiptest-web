@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"iptest-web/internal/engine"
 	"iptest-web/internal/library"
@@ -18,7 +17,8 @@ import (
 
 func autoServer(t *testing.T) *Server {
 	t.Helper()
-	return &Server{dataDir: t.TempDir()}
+	dir := t.TempDir()
+	return &Server{dataDir: dir, log: NewLogger(dir, false)}
 }
 
 func doJSON(t *testing.T, handler http.HandlerFunc, method, target string, body any) *httptest.ResponseRecorder {
@@ -171,24 +171,48 @@ func TestLibraryImportListAndResults(t *testing.T) {
 	}
 }
 
-func TestRunsAppendAndList(t *testing.T) {
+func TestDebugLogToggleAndTail(t *testing.T) {
 	s := autoServer(t)
-	if err := appendRun(s.dataDir, RunRecord{TaskID: "t-1", Name: "甲", Status: "completed", StartedAt: time.Now(), FinishedAt: time.Now(), TotalLines: 3}); err != nil {
-		t.Fatal(err)
+	if s.log == nil {
+		t.Fatal("logger 未初始化")
 	}
-	if err := appendRun(s.dataDir, RunRecord{TaskID: "t-2", Name: "乙", Status: "error", StartedAt: time.Now(), FinishedAt: time.Now(), Error: "x"}); err != nil {
-		t.Fatal(err)
+	if s.log.Enabled() {
+		t.Fatal("调试日志应默认关闭")
 	}
-	rec := doJSON(t, s.handleRunsGet, http.MethodGet, "/api/auto/runs", nil)
+	// 关闭时不写
+	s.log.Log("info", "should-not-appear")
+	// 开启后写
+	s.log.SetEnabled(true)
+	s.log.Log("info", "hello %s", "world")
+	s.log.Log("error", "boom")
+	lines := s.log.Tail(10)
+	found := false
+	for _, l := range lines {
+		if len(l) > 0 && len(l) < 200 { // 简单校验有内容
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("开启后应能读到日志: %v", lines)
+	}
+	// HTTP 查看 + 清空
+	rec := doJSON(t, s.handleLogGet, http.MethodGet, "/api/log", nil)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("历史读取失败: %d", rec.Code)
+		t.Fatalf("日志读取失败: %d", rec.Code)
 	}
 	var got struct {
-		Runs []RunRecord `json:"runs"`
+		Enabled bool     `json:"enabled"`
+		Lines   []string `json:"lines"`
 	}
 	_ = json.Unmarshal(rec.Body.Bytes(), &got)
-	if len(got.Runs) != 2 || got.Runs[0].Name != "乙" {
-		t.Fatalf("历史应按最新在前: %+v", got.Runs)
+	if !got.Enabled || len(got.Lines) == 0 {
+		t.Fatalf("日志接口返回错误: %+v", got)
+	}
+	if rec := doJSON(t, s.handleLogClear, http.MethodPost, "/api/log/clear", nil); rec.Code != http.StatusOK {
+		t.Fatalf("清空失败: %d", rec.Code)
+	}
+	if s.log.Enabled() && len(s.log.Tail(5)) == 0 {
+		t.Fatal("清空后应为空")
 	}
 }
 

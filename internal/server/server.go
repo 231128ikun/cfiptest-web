@@ -37,6 +37,9 @@ type Server struct {
 	libMgr   *library.Manager
 	libMgrMu sync.Mutex
 
+	// 调试日志（默认关闭，设置页开关）
+	log *Logger
+
 	// 任务生命周期
 	mu         sync.Mutex
 	taskID     string
@@ -54,6 +57,10 @@ func New(runner *engine.Runner, assets fs.FS, version string, cfg config.Config,
 		speedDefaults.DownloadURL = cfg.SpeedTestURL
 	}
 
+	logEnabled := false
+	if v, ok := config.LoadSettings(dataDir)["debugLog"].(bool); ok {
+		logEnabled = v
+	}
 	s := &Server{
 		runner:          runner,
 		assets:          assets,
@@ -64,6 +71,7 @@ func New(runner *engine.Runner, assets fs.FS, version string, cfg config.Config,
 		latencyDefaults: engine.DefaultLatencyOptions(),
 		speedDefaults:   speedDefaults,
 		sseClients:      make(map[chan engine.Event]struct{}),
+		log:             NewLogger(dataDir, logEnabled),
 	}
 	s.registerRoutes()
 	return s
@@ -118,8 +126,9 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/auto/library/import", s.handleLibraryImport)
 	s.mux.HandleFunc("POST /api/auto/library/remove", s.handleLibraryRemove)
 	s.mux.HandleFunc("POST /api/auto/run", s.handleAutoRun)
-	s.mux.HandleFunc("GET /api/auto/runs", s.handleRunsGet)
 	s.mux.HandleFunc("GET /api/auto/output", s.handleAutoOutput)
+	s.mux.HandleFunc("GET /api/log", s.handleLogGet)
+	s.mux.HandleFunc("POST /api/log/clear", s.handleLogClear)
 	// 旧订阅器路径别名（兼容旧页面）
 	s.mux.HandleFunc("GET /api/auto/subs", s.handleTasksGet)
 	s.mux.HandleFunc("PUT /api/auto/subs", s.handleTasksSave)

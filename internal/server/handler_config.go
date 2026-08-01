@@ -66,5 +66,9 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "保存设置失败: "+err.Error())
 		return
 	}
+	// 调试日志开关即时生效
+	if on, ok := settings["debugLog"].(bool); ok {
+		s.log.SetEnabled(on)
+	}
 	writeJSON(w, http.StatusOK, map[string]bool{"saved": true})
 }

@@ -33,7 +33,7 @@
                 <a href="#page-workspace" class="side-item active" data-page="workspace" title="测速工作台"><span class="side-icon">◎</span><span class="side-label">测速工作台</span></a>
                 <a href="#page-tasks" class="side-item" data-page="tasks" title="自动维护"><span class="side-icon">♻</span><span class="side-label">自动维护</span></a>
                 <a href="#page-library" class="side-item" data-page="library" title="IP 库"><span class="side-icon">▤</span><span class="side-label">IP 库</span></a>
-                <a href="#page-runs" class="side-item" data-page="runs" title="运行记录"><span class="side-icon">◷</span><span class="side-label">运行记录</span></a>
+
             </div>
             <div class="side-group side-bottom">
                 <a href="#page-settings" class="side-item" data-page="settings" title="设置"><span class="side-icon">⚙</span><span class="side-label">设置</span></a>
@@ -309,7 +309,7 @@
             <div class="page-head">
                 <div>
                     <h2>自动维护</h2>
-                    <p class="page-desc">给任务设定规则与配额，开启的任务会被「一键维护」依次执行；点击左侧任务可展开编辑。</p>
+                    <p class="page-desc">按规则长期维护订阅：任务 + 规则 + 一键维护 → 输出订阅文件。</p>
                 </div>
                 <div class="page-actions">
                     <button type="button" id="btn-run-all" class="primary">一键维护</button>
@@ -369,7 +369,7 @@
             <div class="page-head">
                 <div>
                     <h2>IP 库</h2>
-                    <p class="page-desc">多个命名 IP 库；检测结果页可一键导入，维护任务按需现测。库内条目会随检测自动更新。</p>
+                    <p class="page-desc">维护任务与导入数据的仓库（多库），条目随检测自动更新：延迟失败移除、测速失败保留、结果回写。</p>
                 </div>
                 <div class="page-actions">
                     <button type="button" id="lib-new" class="secondary-button">+ 新建库</button>
@@ -413,26 +413,24 @@
             </div>
         </section>
 
-        <section id="page-runs" class="page">
-            <div class="page-head">
-                <div>
-                    <h2>运行记录</h2>
-                    <p class="page-desc">每次维护运行的摘要与结果，最新在前；数据保存在 data/runs.jsonl。</p>
-                </div>
-                <div class="page-actions">
-                    <button type="button" id="runs-refresh" class="secondary-button">刷新</button>
-                </div>
-            </div>
-            <div class="runs-list" id="runs-list"></div>
-        </section>
-
         <section id="page-settings" class="page">
             <div class="page-head">
                 <div>
                     <h2>设置</h2>
-                    <p class="page-desc">全局默认检测参数与本地数据源配置，保存到 data/config.json 与 data/settings.json。</p>
+                    <p class="page-desc">全局默认检测参数、本地数据源与调试日志。</p>
                 </div>
-            </div><details class="advanced-settings">
+            </div>
+            <details class="auto-block" open>
+                <summary>调试日志 <span class="hint">默认关闭；遇到问题打开后运行，日志写入 data/logs/app.log 用于排查</span></summary>
+                <div class="auto-toolbar">
+                    <label class="checkbox"><input type="checkbox" id="set-debug-log"> 开启调试日志</label>
+                    <button type="button" id="btn-log-view" class="small">查看日志</button>
+                    <button type="button" id="btn-log-clear" class="small danger">清空日志</button>
+                    <span id="log-status" class="hint"></span>
+                </div>
+                <div class="auto-hint">日志自动按大小轮转（单文件约 1MB，保留最近 3 份）。关闭开关后不再写入新日志。</div>
+                <pre id="log-viewer" class="log-viewer" hidden></pre>
+            </details><details class="advanced-settings">
                 <summary>其他检测规则与本地配置</summary>
                 <div class="advanced-config-grid">
                     <label class="checkbox"><input type="checkbox" id="lat-ipapi"> 检测 IPS 类型</label>
