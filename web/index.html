@@ -26,6 +26,7 @@
             <a href="#stage-input" class="flow-step active"><span>1</span>准备候选</a>
             <a href="#stage-test" class="flow-step"><span>2</span>检测规则</a>
             <a href="#stage-results" class="flow-step"><span>3</span>检测及结果</a>
+            <a href="#stage-auto" class="flow-step auto-step"><span>A</span>自动化维护</a>
         </div>
     </nav>
 
@@ -335,6 +336,78 @@
                     </div>
                 </div>
             </div>
+        </section>
+        <section id="stage-auto" class="flow-section auto-section">
+            <div class="section-heading">
+                <div><span class="eyebrow">AUTO</span><h2>自动化维护：IP 库 → 订阅器</h2></div>
+                <div class="section-metric"><strong id="auto-lib-total">库 0 条</strong><span>按需现测、失效清理、配额补足</span></div>
+            </div>
+
+            <details class="auto-block" open>
+                <summary>订阅器定义 <span class="hint">JSON 数组，可定义多个订阅器</span></summary>
+                <div class="auto-toolbar">
+                    <button type="button" id="btn-auto-sample">添加示例订阅器</button>
+                    <button type="button" id="btn-auto-validate" class="small">校验</button>
+                    <button type="button" id="btn-auto-save" class="primary">保存订阅器</button>
+                    <span id="auto-subs-status" class="hint" aria-live="polite"></span>
+                </div>
+                <textarea id="auto-subs-editor" rows="9" spellcheck="false" placeholder='[{&quot;name&quot;:&quot;我的订阅&quot;,&quot;enableSpeed&quot;:false,&quot;groups&quot;:[{&quot;name&quot;:&quot;美国&quot;,&quot;countryCode&quot;:&quot;US&quot;,&quot;count&quot;:10,&quot;maxLatencyMs&quot;:300}],&quot;output&quot;:{&quot;path&quot;:&quot;out/sub.txt&quot;,&quot;template&quot;:&quot;{ip}:{port}#{emoji}{country}&quot;}}]'></textarea>
+                <div class="auto-hint">
+                    分组字段：<code>name</code> 名称、<code>countryCode</code> 国家二字母码（空=不限）、<code>ports</code> 端口数组、<code>maxLatencyMs</code> 最大延迟、<code>minSpeedKBs</code> 最低速度、<code>requireSpeed</code> 需测速、<code>count</code> 配额。
+                    输出：<code>path</code>（相对 data 目录）、<code>format</code>（txt/csv）、<code>template</code> 占位符
+                    <code>{ip} {port} {country} {emoji} {city} {latency} {speed} {dc} {asn} {asnOrg}</code>。
+                </div>
+            </details>
+
+            <details class="auto-block" open>
+                <summary>IP 库 <span class="hint">data/ipdb.jsonl：手动输入或导入，运行维护时现测</span></summary>
+                <div class="auto-toolbar">
+                    <select id="auto-lib-source" title="来源标记">
+                        <option value="manual">手动输入</option>
+                        <option value="import">导入</option>
+                        <option value="official">官方段</option>
+                    </select>
+                    <input type="text" id="auto-lib-text" placeholder="粘贴 ip:port 或 ip:port#国家-城市，每行一个">
+                    <button type="button" id="btn-auto-lib-import">导入到库</button>
+                    <button type="button" id="btn-auto-lib-refresh" class="small">刷新</button>
+                    <button type="button" id="btn-auto-lib-remove" class="small danger">移除勾选</button>
+                    <button type="button" id="btn-auto-lib-clear" class="small danger">清空库</button>
+                </div>
+                <div class="auto-lib-filters">
+                    <input type="text" id="auto-lib-q" placeholder="搜索 IP / 国家 / 城市 / 数据中心 / ASN">
+                    <select id="auto-lib-status">
+                        <option value="">全部状态</option>
+                        <option value="active">有效</option>
+                        <option value="new">未测</option>
+                    </select>
+                    <select id="auto-lib-country"><option value="">全部国家</option></select>
+                </div>
+                <div class="auto-lib-table-wrap">
+                    <table class="results auto-lib-table">
+                        <thead>
+                            <tr>
+                                <th class="no-sort"><input type="checkbox" id="auto-lib-checkall" aria-label="全选"></th>
+                                <th>IP</th><th>端口</th><th>国家</th><th>城市</th><th>延迟</th><th>速度</th><th>状态</th><th>来源</th><th>上次检测</th>
+                            </tr>
+                        </thead>
+                        <tbody id="auto-lib-tbody"></tbody>
+                    </table>
+                </div>
+                <div class="auto-lib-footer"><span id="auto-lib-count" class="hint"></span></div>
+            </details>
+
+            <details class="auto-block" open>
+                <summary>运行维护 <span class="hint">从库取候选现测，延迟失败移除、测速失败保留，结果回写，直到配额满足</span></summary>
+                <div class="auto-toolbar">
+                    <select id="auto-run-select" aria-label="选择订阅器"></select>
+                    <button type="button" id="btn-auto-run" class="primary">运行</button>
+                    <button type="button" id="btn-auto-stop" class="danger" disabled>停止</button>
+                    <a id="auto-output-link" class="small" hidden>下载订阅文件</a>
+                    <span id="auto-run-status" class="hint" aria-live="polite"></span>
+                </div>
+                <div id="auto-log" class="auto-log" aria-live="polite"></div>
+                <div id="auto-report" class="auto-report" hidden></div>
+            </details>
         </section>
     </main>
 

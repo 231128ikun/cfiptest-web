@@ -146,6 +146,7 @@ const (
 	EventSpeed    EventType = "speed"    // 测速阶段单条速度更新
 	EventDone     EventType = "done"     // 阶段完成
 	EventError    EventType = "error"    // 错误/取消
+	EventAuto     EventType = "auto"     // 自动化编排进度/日志（Message 为 JSON 文本）
 )
 
 // DoneReason 说明一个阶段为何结束。

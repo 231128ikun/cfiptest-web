@@ -9,6 +9,7 @@ import { createMultiSelect } from './multiselect.js';
 import { PRESETS, placeholderNames } from './composer.js';
 import { download, copyToClipboard, serialize as serializeExport } from './exporter.js';
 import { boundedNumber } from './validation.js';
+import { initAuto } from './auto.js';
 
 const $ = id => document.getElementById(id);
 const keyOf = item => `${item.ip}|${item.port || 0}`;
@@ -44,6 +45,7 @@ const SELECTABLE_COLUMN_KEYS = ALL_COLUMNS
 let visibleColumnKeys = [...DEFAULT_COLUMN_KEYS];
 
 let toastTimer = null;
+let autoPage = null;
 function toast(message) {
     const el = $('toast');
     el.textContent = message;
@@ -598,7 +600,9 @@ function bindEvents() {
             table.updateSpeed(result);
             scheduleExportPreview();
         },
+        onAuto: message => autoPage?.onAuto(message),
         onDone: (message, reason) => {
+            if (autoPage?.isAutoRunning()) { autoPage.onDone(message, reason); return; }
             setRunning(false);
             $('progress-label').textContent = reason === 'limit' ? '已达到最大数量' : reason === 'stopped' ? '已停止' : '已完成';
             $('progress-pct').textContent = reason === 'stopped' ? $('progress-pct').textContent : '100%';
@@ -612,6 +616,7 @@ function bindEvents() {
             regenerateOutput();
         },
         onError: message => {
+            if (autoPage?.isAutoRunning()) { autoPage.onDone(message, 'stopped'); return; }
             if (!currentTaskId) return;
             setRunning(false);
             $('progress-label').textContent = '任务出错';
@@ -1288,6 +1293,7 @@ function bindExport() {
 }
 
 async function init() {
+    autoPage = initAuto({ toast });
     bindFlowNavigation();
     bindModes();
     bindProxyInput();

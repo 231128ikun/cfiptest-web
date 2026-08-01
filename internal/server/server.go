@@ -99,6 +99,17 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/task/stop", s.handleStop)
 	s.mux.HandleFunc("GET /api/task/status", s.handleTaskStatus)
 	s.mux.HandleFunc("GET /api/task/events", s.handleEvents)
+
+	// 自动化：订阅器 / IP 库 / 运行
+	s.mux.HandleFunc("GET /api/auto/subs", s.handleAutoSubsGet)
+	s.mux.HandleFunc("PUT /api/auto/subs", s.handleAutoSubsSave)
+	s.mux.HandleFunc("POST /api/auto/subs/validate", s.handleAutoSubsValidate)
+	s.mux.HandleFunc("GET /api/auto/library", s.handleAutoLibraryGet)
+	s.mux.HandleFunc("POST /api/auto/library/import", s.handleAutoLibraryImport)
+	s.mux.HandleFunc("POST /api/auto/library/remove", s.handleAutoLibraryRemove)
+	s.mux.HandleFunc("POST /api/auto/library/clear", s.handleAutoLibraryClear)
+	s.mux.HandleFunc("POST /api/auto/run", s.handleAutoRun)
+	s.mux.HandleFunc("GET /api/auto/output", s.handleAutoOutput)
 }
 
 // broadcast 将事件推送给所有 SSE 订阅者（engine 回调入口）。

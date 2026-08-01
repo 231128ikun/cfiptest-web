@@ -201,3 +201,28 @@ scripts/                前端模块的 Node 校验脚本（状态、表格、�
 
 > 公开发布前必须核对并保留上述上游项目的许可证与署名要求；在完成核对前，
 > 本仓库不应自行声明一个可能与上游不兼容的许可证。
+
+## 自动化维护（IP 库 → 订阅器）
+
+除手动三步检测外，程序内置一套“维护订阅器”的自动化流水线：**库 → 现测 → 清理 → 补足 → 输出**。
+
+- **IP 库**：`data/ipdb.jsonl`。手动输入或粘贴 IP 后导入，也可由维护运行自动回写。
+- **现测现更**：每次运行从库中取候选实时检测——延迟失败的 IP 直接从库中移除；测速失败**不判死**（测速链路本身不稳定），仅标记速度无效保留待下次验证；检测结果与库不一致（国家/延迟/ASN 变化）会整体回写更新。
+- **订阅器**：`data/subscriptions.json` 可定义多个订阅器，每个含若干分组（国家 / 端口 / 最大延迟 / 最低速度 / 配额 count）与输出（路径 / txt|csv / 占位符模板）。
+- **配额补足**：按分组从库中取候选检测，直到满足配额或候选耗尽；不足部分在运行报告中提示导入更多该地区 IP，宁缺毋滥。
+- **输出**：按模板生成订阅文件到 `data/out/`，模板占位符与前端一致（`{ip} {port} {country} {emoji} {city} {latency} {speed} {dc} {asn} {asnOrg}`）。
+
+使用：打开页面顶部「自动化维护」页签 → 定义/保存订阅器 → 导入 IP 到库 → 点「运行」。也支持外部触发（HTTP API）。
+
+自动化 API：
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET/PUT | `/api/auto/subs` | 读取 / 全量保存订阅器定义 |
+| POST | `/api/auto/subs/validate` | 校验单个订阅器定义 |
+| GET | `/api/auto/library` | 查询 IP 库（`status` / `country` / `q` / `offset` / `limit`） |
+| POST | `/api/auto/library/import` | 导入 IP 到库（`targets` 或 `text` + `source`） |
+| POST | `/api/auto/library/remove` | 按 `keys`（ip\|port）移除条目 |
+| POST | `/api/auto/library/clear` | 清空 IP 库（需 `confirm:true`） |
+| POST | `/api/auto/run` | 启动一次维护运行（`subscriptionName`），进度走 SSE `auto` 事件 |
+| GET | `/api/auto/output` | 下载订阅输出文件（`path` 相对 data 目录） |

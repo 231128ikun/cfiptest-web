@@ -59,6 +59,36 @@ export function importText(text, { sampleMode = 'one', sampleN = 1 } = {}) {
     return postJSON('/api/import/text', { text, sampleMode, sampleN });
 }
 
+// ---- 自动化（IP 库 / 订阅器 / 运行维护） ----
+
+export function fetchAutoSubs() { return postJSON('/api/auto/subs', {}, 'GET'); }
+export function saveAutoSubs(subscriptions) { return postJSON('/api/auto/subs', { subscriptions }, 'PUT'); }
+export function validateAutoSub(subscription) { return postJSON('/api/auto/subs/validate', subscription); }
+
+export function fetchAutoLibrary(params = {}) {
+    const query = new URLSearchParams();
+    if (params.status) query.set('status', params.status);
+    if (params.country) query.set('country', params.country);
+    if (params.q) query.set('q', params.q);
+    if (params.offset != null) query.set('offset', params.offset);
+    if (params.limit != null) query.set('limit', params.limit);
+    const qs = query.size ? `?${query}` : '';
+    return postJSON(`/api/auto/library${qs}`, {}, 'GET');
+}
+
+export function importAutoLibrary({ targets, text, source }) {
+    return postJSON('/api/auto/library/import', { targets, text, source });
+}
+export function removeAutoLibrary(keys) { return postJSON('/api/auto/library/remove', { keys }); }
+export function clearAutoLibrary() { return postJSON('/api/auto/library/clear', { confirm: true }); }
+
+export function runAuto(subscriptionName) { return postJSON('/api/auto/run', { subscriptionName }); }
+
+/** 下载订阅输出文件（path 相对 data 目录） */
+export function autoOutputUrl(path) {
+    return `/api/auto/output?path=${encodeURIComponent(path)}`;
+}
+
 /** 启动测速；targets 为从结果中挑选的子集 */
 export function startSpeedTest(targets, options) {
     return postJSON('/api/task/speed', { targets, options });
@@ -76,7 +106,7 @@ export async function fetchTaskStatus() {
 
 /**
  * 订阅 SSE 事件流。
- * handlers: { onResult, onProgress, onSpeed, onDone, onError, onOpen }
+ * handlers: { onResult, onProgress, onSpeed, onAuto, onDone, onError, onOpen }
  * onDone 收到 (message, reason)，reason ∈ completed | limit | stopped：
  * 后两者是正常收工，界面不该按错误处理。
  * 返回 EventSource（可 close()）。
@@ -97,6 +127,7 @@ export function subscribeEvents(handlers) {
     es.addEventListener('result', e => handlers.onResult?.(JSON.parse(e.data).result));
     es.addEventListener('progress', e => handlers.onProgress?.(JSON.parse(e.data).progress));
     es.addEventListener('speed', e => handlers.onSpeed?.(JSON.parse(e.data).result));
+    es.addEventListener('auto', e => handlers.onAuto?.(JSON.parse(e.data).message));
     es.addEventListener('done', e => {
         const data = JSON.parse(e.data);
         handlers.onDone?.(data.message, data.reason || 'completed');
