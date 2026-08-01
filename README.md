@@ -123,8 +123,8 @@ sh build.sh
 sh build.sh 2026.07.31-14.30
 ```
 
-版本号格式为 `yyyy.MM.dd-HH.mm`。构建脚本会将它注入程序并生成同名文件，
-例如 `iptest-web-2026.07.31-14.30.exe`；前端右上角显示 `版本号：2026.07.31-14.30`。
+版本号格式为 `yyyy.MM.dd-HH.mm`。构建脚本会将它注入程序，并在 `release/` 下按版本建独立文件夹输出：
+`release/iptest-web-2026.07.31-14.30/iptest-web-2026.07.31-14.30.exe`；前端右上角显示 `版本号：2026.07.31-14.30`。
 直接执行 `go build` 且不注入时，版本号仍为 `dev`。
 
 依赖仅 [geoip2-golang](https://github.com/oschwald/geoip2-golang)，前端为原生 ES Modules（无构建步骤），经 `embed.FS` 打进二进制。
