@@ -348,6 +348,12 @@ table.results .empty-row td { padding: 34px 0; text-align: center; color: var(--
     .run-strip { display: grid; }
     .result-toolbar > *, .result-actions > * { width: 100%; }
     .result-actions-divider { display: none; }
+    .auto-form-grid { grid-template-columns: 1fr; }
+    .auto-form-grid label.auto-form-wide { grid-column: span 1; }
+    .auto-template-row { flex-wrap: wrap; }
+    .auto-template-row select { flex-basis: 100%; }
+    .auto-group-head, .auto-group-row { grid-template-columns: 1fr 1fr; }
+    .auto-group-row { padding-bottom: 8px; border-bottom: 1px solid var(--border-light); }
     #result-filter, #result-max-latency, #result-min-speed { flex: 1 1 100%; min-width: 0; }
     .result-view-controls { align-items: stretch; }
     .result-view-controls > * { width: 100%; }
@@ -396,3 +402,20 @@ table.results .empty-row td { padding: 34px 0; text-align: center; color: var(--
 .auto-report-row a { color: var(--accent); }
 .auto-shortage { margin-top: 6px; color: var(--warning); }
 td.bad-shortage { color: var(--danger); font-weight: 650; }
+
+/* ---- 自动化订阅器表单 ---- */
+.auto-form-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px 12px; margin-bottom: 12px; }
+.auto-form-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-secondary); }
+.auto-form-grid label.auto-form-wide { grid-column: span 2; }
+.auto-form-grid label.checkbox { flex-direction: row; align-items: center; gap: 6px; padding-top: 16px; color: var(--text); }
+.auto-template-row { display: flex; gap: 6px; }
+.auto-template-row select { flex: 0 0 190px; }
+.auto-template-row input { flex: 1; min-width: 0; }
+.auto-groups { margin: 2px 0 6px; }
+.auto-group-head, .auto-group-row { display: grid; grid-template-columns: 1.2fr .8fr 1fr .9fr 1fr .8fr .6fr 28px; gap: 6px; align-items: center; margin-bottom: 6px; }
+.auto-group-head { font-size: 11px; color: var(--text-secondary); padding: 0 2px; }
+.auto-group-head span:last-child { width: 28px; }
+.auto-group-row input { min-width: 0; }
+.auto-group-require { display: flex; align-items: center; gap: 4px; font-size: 12px; white-space: nowrap; color: var(--text); }
+.auto-group-row .g-del { border: 0; background: none; color: var(--danger); cursor: pointer; font-size: 14px; padding: 2px; }
+.auto-groups-empty { padding: 12px; text-align: center; color: var(--text-secondary); border: 1px dashed var(--border-light); border-radius: var(--radius-sm); }

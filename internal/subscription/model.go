@@ -1,4 +1,4 @@
-﻿// Package subscription 定义订阅器（约束 + 输出）模型，并实现自动化编排：
+// Package subscription 定义订阅器（约束 + 输出）模型，并实现自动化编排：
 // 从 IP 库取候选现测，延迟失败移除、测速失败保留，检测结果与库不一致时回写更新，
 // 直到每个分组配额满足或候选耗尽，最后按输出模板生成订阅文件。
 package subscription
@@ -34,7 +34,8 @@ type Output struct {
 // Subscription 是一个订阅器定义。
 type Subscription struct {
 	Name        string  `json:"name"`
-	EnableSpeed bool    `json:"enableSpeed"` // 补足时是否执行测速
+	InputPath   string  `json:"inputPath,omitempty"` // 原订阅文件（相对 data 目录，如 out/原订阅.txt）；维护时先解析导入到 IP 库
+	EnableSpeed bool    `json:"enableSpeed"`         // 补足时是否执行测速
 	Groups      []Group `json:"groups"`
 	Output      Output  `json:"output"`
 }
@@ -75,7 +76,12 @@ func (s *Subscription) Validate() error {
 		}
 	}
 	if s.Output.Path == "" {
-		s.Output.Path = filepath.Join("out", s.Name+".txt")
+		if strings.TrimSpace(s.InputPath) != "" {
+			// 未指定输出文件时，直接更新原订阅文件
+			s.Output.Path = filepath.Clean(strings.TrimSpace(s.InputPath))
+		} else {
+			s.Output.Path = filepath.Join("out", s.Name+".txt")
+		}
 	}
 	if s.Output.Format == "" {
 		s.Output.Format = "txt"

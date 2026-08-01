@@ -109,6 +109,8 @@ type Report struct {
 	TotalLines   int           `json:"totalLines"`
 	Shortages    []string      `json:"shortages"`
 	RemovedDead  int           `json:"removedDead"`
+	InputAdded   int           `json:"inputAdded"`   // 从输入订阅文件新导入的 IP 数
+	InputUpdated int           `json:"inputUpdated"` // 输入文件与库重叠更新的条数
 }
 
 // Run 执行一次订阅维护：
@@ -130,6 +132,18 @@ func Run(ctx context.Context, t Tester, lib *library.Store, sub Subscription, op
 	}
 	for gi, g := range sub.Groups {
 		report.Groups[gi] = GroupReport{Name: g.Name, Target: g.Count}
+	}
+
+	// 0. 解析输入订阅文件（ip:port#备注 等格式，复用 engine 解析逻辑）导入 IP 库
+	if strings.TrimSpace(sub.InputPath) != "" {
+		added, updated, err := importInputFile(lib, sub.InputPath, now)
+		if err != nil {
+			return nil, fmt.Errorf("读取订阅输入文件失败: %w", err)
+		}
+		report.InputAdded = added
+		report.InputUpdated = updated
+		_ = prog(Progress{Stage: "input", Tested: added + updated,
+			Log: fmt.Sprintf("解析输入订阅文件 %s：新增 %d / 更新 %d", sub.InputPath, added, updated)})
 	}
 
 	// ---- 1. 收集候选（多分组去重） ----
@@ -446,6 +460,46 @@ func applyResult(e library.Entry, res engine.Result, now time.Time) (library.Ent
 		e.Source = library.SourceTopup
 	}
 	return e, changed
+}
+
+// importInputFile 读取原订阅文件（相对库目录），解析出 IP 并导入 IP 库（状态 new）。
+// 解析复用 engine.ParseTargetsWithCIDR：支持 ip:port、ip:port#备注、CIDR 展开等现有输入逻辑。
+func importInputFile(lib *library.Store, rel string, now time.Time) (int, int, error) {
+	abs, err := resolveInDir(lib.Dir(), rel)
+	if err != nil {
+		return 0, 0, err
+	}
+	body, err := os.ReadFile(abs)
+	if err != nil {
+		return 0, 0, err
+	}
+	targets := engine.ParseTargetsWithCIDR(string(body), engine.SampleOnePerSubnet, 1)
+	added, updated := 0, 0
+	for _, t := range targets {
+		e := library.Entry{IP: t.IP, Port: t.Port, Source: library.SourceImport, Status: library.StatusNew, FirstSeenAt: now}
+		if existing, ok := lib.Get(t.IP, t.Port); ok {
+			e.FirstSeenAt = existing.FirstSeenAt
+			updated++
+		} else {
+			added++
+		}
+		lib.Upsert(e)
+	}
+	return added, updated, nil
+}
+
+// resolveInDir 把相对路径安全地解析到 dir 内，拒绝目录穿越与绝对路径逃逸。
+func resolveInDir(dir, rel string) (string, error) {
+	if strings.TrimSpace(rel) == "" {
+		return "", fmt.Errorf("路径为空")
+	}
+	base := filepath.Clean(dir)
+	target := filepath.Clean(filepath.Join(base, filepath.FromSlash(rel)))
+	relTo, err := filepath.Rel(base, target)
+	if err != nil || strings.HasPrefix(relTo, "..") || filepath.IsAbs(relTo) {
+		return "", fmt.Errorf("路径必须在 %s 目录内: %s", dir, rel)
+	}
+	return target, nil
 }
 
 // WriteOutput 将订阅结果按格式渲染并原子写入 dataDir 下的输出文件。

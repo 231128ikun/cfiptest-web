@@ -1,8 +1,11 @@
-// auto.js —— 自动化维护页：订阅器定义、IP 库管理、一键运行与进度
+// auto.js —— 自动化维护页：订阅器表单编辑、模板复用（导出页同一套）、一键运行与进度
+import { PRESETS } from './composer.js';
 import { escapeHTML } from './columns.js';
 import * as api from './api.js';
 
 const $ = id => document.getElementById(id);
+const SAVED_TEMPLATE_KEY = 'iptest.savedTemplates.v1';
+
 const fmtTime = ts => {
     if (!ts) return '—';
     const d = new Date(ts);
@@ -15,18 +18,19 @@ const fmtTime = ts => {
 };
 const fmtSpeed = kbs => (kbs > 0 ? `${Math.round(kbs)} kB/s` : '—');
 const fmtLatency = ms => (ms > 0 ? `${ms} ms` : '—');
-const SOURCE_LABEL = { manual: '手动', import: '导入', official: '官方', topup: '补足' };
-const STATUS_LABEL = { active: '有效', new: '未测' };
 
 export function initAuto({ toast }) {
     const state = {
         subs: [],
-        libEntries: [],
-        libTotal: 0,
-        selected: new Set(),
+        index: -1, // 当前编辑的订阅器下标（-1 = 未选择/新建草稿）
+        savedTemplates: [],
         running: false,
         report: null,
     };
+
+    function currentSub() {
+        return state.index >= 0 && state.index < state.subs.length ? state.subs[state.index] : null;
+    }
 
     function log(line, kind = '') {
         const box = $('auto-log');
@@ -61,6 +65,8 @@ export function initAuto({ toast }) {
                 <td>${g.updated ?? 0}</td>
             </tr>`).join('');
         const shortages = (report.shortages || []).map(s => `<div class="auto-shortage">⚠ ${escapeHTML(s)}</div>`).join('');
+        const inputLine = (report.inputAdded || report.inputUpdated)
+            ? `<div class="auto-report-row">输入订阅文件：新增 ${report.inputAdded ?? 0} 条，更新 ${report.inputUpdated ?? 0} 条</div>` : '';
         const link = report.outputPath
             ? `<div class="auto-report-row">输出文件：<a href="${api.autoOutputUrl(report.outputPath.replace(/\\/g, '/').replace(/^.*[\\/]data[\\/]/, 'out/'))}" download>下载 ${escapeHTML(report.outputPath)}</a></div>`
             : '';
@@ -70,177 +76,234 @@ export function initAuto({ toast }) {
                 <thead><tr><th>分组</th><th>配额</th><th>缺口</th><th>延迟测试</th><th>延迟失败(移除)</th><th>测速</th><th>测速失败(保留)</th><th>回写更新</th></tr></thead>
                 <tbody>${rows}</tbody>
             </table>
+            ${inputLine}
             ${shortages}
             ${link}
             <div class="auto-report-row">共输出 ${report.totalLines ?? 0} 行，移除失效 ${report.removedDead ?? 0} 条</div>`;
     }
 
-    // ---- 订阅器 ----
+    // ---- 模板（复用导出页：内置模板 + 我的模板 + 自定义） ----
+    function loadTemplates() {
+        try {
+            const parsed = JSON.parse(localStorage.getItem(SAVED_TEMPLATE_KEY) || '[]');
+            state.savedTemplates = Array.isArray(parsed)
+                ? parsed.filter(item => item && typeof item.name === 'string' && typeof item.template === 'string')
+                : [];
+        } catch {
+            state.savedTemplates = [];
+        }
+        renderTemplateOptions();
+    }
+
+    async function fetchSettingsTemplates() {
+        try {
+            const config = await api.fetchConfig();
+            const list = config?.settings?.savedTemplates;
+            if (Array.isArray(list)) {
+                state.savedTemplates = list.filter(item => item && typeof item.name === 'string' && typeof item.template === 'string');
+                renderTemplateOptions();
+            }
+        } catch { /* 后端不可用时沿用本地缓存 */ }
+    }
+
+    function templateValueToOption(template) {
+        const pIdx = PRESETS.findIndex(p => p.template === template);
+        if (pIdx >= 0) return `preset:${pIdx}`;
+        const sIdx = state.savedTemplates.findIndex(p => p.template === template);
+        if (sIdx >= 0) return `saved:${sIdx}`;
+        return 'custom';
+    }
+
+    function renderTemplateOptions(selected = '') {
+        const presetOptions = PRESETS.map((p, i) => `<option value="preset:${i}">${escapeHTML(p.name)}</option>`).join('');
+        const savedOptions = state.savedTemplates.map((p, i) => `<option value="saved:${i}">${escapeHTML(p.name)}</option>`).join('');
+        const sel = $('auto-tpl-select');
+        sel.innerHTML = `<optgroup label="内置模板">${presetOptions}</optgroup>`
+            + (savedOptions ? `<optgroup label="我的模板">${savedOptions}</optgroup>` : '')
+            + '<optgroup label="自定义"><option value="custom">自定义…</option></optgroup>';
+        sel.value = selected;
+    }
+
+    function templateFor(optionValue) {
+        if (typeof optionValue === 'string' && optionValue.startsWith('preset:')) {
+            return PRESETS[Number(optionValue.slice(7))]?.template ?? '';
+        }
+        if (typeof optionValue === 'string' && optionValue.startsWith('saved:')) {
+            return state.savedTemplates[Number(optionValue.slice(6))]?.template ?? '';
+        }
+        return '';
+    }
+
+    async function saveCurrentTemplate() {
+        const tpl = $('auto-tpl-custom').value.trim();
+        if (!tpl) { toast('模板为空，先输入或选择一个模板'); return; }
+        const name = prompt('模板名称（与导出页「我的模板」共用）', `我的模板 ${state.savedTemplates.length + 1}`);
+        if (!name) return;
+        state.savedTemplates = [...state.savedTemplates.filter(t => t.template !== tpl), { name: name.trim(), template: tpl }];
+        try {
+            localStorage.setItem(SAVED_TEMPLATE_KEY, JSON.stringify(state.savedTemplates));
+            const config = await api.fetchConfig();
+            await api.saveSettings({ ...(config.settings || {}), savedTemplates: state.savedTemplates });
+        } catch (error) {
+            toast(`保存模板失败：${error.message}`);
+            return;
+        }
+        renderTemplateOptions(`saved:${state.savedTemplates.length - 1}`);
+        $('auto-tpl-custom').value = tpl;
+        toast('模板已保存');
+    }
+
+    // ---- 订阅器表单 ----
+    function renderSubSelect() {
+        const sel = $('auto-sub-select');
+        sel.innerHTML = state.subs.map((s, i) => `<option value="${i}">${escapeHTML(s.name || `订阅器 ${i + 1}`)}</option>`).join('')
+            || '<option value="-1">（暂无订阅器，点「新建」）</option>';
+        sel.value = String(state.index);
+        $('btn-auto-sub-delete').disabled = state.index < 0;
+    }
+
+    function renderGroupRows() {
+        const sub = currentSub();
+        const groups = sub?.groups ?? [];
+        const wrap = $('auto-groups-rows');
+        if (groups.length === 0) {
+            wrap.innerHTML = '<div class="auto-groups-empty">暂无分组，点击「添加分组」</div>';
+            return;
+        }
+        wrap.innerHTML = groups.map((g, i) => `
+            <div class="auto-group-row" data-i="${i}">
+                <input class="g-name" data-i="${i}" value="${escapeHTML(g.name || '')}" placeholder="名称">
+                <input class="g-country" data-i="${i}" value="${escapeHTML((g.countryCode || '').toUpperCase())}" placeholder="US/JP/SG">
+                <input class="g-ports" data-i="${i}" value="${escapeHTML((g.ports || []).join(','))}" placeholder="443,2053">
+                <input class="g-latency" data-i="${i}" type="number" min="0" value="${g.maxLatencyMs || ''}" placeholder="300">
+                <input class="g-speed" data-i="${i}" type="number" min="0" value="${g.minSpeedKBs || ''}" placeholder="1000">
+                <label class="auto-group-require" title="需有效测速结果才入订阅"><input class="g-require" data-i="${i}" type="checkbox" ${g.requireSpeed ? 'checked' : ''}>测速</label>
+                <input class="g-count" data-i="${i}" type="number" min="1" value="${g.count ?? 1}">
+                <button type="button" class="g-del" data-i="${i}" title="删除分组">✕</button>
+            </div>`).join('');
+    }
+
+    function fillForm() {
+        const sub = currentSub();
+        $('auto-sub-name').value = sub?.name ?? '';
+        $('auto-sub-input').value = sub?.inputPath ?? '';
+        $('auto-sub-output').value = sub?.output?.path ?? '';
+        $('auto-sub-format').value = (sub?.output?.format === 'csv') ? 'csv' : 'txt';
+        $('auto-sub-speed').checked = Boolean(sub?.enableSpeed);
+        const template = sub?.output?.template || '{ip}:{port}#{emoji}{country}';
+        $('auto-tpl-custom').value = template;
+        renderTemplateOptions(templateValueToOption(template));
+        renderGroupRows();
+        $('auto-subs-status').textContent = '';
+    }
+
+    function collectForm() {
+        const num = (el) => {
+            const v = Number(el.value);
+            return Number.isFinite(v) && v > 0 ? v : 0;
+        };
+        const groups = [...document.querySelectorAll('#auto-groups-rows .auto-group-row')].map(row => {
+            const q = sel => row.querySelector(sel);
+            const ports = (q('.g-ports')?.value || '').split(/[,，]/).map(s => Number(s.trim())).filter(n => n > 0);
+            return {
+                name: q('.g-name').value.trim() || undefined,
+                countryCode: q('.g-country').value.trim().toUpperCase() || undefined,
+                ports: ports.length ? ports : undefined,
+                maxLatencyMs: num(q('.g-latency')) || undefined,
+                minSpeedKBs: num(q('.g-speed')) || undefined,
+                requireSpeed: q('.g-require').checked,
+                count: Math.max(1, Math.trunc(Number(q('.g-count').value) || 1)),
+            };
+        });
+        return {
+            name: $('auto-sub-name').value.trim(),
+            inputPath: $('auto-sub-input').value.trim() || undefined,
+            enableSpeed: $('auto-sub-speed').checked,
+            groups,
+            output: {
+                path: $('auto-sub-output').value.trim() || undefined,
+                format: $('auto-sub-format').value,
+                template: $('auto-tpl-custom').value.trim(),
+            },
+        };
+    }
+
     async function loadSubs() {
         try {
             const data = await api.fetchAutoSubs();
             state.subs = data.subscriptions || [];
-            $('auto-subs-editor').value = JSON.stringify(state.subs, null, 2);
-            const select = $('auto-run-select');
-            select.innerHTML = state.subs.map(s => `<option value="${escapeHTML(s.name)}">${escapeHTML(s.name)}</option>`).join('')
-                || '<option value="">（暂无订阅器，先在上方添加）</option>';
-            $('auto-run-select').disabled = state.subs.length === 0;
+            state.index = state.subs.length ? 0 : -1;
+            renderSubSelect();
+            fillForm();
+            refreshRunSelect();
         } catch (error) {
             toast(`加载订阅器失败：${error.message}`);
         }
     }
 
+    function refreshRunSelect() {
+        const sel = $('auto-run-select');
+        sel.innerHTML = state.subs.map(s => `<option value="${escapeHTML(s.name)}">${escapeHTML(s.name)}</option>`).join('')
+            || '<option value="">（暂无订阅器，先在上方新建并保存）</option>';
+        sel.disabled = state.subs.length === 0;
+    }
+
     async function saveSubs() {
-        let parsed;
+        const sub = collectForm();
+        if (!sub.name) { toast('订阅器名称不能为空'); return; }
+        if (!sub.groups.length) { toast('至少需要一个分组'); return; }
         try {
-            parsed = JSON.parse($('auto-subs-editor').value);
+            await api.validateAutoSub(sub);
         } catch (error) {
-            toast(`JSON 格式错误：${error.message}`);
+            toast(`校验失败：${error.message}`);
             return;
         }
+        if (state.index >= 0 && state.index < state.subs.length) {
+            state.subs[state.index] = sub;
+        } else {
+            state.subs.push(sub);
+            state.index = state.subs.length - 1;
+        }
         try {
-            await api.saveAutoSubs(Array.isArray(parsed) ? parsed : [parsed]);
+            await api.saveAutoSubs(state.subs);
             toast('订阅器已保存');
             $('auto-subs-status').textContent = '已保存到 data/subscriptions.json';
-            await loadSubs();
+            renderSubSelect();
+            refreshRunSelect();
         } catch (error) {
             toast(`保存失败：${error.message}`);
-            $('auto-subs-status').textContent = error.message;
         }
     }
 
-    async function validateSubs() {
-        let parsed;
+    function deleteCurrentSub() {
+        if (state.index < 0) return;
+        const name = state.subs[state.index]?.name || '';
+        if (!confirm(`确认删除订阅器「${name}」？`)) return;
+        state.subs.splice(state.index, 1);
+        state.index = state.subs.length ? 0 : -1;
+        renderSubSelect();
+        fillForm();
+        refreshRunSelect();
+        api.saveAutoSubs(state.subs).then(
+            () => { toast('已删除'); $('auto-subs-status').textContent = '已保存到 data/subscriptions.json'; },
+            error => toast(`保存失败：${error.message}`),
+        );
+    }
+
+    // ---- 库统计（导入入口在检测结果页） ----
+    async function refreshStats() {
         try {
-            parsed = JSON.parse($('auto-subs-editor').value);
-        } catch (error) {
-            toast(`JSON 格式错误：${error.message}`);
-            return;
-        }
-        const list = Array.isArray(parsed) ? parsed : [parsed];
-        for (const sub of list) {
-            try {
-                await api.validateAutoSub(sub);
-            } catch (error) {
-                toast(`「${sub.name || '未命名'}」校验失败：${error.message}`);
-                return;
-            }
-        }
-        toast(`校验通过（${list.length} 个订阅器）`);
-    }
-
-    // ---- IP 库 ----
-    async function loadLibrary() {
-        const params = {
-            q: $('auto-lib-q').value.trim(),
-            status: $('auto-lib-status').value,
-            country: $('auto-lib-country').value,
-            limit: 500,
-        };
-        try {
-            const data = await api.fetchAutoLibrary(params);
-            state.libEntries = data.entries || [];
-            state.libTotal = data.total || 0;
-            renderLibTable();
-            renderLibStats(data.stats);
-            renderCountryFilter(data.stats);
-        } catch (error) {
-            toast(`加载 IP 库失败：${error.message}`);
-        }
-    }
-
-    function renderLibStats(stats) {
-        if (!stats) return;
-        $('auto-lib-total').textContent = `库 ${stats.total} 条（有效 ${stats.active} / 未测 ${stats.new}）`;
-    }
-
-    function renderCountryFilter(stats) {
-        const select = $('auto-lib-country');
-        const current = select.value;
-        const codes = Object.keys(stats?.byCountry || {}).filter(c => c && c !== 'unknown').sort();
-        const options = ['<option value="">全部国家</option>']
-            .concat(codes.map(c => `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`))
-            .join('');
-        select.innerHTML = options;
-        select.value = current;
-    }
-
-    function renderLibTable() {
-        const tbody = $('auto-lib-tbody');
-        if (state.libEntries.length === 0) {
-            tbody.innerHTML = `<tr class="pad"><td colspan="10" class="auto-lib-empty">库为空：先在下方导入一些 IP，或直接运行维护由订阅器补足</td></tr>`;
-            $('auto-lib-count').textContent = `共 ${state.libTotal} 条`;
-            return;
-        }
-        tbody.innerHTML = state.libEntries.map(e => {
-            const key = `${e.ip}|${e.port || 0}`;
-            const checked = state.selected.has(key) ? 'checked' : '';
-            return `<tr>
-                <td><input type="checkbox" class="auto-lib-check" data-key="${escapeHTML(key)}" ${checked} aria-label="选择 ${escapeHTML(e.ip)}"></td>
-                <td class="mono">${escapeHTML(e.ip)}</td>
-                <td>${e.port || '—'}</td>
-                <td>${escapeHTML(e.emoji || '')}${escapeHTML(e.country || e.countryCode || '—')}</td>
-                <td>${escapeHTML(e.cityZh || '—')}</td>
-                <td>${fmtLatency(e.tcpLatencyMs)}</td>
-                <td>${fmtSpeed(e.speedValid ? e.speedKBs : 0)}</td>
-                <td>${STATUS_LABEL[e.status] || escapeHTML(e.status || '—')}</td>
-                <td>${SOURCE_LABEL[e.source] || escapeHTML(e.source || '—')}</td>
-                <td>${fmtTime(e.lastCheckedAt)}</td>
-            </tr>`;
-        }).join('');
-        $('auto-lib-count').textContent = `共 ${state.libTotal} 条，当前显示 ${state.libEntries.length} 条`;
-    }
-
-    async function importLib() {
-        const source = $('auto-lib-source').value;
-        const text = $('auto-lib-text').value.trim();
-        if (!text) {
-            toast('请先粘贴要导入的 IP');
-            return;
-        }
-        try {
-            const result = await api.importAutoLibrary({ text, source });
-            toast(`已入库：新增 ${result.added} 条，更新 ${result.updated} 条（库共 ${result.total} 条）`);
-            $('auto-lib-text').value = '';
-            await loadLibrary();
-        } catch (error) {
-            toast(`导入失败：${error.message}`);
-        }
-    }
-
-    async function removeSelected() {
-        const keys = [...state.selected];
-        if (keys.length === 0) {
-            toast('请先勾选要移除的条目');
-            return;
-        }
-        try {
-            const result = await api.removeAutoLibrary(keys);
-            toast(`已移除 ${result.removed} 条`);
-            state.selected.clear();
-            await loadLibrary();
-        } catch (error) {
-            toast(`移除失败：${error.message}`);
-        }
-    }
-
-    async function clearLib() {
-        if (!confirm('确认清空整个 IP 库？此操作不可恢复。')) return;
-        try {
-            await api.clearAutoLibrary();
-            toast('IP 库已清空');
-            state.selected.clear();
-            await loadLibrary();
-        } catch (error) {
-            toast(`清空失败：${error.message}`);
-        }
+            const data = await api.fetchAutoLibrary({ limit: 1 });
+            const st = data.stats || {};
+            $('auto-lib-total').textContent = `库 ${st.total ?? 0} 条（有效 ${st.active ?? 0} / 未测 ${st.new ?? 0}）`;
+        } catch { /* 忽略 */ }
     }
 
     // ---- 运行 ----
     async function run() {
         const name = $('auto-run-select').value;
         if (!name) {
-            toast('请先在上方定义并保存订阅器');
+            toast('请先在上方新建并保存订阅器');
             return;
         }
         try {
@@ -250,7 +313,6 @@ export function initAuto({ toast }) {
             $('auto-output-link').hidden = true;
             setRunning(true);
             log(`启动维护：${name}（taskId=${result.taskId}）`);
-            log('正在收集候选…', 'info');
         } catch (error) {
             toast(`启动失败：${error.message}`);
             log(`启动失败：${error.message}`, 'error');
@@ -276,8 +338,9 @@ export function initAuto({ toast }) {
         }
         const prefix = p.group ? `[${p.group}] ` : '';
         switch (p.stage) {
+            case 'input':
             case 'gather':
-                log(`${prefix}收集候选 ${p.tested} 条`, 'info');
+                log(`${prefix}${p.log || `收集候选 ${p.tested} 条`}`, 'info');
                 break;
             case 'latency':
                 log(`${prefix}延迟检测完成：通过 ${p.passed}，失败 ${p.failed}（已从库移除）`, p.failed > 0 ? 'warn' : 'ok');
@@ -305,52 +368,62 @@ export function initAuto({ toast }) {
         } else {
             log(message || '运行结束', 'error');
         }
-        loadLibrary();
+        refreshStats();
         loadSubs();
     }
 
     // ---- 事件绑定 ----
-    $('btn-auto-sample').addEventListener('click', () => {
-        const sample = [{
-            name: '示例订阅',
-            enableSpeed: false,
-            groups: [
-                { name: '美国', countryCode: 'US', country: '美国', count: 10, maxLatencyMs: 300 },
-                { name: '日本', countryCode: 'JP', country: '日本', count: 10, maxLatencyMs: 300 },
-                { name: '新加坡', countryCode: 'SG', country: '新加坡', count: 10, maxLatencyMs: 300 },
-            ],
-            output: { path: 'out/示例订阅.txt', format: 'txt', template: '{ip}:{port}#{emoji}{country}' },
-        }];
-        $('auto-subs-editor').value = JSON.stringify(sample, null, 2);
-        toast('已填入示例，可修改后保存');
+    $('auto-sub-select').addEventListener('change', e => {
+        state.index = Number(e.target.value);
+        renderSubSelect();
+        fillForm();
     });
-    $('btn-auto-validate').addEventListener('click', validateSubs);
+    $('btn-auto-sub-new').addEventListener('click', () => {
+        state.subs.push({ name: '新订阅器', enableSpeed: false, groups: [{ name: '分组1', countryCode: '', count: 10 }], output: { format: 'txt', template: '{ip}:{port}#{emoji}{country}' } });
+        state.index = state.subs.length - 1;
+        renderSubSelect();
+        fillForm();
+    });
+    $('btn-auto-sub-delete').addEventListener('click', deleteCurrentSub);
     $('btn-auto-save').addEventListener('click', saveSubs);
-    $('btn-auto-lib-import').addEventListener('click', importLib);
-    $('btn-auto-lib-refresh').addEventListener('click', loadLibrary);
-    $('btn-auto-lib-remove').addEventListener('click', removeSelected);
-    $('btn-auto-lib-clear').addEventListener('click', clearLib);
+    $('auto-tpl-select').addEventListener('change', e => {
+        const tpl = templateFor(e.target.value);
+        if (tpl) $('auto-tpl-custom').value = tpl;
+    });
+    $('btn-auto-tpl-save').addEventListener('click', saveCurrentTemplate);
+    $('btn-auto-group-add').addEventListener('click', () => {
+        const sub = currentSub() || { groups: [] };
+        sub.groups = sub.groups || [];
+        sub.groups.push({ name: `分组${sub.groups.length + 1}`, count: 10 });
+        if (!currentSub()) { state.subs.push(sub); state.index = state.subs.length - 1; renderSubSelect(); }
+        renderGroupRows();
+    });
+    $('auto-groups-rows').addEventListener('input', e => {
+        const row = e.target.closest('.auto-group-row');
+        if (!row) return;
+        const sub = currentSub();
+        if (!sub) return;
+        const g = sub.groups[Number(row.dataset.i)];
+        if (!g) return;
+        const cls = [...e.target.classList].find(c => c.startsWith('g-'));
+        if (!cls) return;
+        if (cls === 'g-require') g.requireSpeed = e.target.checked;
+        else if (cls === 'g-count') g.count = Math.max(1, Math.trunc(Number(e.target.value) || 1));
+        else if (cls === 'g-name') g.name = e.target.value;
+        else if (cls === 'g-country') g.countryCode = e.target.value.trim().toUpperCase();
+        else if (cls === 'g-ports') g.ports = e.target.value.split(/[,，]/).map(s => Number(s.trim())).filter(n => n > 0);
+        else if (cls === 'g-latency') g.maxLatencyMs = Number(e.target.value) > 0 ? Number(e.target.value) : undefined;
+        else if (cls === 'g-speed') g.minSpeedKBs = Number(e.target.value) > 0 ? Number(e.target.value) : undefined;
+    });
+    $('auto-groups-rows').addEventListener('click', e => {
+        if (!e.target.classList.contains('g-del')) return;
+        const sub = currentSub();
+        if (!sub) return;
+        sub.groups.splice(Number(e.target.dataset.i), 1);
+        renderGroupRows();
+    });
     $('btn-auto-run').addEventListener('click', run);
     $('btn-auto-stop').addEventListener('click', stop);
-
-    ['auto-lib-q', 'auto-lib-status', 'auto-lib-country'].forEach(id => {
-        $(id).addEventListener('input', loadLibrary);
-    });
-    $('auto-lib-status').addEventListener('change', loadLibrary);
-    $('auto-lib-country').addEventListener('change', loadLibrary);
-
-    $('auto-lib-tbody').addEventListener('change', event => {
-        const box = event.target.closest('.auto-lib-check');
-        if (!box) return;
-        if (box.checked) state.selected.add(box.dataset.key);
-        else state.selected.delete(box.dataset.key);
-    });
-    $('auto-lib-checkall').addEventListener('change', event => {
-        const checked = event.target.checked;
-        state.selected.clear();
-        if (checked) state.libEntries.forEach(e => state.selected.add(`${e.ip}|${e.port || 0}`));
-        renderLibTable();
-    });
 
     // 页面加载时同步运行状态
     api.fetchTaskStatus().then(status => {
@@ -360,8 +433,10 @@ export function initAuto({ toast }) {
         }
     }).catch(() => {});
 
+    loadTemplates();
+    fetchSettingsTemplates();
     loadSubs();
-    loadLibrary();
+    refreshStats();
 
-    return { onAuto, onDone, isAutoRunning: () => state.running, refreshLibrary: loadLibrary };
+    return { onAuto, onDone, isAutoRunning: () => state.running, refreshLibrary: refreshStats };
 }
