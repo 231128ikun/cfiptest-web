@@ -161,6 +161,7 @@
                 <div class="rule-group">
                     <div class="rule-group-head"><h3>连接与延迟</h3><span id="default-port-hint">未指定端口使用 443</span></div>
                     <label class="rule-line"><span>TLS</span><input type="checkbox" id="lat-tls" checked></label>
+                    <label class="rule-line"><span>检测 IPS 类型</span><input type="checkbox" id="lat-ipapi" title="调用外部接口识别被测 IP 的地址类型（IPv4/IPv6）"></label>
                     <label class="rule-line"><span>延迟并发数</span><input type="number" id="lat-concurrency" min="1" max="1000"><em>个</em></label>
                     <label class="rule-line"><span>单 IP 超时</span><input type="number" id="lat-timeout" min="200" max="10000"><em>ms</em></label>
                     <label class="rule-line"><span>最大允许延迟</span><input type="number" id="lat-maxlatency" min="0" max="10000" placeholder="不限制"><em>ms</em></label>
@@ -459,7 +460,7 @@
             </details><details class="advanced-settings">
                 <summary>其他检测规则与本地配置</summary>
                 <div class="advanced-config-grid">
-                    <label class="checkbox"><input type="checkbox" id="lat-ipapi"> 检测 IPS 类型</label>
+
                     <label>IPS 检测地址 <input type="text" id="advanced-ips-url" placeholder="使用 {ip} 表示被测 IP"></label>
                     <label>测速地址 <input type="text" id="advanced-speed-url"></label>
                     <label>Trace 地址 <input type="text" id="advanced-trace-url"></label>

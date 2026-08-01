@@ -24,8 +24,13 @@
 }
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
+html { height: 100%; }
 body {
     margin: 0;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
     background: var(--bg);
     color: var(--text);
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -38,7 +43,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
     outline-offset: 2px;
 }
 
-.app-header { position: sticky; top: 0; z-index: 50; height: var(--header-h); display: flex; align-items: center; background: #172522; color: #f8fbfa; border-bottom: 1px solid #30403b; box-shadow: 0 2px 14px rgba(15, 35, 31, .16); }
+.app-header { position: relative; z-index: 50; flex: none; background: #172522; color: #f8fbfa; border-bottom: 1px solid #30403b; box-shadow: 0 2px 14px rgba(15, 35, 31, .16); }
 .header-inner { max-width: 1380px; margin: 0 auto; padding: 16px 28px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .brand-block { display: flex; align-items: center; gap: 12px; }
 .brand-mark { width: 42px; height: 42px; display: grid; place-items: center; border-radius: var(--radius); background: #d7ece6; color: #174d42; font-size: 14px; font-weight: 800; box-shadow: inset 0 0 0 1px rgba(23, 77, 66, .14); }
@@ -422,7 +427,7 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 .auto-groups-empty { padding: 12px; text-align: center; color: var(--text-secondary); border: 1px dashed var(--border-light); border-radius: var(--radius-sm); }
 
 /* ---- 应用外壳：侧边栏 + 内容区 ---- */
-.app-shell { display: flex; height: calc(100vh - var(--header-h)); overflow: hidden; }
+.app-shell { flex: 1; min-height: 0; display: flex; overflow: hidden; }
 .sidebar { flex: 0 0 176px; background: #172522; padding: 10px 8px 12px; display: flex; flex-direction: column; transition: flex-basis .18s ease; overflow-y: auto; overflow-x: hidden; }
 .sidebar.collapsed { flex-basis: 52px; }
 .side-head { display: flex; align-items: center; justify-content: space-between; padding: 2px 6px 10px; color: #7f948d; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
@@ -512,7 +517,8 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 
 /* 响应式 */
 @media (max-width: 900px) {
-    .app-shell { height: auto; overflow: visible; flex-direction: column; }
+    body { height: auto; overflow: visible; }
+    .app-shell { flex: none; overflow: visible; flex-direction: column; }
     .content { overflow: visible; }
     .sidebar { flex-basis: auto; padding: 8px; }
     .sidebar-nav { flex-direction: row; flex-wrap: wrap; position: static; }
