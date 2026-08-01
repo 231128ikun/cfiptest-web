@@ -37,7 +37,8 @@ export class ResultTable {
             if (col.key === '_sel') {
                 return `<th class="no-sort"><input type="checkbox" id="sel-all" title="全选"></th>`;
             }
-            return `<th data-key="${col.key}" class="${col.sortable ? '' : 'no-sort'}">${col.label}<span class="arrow"></span></th>`;
+            const attrs = col.sortable ? 'tabindex="0" aria-sort="none"' : '';
+            return `<th data-key="${col.key}" class="${col.sortable ? '' : 'no-sort'}" ${attrs}>${col.label}<span class="arrow"></span></th>`;
         }).join('');
 
         this.container.innerHTML = `
@@ -60,12 +61,18 @@ export class ResultTable {
         });
 
         this.container.querySelectorAll('thead th[data-key]').forEach(th => {
-            th.addEventListener('click', () => {
+            const sort = () => {
                 const key = th.dataset.key;
                 const col = columnByKey(key);
                 if (!col?.sortable) return;
                 // 点当前列 = 反向；点别的列 = 换列并复位为升序
                 this.setSort(key, this.sortKey === key ? !this.sortAsc : true);
+            };
+            th.addEventListener('click', sort);
+            th.addEventListener('keydown', event => {
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                event.preventDefault();
+                sort();
             });
         });
 
@@ -103,6 +110,11 @@ export class ResultTable {
         this.sortAsc = !!asc;
         this._invalidate();
         this.render();
+        this.container.querySelectorAll('thead th[data-key]').forEach(th => {
+            th.setAttribute('aria-sort', th.dataset.key === this.sortKey
+                ? (this.sortAsc ? 'ascending' : 'descending')
+                : 'none');
+        });
         this.container.dispatchEvent(new CustomEvent('sortchange', {
             bubbles: true,
             detail: { key: this.sortKey, asc: this.sortAsc },

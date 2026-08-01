@@ -68,6 +68,12 @@ export function stopTask(taskId) {
     return postJSON('/api/task/stop', { taskId: taskId || '' });
 }
 
+export async function fetchTaskStatus() {
+    const resp = await fetch('/api/task/status');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return resp.json();
+}
+
 /**
  * 订阅 SSE 事件流。
  * handlers: { onResult, onProgress, onSpeed, onDone, onError, onOpen }
@@ -79,7 +85,14 @@ export function subscribeEvents(handlers) {
     const es = new EventSource('/api/task/events');
 
     es.onopen = () => handlers.onOpen?.();
-    es.onerror = () => handlers.onError?.('事件流连接中断');
+    es.onerror = event => {
+        if (event?.data) {
+            const data = JSON.parse(event.data);
+            handlers.onError?.(data.message || '未知错误');
+            return;
+        }
+        handlers.onDisconnect?.();
+    };
 
     es.addEventListener('result', e => handlers.onResult?.(JSON.parse(e.data).result));
     es.addEventListener('progress', e => handlers.onProgress?.(JSON.parse(e.data).progress));
@@ -88,10 +101,5 @@ export function subscribeEvents(handlers) {
         const data = JSON.parse(e.data);
         handlers.onDone?.(data.message, data.reason || 'completed');
     });
-    es.addEventListener('error', e => {
-        const data = e.data ? JSON.parse(e.data) : {};
-        handlers.onError?.(data.message || '未知错误');
-    });
-
     return es;
 }

@@ -37,11 +37,11 @@
             </div>
 
             <div class="mode-tabs" id="mode-tabs" role="tablist">
-                <button class="mode-tab active" data-mode="proxy" role="tab" aria-selected="true">反代 IP 模式</button>
-                <button class="mode-tab" data-mode="official" role="tab" aria-selected="false">官方 IP 模式</button>
+                <button id="tab-proxy" class="mode-tab active" data-mode="proxy" role="tab" aria-selected="true" aria-controls="source-proxy" tabindex="0">反代 IP 模式</button>
+                <button id="tab-official" class="mode-tab" data-mode="official" role="tab" aria-selected="false" aria-controls="source-official" tabindex="-1">官方 IP 模式</button>
             </div>
 
-            <div id="source-proxy" class="source-panel">
+            <div id="source-proxy" class="source-panel" role="tabpanel" aria-labelledby="tab-proxy">
                 <div class="source-toolbar compact-toolbar">
                     <label class="file-btn">导入 TXT / CSV<input type="file" id="file-input" accept=".txt,.csv,.text" hidden></label>
                     <input type="text" id="remote-url" placeholder="远程 TXT / CSV 链接">
@@ -88,7 +88,7 @@
                 </div>
             </div>
 
-            <div id="source-official" class="source-panel" hidden>
+            <div id="source-official" class="source-panel" role="tabpanel" aria-labelledby="tab-official" hidden>
                 <div class="official-layout">
                     <div class="official-settings">
                         <div class="official-heading"><h3>Cloudflare 官方 IP 段</h3><span id="ranges-status" class="hint">尚未加载</span></div>
@@ -105,11 +105,10 @@
                         </div>
                         <div class="official-note" id="sample-hint">IPv4 按每个 /24 抽样，避免直接检测百万级地址；官方模式端口固定 443。</div>
                         <div class="official-actions">
-                            <button id="btn-fetch-ranges">加载本地缓存</button>
-                            <button id="btn-refresh-ranges">远程更新</button>
+                            <button id="btn-refresh-ranges" title="从远程官方接口拉取最新 IP 段并覆盖本地缓存文件">更新本地缓存</button>
                             <button id="btn-add-ranges" class="primary">生成官方候选</button>
                         </div>
-                        <div id="ranges-estimate" class="estimate-box">加载后显示预计候选数量</div>
+                        <div id="ranges-estimate" class="estimate-box">打开官方模式后自动读取本地缓存；无缓存时自动尝试远程拉取</div>
                     </div>
                     <div class="candidate-pane official-candidate">
                         <div class="pane-head"><span>官方候选区</span><button id="btn-official-clear" class="text-button">清空</button></div>
@@ -139,9 +138,9 @@
 
                 <div class="rule-group" id="spd-panel">
                     <div class="rule-group-head panel-head"><h3>速度条件</h3><label class="checkbox"><input type="checkbox" id="spd-enable"> 延迟检测后继续测速</label></div>
-                    <div class="field rule-line"><span>测速并发数</span><input type="number" id="spd-concurrency" min="1" max="100"><em>个</em></div>
-                    <div class="field rule-line"><span>单 IP 时限</span><input type="number" id="spd-duration" min="1" max="30"><em>秒</em></div>
-                    <div class="field rule-line"><span>最低下载速度</span><input type="number" id="spd-minspeed" min="0" placeholder="不限制"><em>kB/s</em></div>
+                    <label class="field rule-line"><span>测速并发数</span><input type="number" id="spd-concurrency" min="1" max="100"><em>个</em></label>
+                    <label class="field rule-line"><span>单 IP 时限</span><input type="number" id="spd-duration" min="1" max="30"><em>秒</em></label>
+                    <label class="field rule-line"><span>最低下载速度</span><input type="number" id="spd-minspeed" min="0" placeholder="不限制"><em>kB/s</em></label>
                     <div class="field hidden-setting"><input type="number" id="spd-maxresults" min="0"><input type="text" id="spd-url"><input type="checkbox" id="spd-tls"></div>
                 </div>
 
@@ -165,12 +164,48 @@
                     <div class="advanced-group">
                         <div class="advanced-group-title">结果颜色阈值</div>
                         <div class="threshold-grid">
-                            <label>延迟绿色上限 <input type="number" id="badge-latency-fast" min="1" placeholder="150"><em>ms</em></label>
-                            <label>延迟黄色上限 <input type="number" id="badge-latency-mid" min="1" placeholder="400"><em>ms</em></label>
-                            <label>速度绿色下限 <input type="number" id="badge-speed-fast" min="1" placeholder="1000"><em>kB/s</em></label>
-                            <label>速度黄色下限 <input type="number" id="badge-speed-mid" min="1" placeholder="100"><em>kB/s</em></label>
+                            <div class="threshold-card latency-thresholds">
+                                <div class="threshold-card-head"><strong>延迟</strong><span>数值越低越好</span></div>
+                                <div class="threshold-range-list">
+                                    <label class="threshold-range range-fast">
+                                        <span class="threshold-label"><i class="threshold-swatch fast"></i>绿色</span>
+                                        <span class="threshold-expression">延迟 &lt;</span>
+                                        <span class="threshold-end"><input type="number" id="badge-latency-green-end" min="1" step="1" placeholder="200" aria-label="绿色延迟区间右端值"><em>ms</em></span>
+                                    </label>
+                                    <label class="threshold-range range-mid">
+                                        <span class="threshold-label"><i class="threshold-swatch mid"></i>黄色</span>
+                                        <span class="threshold-expression"><span id="badge-latency-yellow-start">200 ms</span> ≤ 延迟 ≤</span>
+                                        <span class="threshold-end"><input type="number" id="badge-latency-yellow-end" min="2" step="1" placeholder="1000" aria-label="黄色延迟区间右端值"><em>ms</em></span>
+                                    </label>
+                                    <div class="threshold-range range-slow">
+                                        <span class="threshold-label"><i class="threshold-swatch slow"></i>红色</span>
+                                        <span class="threshold-expression">延迟 &gt;</span>
+                                        <span class="threshold-derived" id="badge-latency-red-range">1000 ms</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="threshold-card speed-thresholds">
+                                <div class="threshold-card-head"><strong>下载速度</strong><span>数值越高越好</span></div>
+                                <div class="threshold-range-list">
+                                    <label class="threshold-range range-slow">
+                                        <span class="threshold-label"><i class="threshold-swatch slow"></i>红色</span>
+                                        <span class="threshold-expression">0 &lt; 速度 &lt;</span>
+                                        <span class="threshold-end"><input type="number" id="badge-speed-red-end" min="1" step="1" placeholder="100" aria-label="红色速度区间右端值"><em>kB/s</em></span>
+                                    </label>
+                                    <label class="threshold-range range-mid">
+                                        <span class="threshold-label"><i class="threshold-swatch mid"></i>黄色</span>
+                                        <span class="threshold-expression"><span id="badge-speed-yellow-start">100 kB/s</span> ≤ 速度 &lt;</span>
+                                        <span class="threshold-end"><input type="number" id="badge-speed-yellow-end" min="2" step="1" placeholder="1000" aria-label="黄色速度区间右端值"><em>kB/s</em></span>
+                                    </label>
+                                    <div class="threshold-range range-fast">
+                                        <span class="threshold-label"><i class="threshold-swatch fast"></i>绿色</span>
+                                        <span class="threshold-expression">速度 ≥</span>
+                                        <span class="threshold-derived" id="badge-speed-green-range">1000 kB/s</span>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <div class="threshold-note">低于黄色阈值或未测速时显示为红色/灰色；阈值即时生效，保存后写入 settings.json。</div>
+                        <div class="threshold-note">输入框编辑所在区间的右端值，其余区间会自动衔接；未测速显示灰色。</div>
                     </div>
                 </div>
                 <div class="settings-actions"><button id="btn-save-settings" class="primary">保存到本地</button><span id="settings-status" class="hint">保存在 data/config.json 与 data/settings.json</span></div>
@@ -189,7 +224,7 @@
                 <button id="btn-start-latency" class="primary run-button">开始检测</button>
                 <button id="btn-stop" class="danger" disabled>停止</button>
             </div>
-            <div class="progress-wrap" id="progress-wrap">
+            <div class="progress-wrap" id="progress-wrap" role="progressbar" aria-label="检测进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="0%">
                 <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
                 <div class="progress-text"><span id="progress-label">准备中…</span><span id="progress-pct">0%</span></div>
             </div>
@@ -237,45 +272,67 @@
 
             <div class="direct-export">
                 <div class="direct-export-head">
-                    <div><h3>直接导出</h3><span>全部 = 所有检测结果；当前规则 = 按上方筛选与规则处理后的结果；自定义 = 可清空后手动整理的结果</span></div>
+                    <div><h3>直接导出</h3><span>全部 = 所有检测结果 + 全部字段；当前规则 = 第三步当前显示范围与显示字段；自定义 = 手动添加或勾选追加，默认空</span></div>
                 </div>
-                <div class="export-scope export-segmented" role="radiogroup" aria-label="导出范围">
-                    <label class="radio"><input type="radio" name="export-scope" value="direct" checked><span>全部</span></label>
-                    <label class="radio"><input type="radio" name="export-scope" value="rules"><span>当前规则</span></label>
-                    <label class="radio"><input type="radio" name="export-scope" value="custom"><span>自定义</span></label>
-                </div>
-                <div class="export-toolbar">
-                    <label class="export-field">导出格式<select id="export-format">
-                        <option value="txt">TXT</option>
-                        <option value="csv">CSV</option>
-                    </select></label>
-                    <label class="export-field">导出模板<select id="format-presets"></select></label>
-                    <div class="export-actions">
-                        <button id="btn-copy" class="primary">复制到粘贴板</button>
-                        <button id="btn-download">下载文件</button>
+                <div class="export-layout">
+                    <div class="export-config">
+                        <div class="export-config-section">
+                            <div class="export-config-label">导出范围</div>
+                            <div class="export-scope export-segmented" role="radiogroup" aria-label="导出范围">
+                                <label class="radio"><input type="radio" name="export-scope" value="direct" checked><span>全部</span></label>
+                                <label class="radio"><input type="radio" name="export-scope" value="rules"><span>当前规则</span></label>
+                                <label class="radio"><input type="radio" name="export-scope" value="custom"><span>自定义</span></label>
+                            </div>
+                        </div>
+                        <div class="export-toolbar">
+                            <label class="export-field">导出格式<select id="export-format">
+                                <option value="txt">TXT</option>
+                                <option value="csv">CSV</option>
+                            </select></label>
+                            <label class="export-field">导出模板<select id="format-presets"></select></label>
+                        </div>
+                        <div class="template-editor" id="txt-template-editor">
+                            <div class="template-main">
+                                <input type="text" id="format-template" class="template" value="{ip}:{port}#{country}">
+                                <input type="text" id="template-name" placeholder="新模板名称，或修改当前自定义模板">
+                                <button id="btn-save-template">保存</button>
+                                <button id="btn-delete-template" class="danger" disabled>删除</button>
+                            </div>
+                            <details class="template-fields">
+                                <summary>可用模板字段 <span id="placeholder-count"></span></summary>
+                                <div class="placeholder-help" id="placeholder-help"></div>
+                            </details>
+                        </div>
+                        <div id="csv-template-hint" class="csv-template-hint" hidden>CSV 字段：<span id="csv-column-label"></span></div>
+                        <div class="custom-export-actions" id="custom-export-actions" hidden>
+                            <button id="btn-custom-append" class="small">追加勾选结果</button>
+                            <button id="btn-custom-clear" class="small">清空自定义</button>
+                            <span id="custom-count" class="hint"></span>
+                            <details class="custom-field-picker" id="custom-field-picker">
+                                <summary>自定义 CSV 字段 <span id="custom-field-count"></span></summary>
+                                <div class="custom-field-actions">
+                                    <button type="button" id="btn-custom-fields-all" class="small">全选</button>
+                                    <button type="button" id="btn-custom-fields-default" class="small">默认</button>
+                                </div>
+                                <div class="custom-field-options" id="custom-field-options"></div>
+                            </details>
+                        </div>
+                        <div class="export-actions">
+                            <button id="btn-copy" class="primary">复制到粘贴板</button>
+                            <button id="btn-download">下载文件</button>
+                        </div>
                     </div>
-                </div>
-                <div class="template-editor" id="txt-template-editor">
-                    <div class="template-main">
-                        <input type="text" id="format-template" class="template" value="{ip}:{port}#{country}">
-                        <input type="text" id="template-name" placeholder="新模板名称，或修改当前自定义模板">
-                        <button id="btn-save-template">保存</button>
-                        <button id="btn-delete-template" class="danger" disabled>删除</button>
+                    <div class="export-preview">
+                        <div class="pane-head"><span id="output-title">导出预览</span><span id="output-count" class="hint" aria-live="polite">0 条</span></div>
+                        <textarea id="output-box" class="output-box" rows="12" readonly placeholder="导出内容会按当前格式生成到这里"></textarea>
+                        <div id="csv-preview" class="csv-preview" hidden>
+                            <table>
+                                <thead id="csv-preview-head"></thead>
+                                <tbody id="csv-preview-body"></tbody>
+                            </table>
+                            <div id="csv-preview-empty" class="csv-preview-empty">暂无可预览的结果</div>
+                        </div>
                     </div>
-                    <details class="template-fields">
-                        <summary>可用模板字段 <span id="placeholder-count"></span></summary>
-                        <div class="placeholder-help" id="placeholder-help"></div>
-                    </details>
-                </div>
-                <div id="csv-template-hint" class="csv-template-hint" hidden>CSV 模板 = 当前展示字段：<span id="csv-column-label"></span></div>
-                <div class="export-preview">
-                    <div class="pane-head"><span id="output-title">导出预览</span><span id="output-count" class="hint" aria-live="polite">0 条</span></div>
-                    <div class="custom-export-actions" id="custom-export-actions" hidden>
-                        <button id="btn-custom-append" class="small">追加勾选结果</button>
-                        <button id="btn-custom-clear" class="small">清空自定义</button>
-                        <span id="custom-count" class="hint"></span>
-                    </div>
-                    <textarea id="output-box" class="output-box" rows="12" readonly placeholder="导出内容会按当前格式生成到这里"></textarea>
                 </div>
             </div>
         </section>

@@ -37,3 +37,5 @@ jobs:
           node scripts/table_test.mjs
           node scripts/export_test.mjs
           node scripts/dom_test.mjs
+          node scripts/api_test.mjs
+          node scripts/validation_test.mjs

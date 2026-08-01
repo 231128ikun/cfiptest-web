@@ -62,5 +62,12 @@ export function downloadAsCSV(results, columns, { enableTLS = true, filename = '
 }
 
 export async function copyToClipboard(text) {
-    await navigator.clipboard.writeText(text);
+    if (!navigator.clipboard?.writeText) {
+        throw new Error('当前浏览器不支持剪贴板写入，请手动复制预览内容');
+    }
+    try {
+        await navigator.clipboard.writeText(text);
+    } catch {
+        throw new Error('无法写入剪贴板，请检查浏览器权限或手动复制预览内容');
+    }
 }

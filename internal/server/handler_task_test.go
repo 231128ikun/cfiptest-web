@@ -2,6 +2,8 @@ package server
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"iptest-web/internal/engine"
@@ -34,6 +36,26 @@ func TestLatencyRequestPipelineDTO(t *testing.T) {
 	if req.SpeedOptions.MinSpeedKBs == nil || *req.SpeedOptions.MinSpeedKBs != 512 {
 		t.Fatal("最低速度规则丢失")
 	}
+}
+
+func TestHandleTaskStatus(t *testing.T) {
+	s := &Server{}
+	recorder := httptest.NewRecorder()
+	s.handleTaskStatus(recorder, httptest.NewRequest(http.MethodGet, "/api/task/status", nil))
+	if recorder.Code != http.StatusOK || recorder.Body.String() != "{\"status\":\"idle\",\"taskId\":\"\"}\n" {
+		t.Fatalf("空闲状态响应不正确: code=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	ctx, ok := s.tryStartTask("lat-test")
+	if !ok || ctx == nil {
+		t.Fatal("无法创建测试任务")
+	}
+	recorder = httptest.NewRecorder()
+	s.handleTaskStatus(recorder, httptest.NewRequest(http.MethodGet, "/api/task/status", nil))
+	if recorder.Code != http.StatusOK || recorder.Body.String() != "{\"status\":\"running\",\"taskId\":\"lat-test\"}\n" {
+		t.Fatalf("运行状态响应不正确: code=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	s.finishTask("lat-test")
 }
 
 func TestOptionDTOExplicitZeroAndFalse(t *testing.T) {

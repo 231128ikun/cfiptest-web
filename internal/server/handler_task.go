@@ -118,6 +118,19 @@ type taskResponse struct {
 	TotalTargets int    `json:"totalTargets"`
 }
 
+func (s *Server) handleTaskStatus(w http.ResponseWriter, _ *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	status := "idle"
+	if s.taskCancel != nil {
+		status = "running"
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"taskId": s.taskID,
+		"status": status,
+	})
+}
+
 // isTaskFailure 判断一次任务的返回错误是否需要作为 error 事件推给前端。
 //
 // 两种「正常结束」不算失败：用户点停止（context.Canceled）与

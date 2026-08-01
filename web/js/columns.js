@@ -13,31 +13,46 @@
 
 /** 默认颜色阈值：延迟按 ms，速度按 kB/s。可在本地设置中修改。 */
 export const DEFAULT_BADGE_THRESHOLDS = {
-    latencyFastMs: 150,
-    latencyMidMs: 400,
-    speedFastKBs: 1000,
-    speedMidKBs: 100,
+    latencyGreenEndMs: 200,
+    latencyYellowEndMs: 1000,
+    speedRedEndKBs: 100,
+    speedYellowEndKBs: 1000,
 };
 
 let badgeThresholds = { ...DEFAULT_BADGE_THRESHOLDS };
 
-export function setBadgeThresholds(values = {}) {
+export function normalizeBadgeThresholds(values = {}) {
     const positive = (value, fallback) => {
         const n = Number(value);
         return Number.isFinite(n) && n > 0 ? n : fallback;
     };
-    badgeThresholds = {
-        latencyFastMs: positive(values.latencyFastMs, DEFAULT_BADGE_THRESHOLDS.latencyFastMs),
-        latencyMidMs: positive(values.latencyMidMs, DEFAULT_BADGE_THRESHOLDS.latencyMidMs),
-        speedFastKBs: positive(values.speedFastKBs, DEFAULT_BADGE_THRESHOLDS.speedFastKBs),
-        speedMidKBs: positive(values.speedMidKBs, DEFAULT_BADGE_THRESHOLDS.speedMidKBs),
-    };
+    const latencyGreenEndMs = positive(
+        values.latencyGreenEndMs ?? values.latencyWarningMs ?? values.latencyFastMs,
+        DEFAULT_BADGE_THRESHOLDS.latencyGreenEndMs,
+    );
+    const latencyYellowEndMs = Math.max(
+        latencyGreenEndMs + 1,
+        positive(values.latencyYellowEndMs ?? values.latencyDangerMs ?? values.latencyMidMs, DEFAULT_BADGE_THRESHOLDS.latencyYellowEndMs),
+    );
+    const speedRedEndKBs = positive(
+        values.speedRedEndKBs ?? values.speedWarningKBs ?? values.speedMidKBs,
+        DEFAULT_BADGE_THRESHOLDS.speedRedEndKBs,
+    );
+    const speedYellowEndKBs = Math.max(
+        speedRedEndKBs + 1,
+        positive(values.speedYellowEndKBs ?? values.speedGoodKBs ?? values.speedFastKBs, DEFAULT_BADGE_THRESHOLDS.speedYellowEndKBs),
+    );
+    return { latencyGreenEndMs, latencyYellowEndMs, speedRedEndKBs, speedYellowEndKBs };
+}
+
+export function setBadgeThresholds(values = {}) {
+    badgeThresholds = normalizeBadgeThresholds(values);
 }
 
 /** 延迟徽章：按快/中/慢着色。 */
 function latencyBadge(ms) {
     if (ms == null) return '';
-    const cls = ms <= badgeThresholds.latencyFastMs ? 'fast' : ms <= badgeThresholds.latencyMidMs ? 'mid' : 'slow';
+    const cls = ms < badgeThresholds.latencyGreenEndMs ? 'fast' : ms <= badgeThresholds.latencyYellowEndMs ? 'mid' : 'slow';
     return `<span class="badge ${cls}">${ms} ms</span>`;
 }
 
@@ -46,7 +61,7 @@ function speedText(kbs) {
     if (kbs == null || kbs === 0) return '<span class="badge none">未测</span>';
     if (kbs < 0) return '<span class="badge fail">失败</span>';
     
-    const cls = kbs >= badgeThresholds.speedFastKBs ? 'fast' : kbs >= badgeThresholds.speedMidKBs ? 'mid' : 'slow';
+    const cls = kbs >= badgeThresholds.speedYellowEndKBs ? 'fast' : kbs >= badgeThresholds.speedRedEndKBs ? 'mid' : 'slow';
     const text = kbs >= 1024 ? `${(kbs / 1024).toFixed(1)} MB/s` : `${kbs.toFixed(0)} kB/s`;
     return `<span class="badge ${cls}">${text}</span>`;
 }

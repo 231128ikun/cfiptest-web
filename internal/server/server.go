@@ -97,6 +97,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/task/latency", s.handleStartLatency)
 	s.mux.HandleFunc("POST /api/task/speed", s.handleStartSpeed)
 	s.mux.HandleFunc("POST /api/task/stop", s.handleStop)
+	s.mux.HandleFunc("GET /api/task/status", s.handleTaskStatus)
 	s.mux.HandleFunc("GET /api/task/events", s.handleEvents)
 }
 

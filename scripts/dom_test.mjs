@@ -11,6 +11,7 @@ import { readFileSync } from 'node:fs';
 
 const html = readFileSync(new URL('../web/index.html', import.meta.url), 'utf8');
 const appJs = readFileSync(new URL('../web/js/app.js', import.meta.url), 'utf8');
+const css = readFileSync(new URL('../web/css/style.css', import.meta.url), 'utf8');
 
 let pass = 0;
 const check = (name, fn) => {
@@ -72,10 +73,60 @@ check('结果区右上角不再展示导出范围摘要', () => {
     assert.equal(/result-summary/.test(html), false);
 });
 check('颜色阈值可配置字段已接线', () => {
-    for (const id of ['badge-latency-fast', 'badge-latency-mid', 'badge-speed-fast', 'badge-speed-mid']) {
+    for (const id of ['badge-latency-green-end', 'badge-latency-yellow-end', 'badge-speed-red-end', 'badge-speed-yellow-end']) {
         assert.ok(html.includes(`id="${id}"`), `${id} 不存在`);
         assert.ok(appJs.includes(`'${id}'`), `${id} 未在 app.js 中接线`);
     }
+    assert.ok(/200 ms<\/span> ≤ 延迟 ≤/.test(html));
+    assert.ok(/延迟 &gt;/.test(html));
+    assert.ok(/100 kB\/s<\/span> ≤ 速度 &lt;/.test(html));
+    assert.ok(/速度 ≥/.test(html));
+    assert.ok(/输入框编辑所在区间的右端值/.test(html));
+    assert.ok(/addEventListener\('input', previewBadgeThresholdsFromUI\)/.test(appJs));
+});
+check('导出区使用左右布局，CSV 使用表格预览', () => {
+    assert.ok(/class="export-layout"/.test(html));
+    assert.ok(/class="export-config"/.test(html));
+    assert.ok(/id="csv-preview"/.test(html));
+    assert.ok(/id="csv-preview-head"/.test(html));
+    assert.ok(/id="csv-preview-body"/.test(html));
+    assert.ok(/function renderCSVPreview/.test(appJs));
+    assert.ok(/csvValue\(column, result/.test(appJs), 'CSV 预览应直接读取结构化结果，不应拆分 CSV 字符串');
+});
+check('官方模式自动加载并只保留更新与生成按钮', () => {
+    assert.equal(/id="btn-fetch-ranges"/.test(html), false);
+    assert.ok(/id="btn-refresh-ranges"[^>]*>更新本地缓存</.test(html));
+    assert.ok(/if \(store\.mode === 'official' && !officialRanges\) fetchRanges\(false\)/.test(appJs));
+    assert.ok(/打开官方模式后自动读取本地缓存/.test(html));
+});
+check('导出三范围字段语义已接线', () => {
+    assert.ok(/function exportColumns\(\)/.test(appJs));
+    assert.ok(/if \(scope === 'direct'\) return \[\.\.\.CSV_COLUMNS\]/.test(appJs));
+    assert.ok(/if \(scope === 'custom'\) return CSV_COLUMNS\.filter\(column => customColumnKeys\.includes\(column\.key\)\)/.test(appJs));
+    assert.ok(/return CSV_COLUMNS\.filter\(column => visibleColumnKeys\.includes\(column\.key\)\)/.test(appJs));
+    assert.ok(/if \(exportScope\(\) === 'custom'\) return customResults/.test(appJs));
+    assert.equal(/customTouched/.test(appJs), false);
+});
+check('自定义导出仅保留勾选追加与字段选择', () => {
+    for (const id of ['custom-field-picker', 'custom-field-options', 'btn-custom-fields-all', 'btn-custom-append']) {
+        assert.ok(html.includes(`id="${id}"`), `${id} 不存在`);
+    }
+    assert.equal(/id="custom-ip-input"/.test(html), false);
+    assert.equal(/id="btn-custom-add-text"/.test(html), false);
+    assert.equal(/addCustomIPsFromText/.test(appJs), false);
+    assert.ok(appJs.includes('function renderCustomFieldOptions()'));
+});
+check('反代模式输入框与候选区高度固定且对齐', () => {
+    assert.ok(/resize: none;/.test(css));
+    assert.ok(/\.input-pane textarea, \.input-candidate-grid > \.candidate-pane textarea \{ height: 278px; min-height: 278px; resize: none; \}/.test(css));
+    assert.ok(/\.input-candidate-grid \{ display: grid; grid-template-columns: minmax\(0, 1fr\) 54px minmax\(0, 1fr\); align-items: start; gap: 7px; \}/.test(css));
+    assert.ok(/\.pane-head \{ display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 24px; margin-bottom: 6px; font-size: 12px; font-weight: 650; \}/.test(css));
+    assert.equal(/class="input-feedback pane-foot"/.test(html), false);
+    assert.equal(/class="candidate-stats pane-foot"/.test(html), false);
+});
+check('结果筛选关键词更长、延迟与速度更窄', () => {
+    assert.ok(/#result-filter \{ flex: 2 1 320px; min-width: 220px; \}/.test(css));
+    assert.ok(/#result-max-latency, #result-min-speed \{ flex: 0 1 150px; min-width: 120px; \}/.test(css));
 });
 check('IPS 检测地址在本地配置中可见', () => {
     assert.ok(/id="advanced-ips-url"/.test(html));
@@ -100,6 +151,20 @@ check('筛选说明问号按钮已接线', () => {
     assert.ok(/id="btn-filter-help"/.test(html), '缺少筛选说明按钮');
     assert.ok(/id="filter-help"/.test(html), '缺少筛选说明面板');
     assert.ok(/btn-filter-help/.test(appJs), '问号按钮未绑定事件');
+});
+check('模式标签具备完整 tab/tabpanel 语义与键盘导航', () => {
+    assert.ok(/id="tab-proxy"[\s\S]*?aria-controls="source-proxy"[\s\S]*?tabindex="0"/.test(html));
+    assert.ok(/id="tab-official"[\s\S]*?aria-controls="source-official"[\s\S]*?tabindex="-1"/.test(html));
+    assert.ok(/id="source-proxy"[^>]*role="tabpanel"[^>]*aria-labelledby="tab-proxy"/.test(html));
+    assert.ok(/id="source-official"[^>]*role="tabpanel"[^>]*aria-labelledby="tab-official"/.test(html));
+    for (const key of ['ArrowRight', 'ArrowLeft', 'Home', 'End']) assert.ok(appJs.includes(`event.key === '${key}'`));
+});
+check('测速字段使用 label，进度条同步 ARIA 数值', () => {
+    for (const id of ['spd-concurrency', 'spd-duration', 'spd-minspeed']) {
+        assert.ok(new RegExp(`<label class="field rule-line">[\\s\\S]*?id="${id}"[\\s\\S]*?</label>`).test(html));
+    }
+    assert.ok(/id="progress-wrap" role="progressbar"[^>]*aria-valuenow="0"/.test(html));
+    assert.ok(/setAttribute\('aria-valuenow'/.test(appJs));
 });
 
 // 静态标记里的 class 选择器。app.js 还用了三处 querySelector：

@@ -4,10 +4,11 @@ import { getInputStats, smartFilter, parseFilterExpression, importCSVText } from
 import * as api from './api.js';
 import { store, setMode, parseLines, targetToLine } from './store.js';
 import { ResultTable, CSV_COLUMNS } from './table.js';
-import { ALL_COLUMNS, TABLE_COLUMNS, GROUP_COLUMNS, DEFAULT_BADGE_THRESHOLDS, escapeHTML, setBadgeThresholds } from './columns.js';
+import { ALL_COLUMNS, TABLE_COLUMNS, GROUP_COLUMNS, DEFAULT_BADGE_THRESHOLDS, csvValue, escapeHTML, normalizeBadgeThresholds, setBadgeThresholds } from './columns.js';
 import { createMultiSelect } from './multiselect.js';
 import { PRESETS, placeholderNames } from './composer.js';
 import { download, copyToClipboard, serialize as serializeExport } from './exporter.js';
+import { boundedNumber } from './validation.js';
 
 const $ = id => document.getElementById(id);
 const keyOf = item => `${item.ip}|${item.port || 0}`;
@@ -15,6 +16,7 @@ const keyOf = item => `${item.ip}|${item.port || 0}`;
 let currentTaskId = null;
 let currentTaskType = null; // pipeline | speed
 let eventSource = null;
+let eventStreamDisconnected = false;
 let table = null;
 let defaults = null;
 let officialRanges = null;
@@ -29,8 +31,9 @@ const quotaRuleEditors = new Map();
 let officialEstimateTimer = null;
 let exportPreviewTimer = null;
 let savedTemplates = [];
-let customResults = null; // null = 尚未进入自定义，进入时默认用当前展示结果
-let customTouched = false; // 清空或追加后，自定义列表由用户接管
+let customResults = []; // 自定义导出列表，默认空，仅手动加入或勾选追加
+let customColumnKeys = CSV_COLUMNS.map(column => column.key); // 自定义 CSV 字段，默认全部
+let officialRangesLoading = false;
 
 const SAVED_TEMPLATE_KEY = 'iptest.savedTemplates.v1';
 
@@ -223,8 +226,9 @@ function officialSettings() {
 }
 
 async function fetchRanges(refresh = false) {
-    const button = $('btn-fetch-ranges');
-    button.disabled = true;
+    if (officialRangesLoading) return;
+    officialRangesLoading = true;
+    $('ranges-status').textContent = refresh ? '正在更新本地缓存…' : '正在加载官方网段…';
     try {
         officialRanges = await api.fetchOfficialRanges(officialSettings().sampleN, { refresh });
         const source = { builtin: '内置兜底', cache: '本地缓存', remote: '官方接口' }[officialRanges.source] || officialRanges.source;
@@ -235,7 +239,7 @@ async function fetchRanges(refresh = false) {
         $('ranges-status').textContent = '加载失败';
         toast(error.message);
     } finally {
-        button.disabled = false;
+        officialRangesLoading = false;
     }
 }
 
@@ -285,12 +289,13 @@ async function generateOfficialCandidates() {
 }
 
 function bindOfficialInput() {
-    $('btn-fetch-ranges').addEventListener('click', () => fetchRanges(false));
     $('btn-refresh-ranges').addEventListener('click', async () => {
         const button = $('btn-refresh-ranges');
         button.disabled = true;
-        try { await fetchRanges(true); toast('官方网段已远程更新并写入本地缓存'); }
-        finally { button.disabled = false; }
+        try {
+            await fetchRanges(true);
+            if (officialRanges?.source === 'remote') toast('官方网段已更新并写入本地缓存');
+        } finally { button.disabled = false; }
     });
     $('btn-add-ranges').addEventListener('click', generateOfficialCandidates);
     $('btn-official-clear').addEventListener('click', () => {
@@ -315,18 +320,37 @@ function bindOfficialInput() {
 }
 
 function bindModes() {
-    $('mode-tabs').addEventListener('click', event => {
-        const tab = event.target.closest('.mode-tab');
-        if (!tab) return;
+    const tabs = [...document.querySelectorAll('.mode-tab')];
+    const activateTab = tab => {
         setMode(tab.dataset.mode);
-        document.querySelectorAll('.mode-tab').forEach(item => {
+        tabs.forEach(item => {
             const active = item.dataset.mode === store.mode;
             item.classList.toggle('active', active);
             item.setAttribute('aria-selected', String(active));
+            item.tabIndex = active ? 0 : -1;
         });
         $('source-proxy').hidden = store.mode !== 'proxy';
         $('source-official').hidden = store.mode !== 'official';
         renderCandidates();
+        if (store.mode === 'official' && !officialRanges) fetchRanges(false);
+    };
+    $('mode-tabs').addEventListener('click', event => {
+        const tab = event.target.closest('.mode-tab');
+        if (tab) activateTab(tab);
+    });
+    $('mode-tabs').addEventListener('keydown', event => {
+        const tab = event.target.closest('.mode-tab');
+        if (!tab) return;
+        const current = tabs.indexOf(tab);
+        let next = current;
+        if (event.key === 'ArrowRight') next = (current + 1) % tabs.length;
+        else if (event.key === 'ArrowLeft') next = (current - 1 + tabs.length) % tabs.length;
+        else if (event.key === 'Home') next = 0;
+        else if (event.key === 'End') next = tabs.length - 1;
+        else return;
+        event.preventDefault();
+        tabs[next].focus();
+        activateTab(tabs[next]);
     });
 }
 
@@ -346,16 +370,47 @@ function bindFlowNavigation() {
 }
 
 function ruleMaxResults() {
-    return Math.max(0, parseInt($('rule-maxresults').value, 10) || 0);
+    const normalized = readNumberField('rule-maxresults', { min: 0, integer: true, optional: true });
+    return Math.max(0, normalized ?? 0);
 }
 
 function speedEnabled() { return $('spd-enable').checked; }
 
+function readNumberField(id, { min = -Infinity, max = Infinity, integer = false, optional = false } = {}) {
+    const field = $(id);
+    const result = boundedNumber(field.value, { min, max, integer, emptyValue: 0 });
+    if (!result.empty) field.value = result.value;
+    return result.empty && optional ? undefined : result.value;
+}
+
+function normalizeRuleFields({ notify = false } = {}) {
+    const rules = [
+        ['lat-concurrency', { min: 1, max: 1000, integer: true }],
+        ['lat-timeout', { min: 200, max: 10000, integer: true }],
+        ['lat-maxlatency', { min: 0, max: 10000, integer: true, optional: true }],
+        ['spd-concurrency', { min: 1, max: 100, integer: true }],
+        ['spd-duration', { min: 1, max: 30, integer: true }],
+        ['spd-minspeed', { min: 0, optional: true }],
+        ['rule-maxresults', { min: 0, integer: true, optional: true }],
+    ];
+    let changed = false;
+    rules.forEach(([id, options]) => {
+        const field = $(id);
+        const result = boundedNumber(field.value, { ...options, emptyValue: 0 });
+        if (!result.empty && result.changed) changed = true;
+        if (!result.empty) field.value = result.value;
+    });
+    if (normalizeBadgeFields()) changed = true;
+    if (notify && changed) toast('已自动修正超出范围的检测参数');
+    return changed;
+}
+
 function latencyOptions() {
+    normalizeRuleFields();
     return {
-        maxConcurrency: parseInt($('lat-concurrency').value, 10) || undefined,
-        timeoutMs: parseInt($('lat-timeout').value, 10) || undefined,
-        maxLatencyMs: parseInt($('lat-maxlatency').value, 10) || 0,
+        maxConcurrency: readNumberField('lat-concurrency', { min: 1, max: 1000, integer: true, optional: true }),
+        timeoutMs: readNumberField('lat-timeout', { min: 200, max: 10000, integer: true, optional: true }),
+        maxLatencyMs: readNumberField('lat-maxlatency', { min: 0, max: 10000, integer: true, optional: true }) || 0,
         // 启用速度规则时，统一数量限制只在最终测速阶段生效。
         maxResults: speedEnabled() ? 0 : ruleMaxResults(),
         enableTLS: $('lat-tls').checked,
@@ -364,10 +419,11 @@ function latencyOptions() {
 }
 
 function speedOptions() {
+    normalizeRuleFields();
     return {
-        maxConcurrency: parseInt($('spd-concurrency').value, 10) || undefined,
-        durationSec: parseInt($('spd-duration').value, 10) || undefined,
-        minSpeedKBs: parseFloat($('spd-minspeed').value) || 0,
+        maxConcurrency: readNumberField('spd-concurrency', { min: 1, max: 100, integer: true, optional: true }),
+        durationSec: readNumberField('spd-duration', { min: 1, max: 30, integer: true, optional: true }),
+        minSpeedKBs: readNumberField('spd-minspeed', { min: 0, optional: true }) || 0,
         maxResults: ruleMaxResults(),
         downloadURL: $('advanced-speed-url').value.trim() || undefined,
         enableTLS: $('lat-tls').checked,
@@ -420,16 +476,18 @@ function updateProgress(progress) {
     const percent = progress.total ? Math.round(progress.completed / progress.total * 100) : 0;
     $('progress-fill').style.width = `${percent}%`;
     $('progress-pct').textContent = `${percent}%`;
+    $('progress-wrap').setAttribute('aria-valuenow', String(percent));
+    $('progress-wrap').setAttribute('aria-valuetext', `${percent}%`);
     const phase = progress.phase === 'speed' ? '测速' : progress.phase === 'pipeline' ? '延迟+测速' : '延迟检测';
     $('progress-label').textContent = `${phase} ${progress.completed}/${progress.total} · 符合 ${progress.validIPs}`;
 }
 
 async function startPipeline() {
+    normalizeRuleFields({ notify: true });
     const targets = activeCandidates();
     if (!targets.length) { toast('候选区为空'); return; }
     table.clear();
-    customResults = null;
-    customTouched = false;
+    customResults = [];
     scheduleExportPreview();
     $('result-count').textContent = '';
     $('progress-fill').style.width = '0%';
@@ -447,6 +505,7 @@ async function startPipeline() {
 }
 
 async function startSupplementalSpeed(useVisible) {
+    normalizeRuleFields({ notify: true });
     const results = useVisible ? table.getAllResults() : table.getSelectedResults();
     if (!results.length) { toast(useVisible ? '当前没有展示结果' : '请先勾选结果'); return; }
     try {
@@ -461,9 +520,12 @@ async function startSupplementalSpeed(useVisible) {
 
 function bindRulesAndRun() {
     $('spd-enable').addEventListener('change', applySpeedEnabled);
-    ['badge-latency-fast', 'badge-latency-mid', 'badge-speed-fast', 'badge-speed-mid'].forEach(id => {
-        $(id).addEventListener('input', applyBadgeThresholdsFromUI);
+    ['badge-latency-green-end', 'badge-latency-yellow-end', 'badge-speed-red-end', 'badge-speed-yellow-end'].forEach(id => {
+        $(id).addEventListener('input', previewBadgeThresholdsFromUI);
+        $(id).addEventListener('change', applyBadgeThresholdsFromUI);
     });
+    ['lat-concurrency', 'lat-timeout', 'lat-maxlatency', 'spd-concurrency', 'spd-duration', 'spd-minspeed', 'rule-maxresults']
+        .forEach(id => $(id).addEventListener('change', () => normalizeRuleFields({ notify: true })));
     $('lat-tls').addEventListener('change', () => {
         $('spd-tls').checked = $('lat-tls').checked;
         updateDefaultPortHint();
@@ -485,8 +547,44 @@ function bindRulesAndRun() {
     });
 }
 
+async function reconcileTaskStatus({ reconnected = false } = {}) {
+    try {
+        const status = await api.fetchTaskStatus();
+        if (status.status === 'running' && status.taskId) {
+            const changedTask = currentTaskId !== status.taskId;
+            currentTaskId = status.taskId;
+            setRunning(true, status.taskId.startsWith('spd-') ? 'speed' : 'pipeline');
+            if (changedTask) $('progress-label').textContent = '后台任务运行中';
+            if (reconnected) toast('事件流已恢复连接');
+            return;
+        }
+        if (currentTaskId) {
+            setRunning(false);
+            $('progress-label').textContent = reconnected ? '任务已在断线期间结束' : '任务已结束';
+            refreshButtons();
+            regenerateOutput();
+            if (reconnected) toast('事件流已恢复，后台任务已结束');
+        }
+    } catch (error) {
+        if (reconnected) toast(`事件流已恢复，但任务状态同步失败：${error.message}`);
+    }
+}
+
 function bindEvents() {
     eventSource = api.subscribeEvents({
+        onOpen: () => {
+            const reconnected = eventStreamDisconnected;
+            eventStreamDisconnected = false;
+            reconcileTaskStatus({ reconnected });
+        },
+        onDisconnect: () => {
+            if (eventStreamDisconnected) return;
+            eventStreamDisconnected = true;
+            if (currentTaskId) {
+                $('progress-label').textContent = '事件流中断，正在重连…';
+                toast('事件流连接中断，后台任务继续运行');
+            }
+        },
         onResult: result => {
             table.appendResult(result);
             $('result-count').textContent = `（${table.results.length} 个有效节点）`;
@@ -504,6 +602,10 @@ function bindEvents() {
             setRunning(false);
             $('progress-label').textContent = reason === 'limit' ? '已达到最大数量' : reason === 'stopped' ? '已停止' : '已完成';
             $('progress-pct').textContent = reason === 'stopped' ? $('progress-pct').textContent : '100%';
+            if (reason !== 'stopped') {
+                $('progress-wrap').setAttribute('aria-valuenow', '100');
+                $('progress-wrap').setAttribute('aria-valuetext', '100%');
+            }
             $('result-count').textContent = `（${table.results.length} 个有效节点）`;
             toast(message || '任务完成');
             refreshButtons();
@@ -512,6 +614,7 @@ function bindEvents() {
         onError: message => {
             if (!currentTaskId) return;
             setRunning(false);
+            $('progress-label').textContent = '任务出错';
             toast(message || '任务出错');
         },
     });
@@ -544,6 +647,8 @@ function applyColumnsFromUI() {
     visibleColumnKeys = keys;
     table.setColumns(keys);
     renderSortOptions();
+    renderTemplateOptions();
+    scheduleExportPreview();
     $('column-selected-count').textContent = `已选 ${keys.length}/${document.querySelectorAll('#column-options input').length}`;
     $('column-save-status').textContent = '字段有修改，尚未保存';
 }
@@ -650,32 +755,70 @@ function currentSettings() {
         formatTemplate: $('format-template').value,
         savedTemplates: savedTemplates.map(item => ({ ...item })),
         exportScope: exportScope(),
+        customColumns: [...customColumnKeys],
         ui: { badgeThresholds: readBadgeThresholds() },
     };
 }
 
 function readBadgeThresholds() {
     return {
-        latencyFastMs: Number($('badge-latency-fast').value) || 0,
-        latencyMidMs: Number($('badge-latency-mid').value) || 0,
-        speedFastKBs: Number($('badge-speed-fast').value) || 0,
-        speedMidKBs: Number($('badge-speed-mid').value) || 0,
+        latencyGreenEndMs: Number($('badge-latency-green-end').value) || 0,
+        latencyYellowEndMs: Number($('badge-latency-yellow-end').value) || 0,
+        speedRedEndKBs: Number($('badge-speed-red-end').value) || 0,
+        speedYellowEndKBs: Number($('badge-speed-yellow-end').value) || 0,
     };
 }
 
+function updateBadgeRangeLabels(thresholds) {
+    $('badge-latency-yellow-start').textContent = `${thresholds.latencyGreenEndMs} ms`;
+    $('badge-latency-red-range').textContent = `${thresholds.latencyYellowEndMs} ms`;
+    $('badge-speed-yellow-start').textContent = `${thresholds.speedRedEndKBs} kB/s`;
+    $('badge-speed-green-range').textContent = `${thresholds.speedYellowEndKBs} kB/s`;
+}
+
+function previewBadgeThresholdsFromUI() {
+    const values = readBadgeThresholds();
+    const fallback = normalizeBadgeThresholds(values);
+    updateBadgeRangeLabels({
+        latencyGreenEndMs: values.latencyGreenEndMs || fallback.latencyGreenEndMs,
+        latencyYellowEndMs: values.latencyYellowEndMs || fallback.latencyYellowEndMs,
+        speedRedEndKBs: values.speedRedEndKBs || fallback.speedRedEndKBs,
+        speedYellowEndKBs: values.speedYellowEndKBs || fallback.speedYellowEndKBs,
+    });
+}
+
+function normalizeBadgeFields() {
+    const normalized = normalizeBadgeThresholds(readBadgeThresholds());
+    const fields = [
+        ['badge-latency-green-end', normalized.latencyGreenEndMs],
+        ['badge-latency-yellow-end', normalized.latencyYellowEndMs],
+        ['badge-speed-red-end', normalized.speedRedEndKBs],
+        ['badge-speed-yellow-end', normalized.speedYellowEndKBs],
+    ];
+    let changed = false;
+    fields.forEach(([id, value]) => {
+        if (String($(id).value) !== String(value)) changed = true;
+        $(id).value = value;
+    });
+    updateBadgeRangeLabels(normalized);
+    return changed;
+}
+
 function applyBadgeThresholdsFromUI() {
+    normalizeBadgeFields();
     setBadgeThresholds(readBadgeThresholds());
     table?.render();
     scheduleExportPreview();
 }
 
 function fillBadgeThresholdFields(settings = {}) {
-    const saved = settings.ui?.badgeThresholds || {};
-    $('badge-latency-fast').value = Number(saved.latencyFastMs) > 0 ? saved.latencyFastMs : DEFAULT_BADGE_THRESHOLDS.latencyFastMs;
-    $('badge-latency-mid').value = Number(saved.latencyMidMs) > 0 ? saved.latencyMidMs : DEFAULT_BADGE_THRESHOLDS.latencyMidMs;
-    $('badge-speed-fast').value = Number(saved.speedFastKBs) > 0 ? saved.speedFastKBs : DEFAULT_BADGE_THRESHOLDS.speedFastKBs;
-    $('badge-speed-mid').value = Number(saved.speedMidKBs) > 0 ? saved.speedMidKBs : DEFAULT_BADGE_THRESHOLDS.speedMidKBs;
-    setBadgeThresholds(readBadgeThresholds());
+    const normalized = normalizeBadgeThresholds(settings.ui?.badgeThresholds || {});
+    $('badge-latency-green-end').value = normalized.latencyGreenEndMs;
+    $('badge-latency-yellow-end').value = normalized.latencyYellowEndMs;
+    $('badge-speed-red-end').value = normalized.speedRedEndKBs;
+    $('badge-speed-yellow-end').value = normalized.speedYellowEndKBs;
+    updateBadgeRangeLabels(normalized);
+    setBadgeThresholds(normalized);
 }
 
 function fillConfigFields(config) {
@@ -708,6 +851,11 @@ function applySavedSettings(settings = {}) {
         visibleColumnKeys = savedColumns.length ? savedColumns : [...DEFAULT_COLUMN_KEYS];
         renderColumnOptions(); table.setColumns(visibleColumnKeys); renderSortOptions();
     }
+    if (Array.isArray(settings.customColumns)) {
+        const savedCustom = [...new Set(settings.customColumns)].filter(key => CSV_COLUMNS.some(column => column.key === key));
+        customColumnKeys = savedCustom.length ? savedCustom : CSV_COLUMNS.map(column => column.key);
+        renderCustomFieldOptions();
+    }
     if (settings.formatTemplate) $('format-template').value = settings.formatTemplate;
     if (settings.exportFormat === 'txt' || settings.exportFormat === 'csv') {
         $('export-format').value = settings.exportFormat;
@@ -716,13 +864,13 @@ function applySavedSettings(settings = {}) {
         savedTemplates = settings.savedTemplates
             .filter(item => item && typeof item.name === 'string' && typeof item.template === 'string');
     }
-    renderTemplateOptions();
     fillBadgeThresholdFields(settings);
     const legacyScope = { all: 'direct', visible: 'rules', selected: 'custom' }[settings.exportScope] || settings.exportScope;
     if (['direct', 'rules', 'custom'].includes(legacyScope)) {
         const scope = document.querySelector(`input[name="export-scope"][value="${legacyScope}"]`);
         if (scope) scope.checked = true;
     }
+    renderTemplateOptions();
     clearQuotaEditors();
     const displayRules = settings.displayRules || settings.quotaRules;
     (displayRules?.length ? displayRules : [{}]).forEach(addQuotaRule);
@@ -730,6 +878,8 @@ function applySavedSettings(settings = {}) {
 }
 
 async function saveLocalSettings() {
+    normalizeRuleFields({ notify: true });
+    applyBadgeThresholdsFromUI();
     const cfg = {
         ...(appConfig || {}),
         traceURL: $('advanced-trace-url').value.trim(),
@@ -852,6 +1002,8 @@ function bindResults() {
         renderColumnOptions();
         table.setColumns(visibleColumnKeys);
         renderSortOptions();
+        renderTemplateOptions();
+        scheduleExportPreview();
         $('column-save-status').textContent = '已恢复默认，尚未保存';
     });
     $('btn-column-save').addEventListener('click', saveDisplayColumns);
@@ -868,19 +1020,22 @@ function exportFormat() {
 function exportResults() {
     if (!table) return [];
     if (exportScope() === 'rules') return table.getAllResults();
-    if (exportScope() === 'custom') {
-        if (!customTouched) return table.getAllResults();
-        if (customResults === null) customResults = [];
-        return customResults;
-    }
+    if (exportScope() === 'custom') return customResults;
     return table.getResults();
+}
+
+function exportColumns() {
+    const scope = exportScope();
+    if (scope === 'direct') return [...CSV_COLUMNS];
+    if (scope === 'custom') return CSV_COLUMNS.filter(column => customColumnKeys.includes(column.key));
+    return CSV_COLUMNS.filter(column => visibleColumnKeys.includes(column.key));
 }
 
 function currentExportContent() {
     const results = exportResults();
     if (!results.length) return '';
     if (exportFormat() === 'csv') {
-        const columns = CSV_COLUMNS.filter(column => visibleColumnKeys.includes(column.key));
+        const columns = exportColumns();
         if (!columns.length) return '';
         return serializeExport(results, 'csv', { columns, enableTLS: $('lat-tls').checked });
     }
@@ -890,11 +1045,9 @@ function currentExportContent() {
 function updateCustomExportUI() {
     const custom = exportScope() === 'custom';
     $('custom-export-actions').hidden = !custom;
-    const count = custom && !customTouched
-        ? (table?.getAllResults().length || 0)
-        : (customResults?.length || 0);
-    $('custom-count').textContent = custom ? `当前 ${count} 条` : '';
-    $('btn-custom-clear').disabled = count === 0;
+    $('custom-field-picker').hidden = !custom || exportFormat() !== 'csv';
+    $('custom-count').textContent = custom ? `当前 ${customResults.length} 条` : '';
+    $('btn-custom-clear').disabled = !custom || customResults.length === 0;
 }
 
 function regenerateOutput() {
@@ -903,11 +1056,43 @@ function regenerateOutput() {
     const results = exportResults();
     const content = currentExportContent();
     $('output-box').value = content;
+    renderCSVPreview(results);
     $('btn-copy').disabled = !content;
     $('btn-download').disabled = !content;
     $('output-count').textContent = `${results.length} 条`;
     $('output-title').textContent = `${exportFormat() === 'csv' ? 'CSV' : 'TXT'} 预览`;
     updateCustomExportUI();
+}
+
+function renderCSVPreview(results) {
+    const csv = exportFormat() === 'csv';
+    $('output-box').hidden = csv;
+    $('csv-preview').hidden = !csv;
+    if (!csv) return;
+    const columns = exportColumns();
+    $('csv-preview-head').innerHTML = columns.length
+        ? `<tr>${columns.map(column => `<th>${escapeHTML(column.label)}</th>`).join('')}</tr>`
+        : '';
+    $('csv-preview-body').innerHTML = results.slice(0, 100).map(result =>
+        `<tr>${columns.map(column => `<td>${escapeHTML(csvValue(column, result, { enableTLS: $('lat-tls').checked }))}</td>`).join('')}</tr>`
+    ).join('');
+    $('csv-preview-empty').hidden = Boolean(results.length && columns.length);
+}
+
+function renderCustomFieldOptions() {
+    $('custom-field-count').textContent = `${customColumnKeys.length}/${CSV_COLUMNS.length}`;
+    $('custom-field-options').innerHTML = CSV_COLUMNS.map(column =>
+        `<label class="checkbox"><input type="checkbox" data-key="${column.key}" ${customColumnKeys.includes(column.key) ? 'checked' : ''}> ${escapeHTML(column.label)}</label>`
+    ).join('');
+}
+
+function applyCustomColumnsFromUI() {
+    const keys = [...document.querySelectorAll('#custom-field-options input:checked')].map(input => input.dataset.key);
+    if (!keys.length) { toast('至少保留一个自定义字段'); renderCustomFieldOptions(); return; }
+    customColumnKeys = keys;
+    renderCustomFieldOptions();
+    renderTemplateOptions();
+    regenerateOutput();
 }
 
 function scheduleExportPreview() {
@@ -919,10 +1104,6 @@ function appendSelectedToCustom() {
     if (!table) return;
     const selected = table.getSelectedResultsInDisplayOrder();
     if (!selected.length) { toast('请先勾选要追加的结果'); return; }
-    if (!customTouched) {
-        customTouched = true;
-        customResults = table.getAllResults().map(r => r);
-    }
     const seen = new Set(customResults.map(keyOf));
     let added = 0;
     let duplicates = 0;
@@ -938,7 +1119,6 @@ function appendSelectedToCustom() {
 }
 
 function clearCustomResults() {
-    customTouched = true;
     customResults = [];
     regenerateOutput();
     toast('已清空自定义导出列表');
@@ -959,13 +1139,16 @@ function renderTemplateOptions(selected = '') {
     const txtEditor = $('txt-template-editor');
     const csvHint = $('csv-template-hint');
     if (format === 'csv') {
-        const columns = CSV_COLUMNS.filter(column => visibleColumnKeys.includes(column.key));
-        $('format-presets').innerHTML = `<option value="csv:visible">当前展示字段（${columns.length} 列）</option>`;
-        $('format-presets').value = 'csv:visible';
+        const columns = exportColumns();
+        const scope = exportScope();
+        const scopeLabel = { direct: '全部字段', rules: '当前展示字段', custom: '自定义字段' }[scope] || '全部字段';
+        $('format-presets').innerHTML = `<option value="csv:${scope}">${scopeLabel}（${columns.length} 列）</option>`;
+        $('format-presets').value = `csv:${scope}`;
         txtEditor.hidden = true;
         csvHint.hidden = false;
         $('csv-column-label').textContent = columns.map(c => c.label).join('、') || '未选择字段';
         $('btn-delete-template').disabled = true;
+        $('custom-field-picker').hidden = scope !== 'custom';
         return;
     }
     txtEditor.hidden = false;
@@ -1022,11 +1205,26 @@ function bindExport() {
     document.querySelectorAll('input[name="export-scope"]').forEach(input =>
         input.addEventListener('change', () => {
             if (!input.checked) return;
+            renderTemplateOptions();
             regenerateOutput();
         }));
     loadSavedTemplates();
+    renderCustomFieldOptions();
     $('btn-custom-append').addEventListener('click', appendSelectedToCustom);
     $('btn-custom-clear').addEventListener('click', clearCustomResults);
+    $('custom-field-options').addEventListener('change', applyCustomColumnsFromUI);
+    $('btn-custom-fields-all').addEventListener('click', () => {
+        customColumnKeys = CSV_COLUMNS.map(column => column.key);
+        renderCustomFieldOptions();
+        renderTemplateOptions();
+        regenerateOutput();
+    });
+    $('btn-custom-fields-default').addEventListener('click', () => {
+        customColumnKeys = CSV_COLUMNS.map(column => column.key);
+        renderCustomFieldOptions();
+        renderTemplateOptions();
+        regenerateOutput();
+    });
     $('btn-save-template').addEventListener('click', async () => {
         const name = $('template-name').value.trim();
         const template = $('format-template').value.trim();
@@ -1065,8 +1263,12 @@ function bindExport() {
         regenerateOutput();
         const text = $('output-box').value;
         if (!text) { toast('没有可复制的结果'); return; }
-        await copyToClipboard(text);
-        toast(`已复制 ${exportResults().length} 条${exportFormat() === 'csv' ? ' CSV' : ' TXT'}`);
+        try {
+            await copyToClipboard(text);
+            toast(`已复制 ${exportResults().length} 条${exportFormat() === 'csv' ? ' CSV' : ' TXT'}`);
+        } catch (error) {
+            toast(error.message);
+        }
     });
     $('btn-download').addEventListener('click', () => {
         regenerateOutput();
@@ -1074,7 +1276,7 @@ function bindExport() {
         if (!text) { toast('没有可下载的结果'); return; }
         const results = exportResults();
         if (exportFormat() === 'csv') {
-            const columns = CSV_COLUMNS.filter(column => visibleColumnKeys.includes(column.key));
+            const columns = exportColumns();
             download('\uFEFF' + text, 'iptest-result.csv', 'text/csv;charset=utf-8');
             toast(`已下载 ${results.length} 条 × ${columns.length} 列 CSV`);
         } else {

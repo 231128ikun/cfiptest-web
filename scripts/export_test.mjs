@@ -5,12 +5,16 @@
 // 用最小桩件覆盖），所以能直接在 node 里跑。
 import assert from 'node:assert/strict';
 
-const { ALL_COLUMNS, TABLE_COLUMNS, CSV_COLUMNS, GROUP_COLUMNS, csvValue, columnByKey, escapeHTML, setBadgeThresholds } =
+const { ALL_COLUMNS, TABLE_COLUMNS, CSV_COLUMNS, GROUP_COLUMNS, csvValue, columnByKey, escapeHTML, normalizeBadgeThresholds, setBadgeThresholds } =
     await import('../web/js/columns.js');
 
 let pass = 0;
 const check = (name, fn) => {
     try { fn(); pass++; console.log(`  ok  ${name}`); }
+    catch (e) { console.log(`  FAIL ${name}\n       ${e.message}`); process.exitCode = 1; }
+};
+const checkAsync = async (name, fn) => {
+    try { await fn(); pass++; console.log(`  ok  ${name}`); }
     catch (e) { console.log(`  FAIL ${name}\n       ${e.message}`); process.exitCode = 1; }
 };
 
@@ -99,11 +103,29 @@ check('render 用于表格，返回的是带转义的 HTML', () => {
     assert.equal(columnByKey('cityZh').render({ city: 'Tokyo' }), 'Tokyo', 'cityZh 缺失时回落 city');
 });
 check('颜色阈值可配置，修改后立即影响徽章颜色', () => {
-    setBadgeThresholds({ latencyFastMs: 50, latencyMidMs: 60, speedFastKBs: 200, speedMidKBs: 50 });
+    setBadgeThresholds({ latencyGreenEndMs: 50, latencyYellowEndMs: 60, speedYellowEndKBs: 200, speedRedEndKBs: 50 });
     assert.equal(columnByKey('tcpLatencyMs').render({ tcpLatencyMs: 55 }), '<span class="badge mid">55 ms</span>');
     assert.equal(columnByKey('downloadSpeedKBs').render({ downloadSpeedKBs: 100 }), '<span class="badge mid">100 kB/s</span>');
+    assert.equal(columnByKey('tcpLatencyMs').render({ tcpLatencyMs: 60 }), '<span class="badge mid">60 ms</span>');
+    assert.equal(columnByKey('tcpLatencyMs').render({ tcpLatencyMs: 61 }), '<span class="badge slow">61 ms</span>');
     setBadgeThresholds({});
     assert.equal(columnByKey('tcpLatencyMs').render({ tcpLatencyMs: 55 }), '<span class="badge fast">55 ms</span>');
+});
+check('反转或相等的颜色阈值会恢复为有效关系', () => {
+    assert.deepEqual(
+        normalizeBadgeThresholds({ latencyWarningMs: 500, latencyDangerMs: 300, speedGoodKBs: 100, speedWarningKBs: 500 }),
+        { latencyGreenEndMs: 500, latencyYellowEndMs: 501, speedRedEndKBs: 500, speedYellowEndKBs: 501 },
+    );
+    assert.deepEqual(
+        normalizeBadgeThresholds({ latencyWarningMs: 200, latencyDangerMs: 200, speedGoodKBs: 300, speedWarningKBs: 300 }),
+        { latencyGreenEndMs: 200, latencyYellowEndMs: 201, speedRedEndKBs: 300, speedYellowEndKBs: 301 },
+    );
+});
+check('旧版阈值字段可迁移到新的起点语义', () => {
+    assert.deepEqual(
+        normalizeBadgeThresholds({ latencyFastMs: 180, latencyMidMs: 800, speedFastKBs: 900, speedMidKBs: 120 }),
+        { latencyGreenEndMs: 180, latencyYellowEndMs: 800, speedRedEndKBs: 120, speedYellowEndKBs: 900 },
+    );
 });
 check('escapeHTML 覆盖五个字符，null/undefined 变空串', () => {
     assert.equal(escapeHTML(`&<>"'`), '&amp;&lt;&gt;&quot;&#39;');
@@ -113,7 +135,7 @@ check('escapeHTML 覆盖五个字符，null/undefined 变空串', () => {
 
 // exporter.js 顶层不碰 DOM（document 只在 triggerDownload 函数体里用），
 // 所以可以直接 import；下面 downloadAsCSV 一节再补桩件。
-const { serialize, download, downloadAsCSV, downloadAsText } = await import('../web/js/exporter.js');
+const { serialize, download, downloadAsCSV, downloadAsText, copyToClipboard } = await import('../web/js/exporter.js');
 
 console.log('serialize（序列化与投递解耦）:');
 // 注意 filter 保持的是注册表顺序（ip → 延迟 → ASN），不是这里数组字面量的顺序。
@@ -246,5 +268,23 @@ check('downloadAsCSV 默认 enableTLS=true', () => {
     downloadAsCSV([ROW], tlsCol);
     assert.equal(captured[0].blob.text.split('\r\n')[1], 'true');
 });
+
+console.log('剪贴板错误处理:');
+const originalClipboard = globalThis.navigator.clipboard;
+delete globalThis.navigator.clipboard;
+await checkAsync('不支持剪贴板 API 时给出可操作错误', async () => {
+    await assert.rejects(() => copyToClipboard('x'), /不支持剪贴板写入/);
+});
+await checkAsync('浏览器拒绝剪贴板权限时给出可操作错误', async () => {
+    globalThis.navigator.clipboard = { writeText: async () => { throw new Error('denied'); } };
+    await assert.rejects(() => copyToClipboard('x'), /检查浏览器权限/);
+});
+await checkAsync('剪贴板可用时正常写入', async () => {
+    let copied = '';
+    globalThis.navigator.clipboard = { writeText: async text => { copied = text; } };
+    await copyToClipboard('hello');
+    assert.equal(copied, 'hello');
+});
+if (originalClipboard) globalThis.navigator.clipboard = originalClipboard;
 
 console.log(`\n通过 ${pass} 项`);

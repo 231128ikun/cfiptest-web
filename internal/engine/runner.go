@@ -14,9 +14,9 @@ import (
 // Runner 是测试任务编排器，持有地理位置与 ASN 数据库引用。
 // 通过 NewRunner 创建，使用完毕后应调用 Close。
 type Runner struct {
-	locations map[string]Location
-	asnDB     *geoip2.Reader
-	traceURL  string
+	locations  map[string]Location
+	asnDB      *geoip2.Reader
+	traceURL   string
 	ipsTypeURL string
 }
 
