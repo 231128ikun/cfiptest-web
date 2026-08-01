@@ -1,4 +1,4 @@
-package server
+﻿package server
 
 import (
 	"bytes"
@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"iptest-web/internal/engine"
 	"iptest-web/internal/library"
@@ -38,48 +39,111 @@ func doJSON(t *testing.T, handler http.HandlerFunc, method, target string, body 
 	return rec
 }
 
-func TestAutoSubsSaveGetRoundTrip(t *testing.T) {
+func TestTasksSaveGetRoundTrip(t *testing.T) {
 	s := autoServer(t)
-	sub := subscription.Subscription{
-		Name: "综合订阅", EnableSpeed: true,
-		Groups: []subscription.Group{{Name: "美国", CountryCode: "US", Count: 10}},
-		Output: subscription.Output{Path: "out/sub.txt", Template: "{ip}:{port}#{country}"},
+	task := subscription.Task{
+		ID: "t-1", Name: "综合维护", Enabled: true,
+		Rules: []subscription.TaskRule{{Name: "美国", Limit: 10, Conditions: []subscription.Condition{{Field: "country", Values: []string{"US"}}}}},
+		Output: subscription.TaskOutput{Path: "out/sub.txt", Template: "{ip}:{port}#{country}"},
 	}
-	if rec := doJSON(t, s.handleAutoSubsSave, http.MethodPut, "/api/auto/subs", autoSubsResponse{Subscriptions: []subscription.Subscription{sub}}); rec.Code != http.StatusOK {
+	rec := doJSON(t, s.handleTasksSave, http.MethodPut, "/api/auto/tasks", map[string]any{"tasks": []subscription.Task{task}})
+	if rec.Code != http.StatusOK {
 		t.Fatalf("保存失败: %d %s", rec.Code, rec.Body.String())
 	}
-	rec := doJSON(t, s.handleAutoSubsGet, http.MethodGet, "/api/auto/subs", nil)
+	rec = doJSON(t, s.handleTasksGet, http.MethodGet, "/api/auto/tasks", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("读取失败: %d", rec.Code)
 	}
-	var got autoSubsResponse
+	var got struct {
+		Tasks []subscription.Task `json:"tasks"`
+	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Subscriptions) != 1 || got.Subscriptions[0].Name != "综合订阅" {
-		t.Fatalf("往返不一致: %+v", got.Subscriptions)
+	if len(got.Tasks) != 1 || got.Tasks[0].Name != "综合维护" || got.Tasks[0].LibraryID != library.DefaultID {
+		t.Fatalf("往返不一致: %+v", got.Tasks)
 	}
-	// 保存非法定义应 400
-	if rec := doJSON(t, s.handleAutoSubsSave, http.MethodPut, "/api/auto/subs", autoSubsResponse{Subscriptions: []subscription.Subscription{{Name: "", Groups: nil}}}); rec.Code != http.StatusBadRequest {
-		t.Fatalf("非法订阅应 400: %d %s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestAutoSubsValidate(t *testing.T) {
-	s := autoServer(t)
-	bad := subscription.Subscription{Name: "x", Groups: nil}
-	if rec := doJSON(t, s.handleAutoSubsValidate, http.MethodPost, "/api/auto/subs/validate", bad); rec.Code != http.StatusBadRequest {
-		t.Fatalf("非法订阅应 400: %d %s", rec.Code, rec.Body.String())
-	}
-	good := subscription.Subscription{Name: "x", Groups: []subscription.Group{{Name: "g", Count: 1}}}
-	if rec := doJSON(t, s.handleAutoSubsValidate, http.MethodPost, "/api/auto/subs/validate", good); rec.Code != http.StatusOK {
-		t.Fatalf("合法订阅应 200: %d %s", rec.Code, rec.Body.String())
+	if rec := doJSON(t, s.handleTasksSave, http.MethodPut, "/api/auto/tasks", map[string]any{"tasks": []subscription.Task{{Name: ""}}}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("非法任务应 400: %d %s", rec.Code, rec.Body.String())
 	}
 }
 
-func TestAutoLibraryImportAndList(t *testing.T) {
+func TestTaskValidate(t *testing.T) {
 	s := autoServer(t)
-	rec := doJSON(t, s.handleAutoLibraryImport, http.MethodPost, "/api/auto/library/import", autoImportRequest{
+	bad := subscription.Task{Name: "x", Rules: []subscription.TaskRule{{Name: "r", Conditions: []subscription.Condition{{Field: "bad", Values: []string{"v"}}}}}}
+	if rec := doJSON(t, s.handleTaskValidate, http.MethodPost, "/api/auto/tasks/validate", bad); rec.Code != http.StatusBadRequest {
+		t.Fatalf("非法任务应 400: %d %s", rec.Code, rec.Body.String())
+	}
+	good := subscription.Task{Name: "x", Rules: []subscription.TaskRule{{Name: "r", Limit: 1}}}
+	if rec := doJSON(t, s.handleTaskValidate, http.MethodPost, "/api/auto/tasks/validate", good); rec.Code != http.StatusOK {
+		t.Fatalf("合法任务应 200: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestLibrariesCRUD(t *testing.T) {
+	s := autoServer(t)
+	// 首次访问自动建默认库（无旧数据则空库）
+	rec := doJSON(t, s.handleLibrariesGet, http.MethodGet, "/api/auto/libraries", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("库列表失败: %d %s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Libraries []library.Info        `json:"libraries"`
+		Stats     map[string]library.Stats `json:"stats"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &got)
+	if len(got.Libraries) != 1 || got.Libraries[0].ID != library.DefaultID || got.Libraries[0].Name != "默认库" {
+		t.Fatalf("应有默认库: %+v", got.Libraries)
+	}
+	// 新建
+	rec = doJSON(t, s.handleLibrariesCreate, http.MethodPost, "/api/auto/libraries", map[string]string{"name": "备用库"})
+	var created struct {
+		Library library.Info `json:"library"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+	if created.Library.ID == "" || created.Library.Name != "备用库" {
+		t.Fatalf("新建失败: %+v", created)
+	}
+	// 改名
+	rec = doJSON(t, s.handleLibrariesRename, http.MethodPost, "/api/auto/libraries/rename", map[string]string{"id": created.Library.ID, "name": "日本库"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("改名失败: %s", rec.Body.String())
+	}
+	// 删除
+	rec = doJSON(t, s.handleLibrariesDelete, http.MethodPost, "/api/auto/libraries/delete", map[string]string{"id": created.Library.ID})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("删除失败: %s", rec.Body.String())
+	}
+	// 默认库不可删
+	rec = doJSON(t, s.handleLibrariesDelete, http.MethodPost, "/api/auto/libraries/delete", map[string]string{"id": library.DefaultID})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("默认库删除应被拒: %d", rec.Code)
+	}
+}
+
+func TestLibraryMigratesLegacy(t *testing.T) {
+	s := autoServer(t)
+	// 写入旧版单文件库
+	legacy := filepath.Join(s.dataDir, library.FileName)
+	if err := os.WriteFile(legacy, []byte("{\"ip\":\"1.1.1.1\",\"port\":443,\"status\":\"active\"}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	rec := doJSON(t, s.handleLibrariesGet, http.MethodGet, "/api/auto/libraries", nil)
+	var got struct {
+		Stats map[string]library.Stats `json:"stats"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &got)
+	if got.Stats[library.DefaultID].Total != 1 {
+		t.Fatalf("旧库应迁移为默认库且含 1 条: %+v", got.Stats)
+	}
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Fatal("旧文件应已移除")
+	}
+}
+
+func TestLibraryImportListAndResults(t *testing.T) {
+	s := autoServer(t)
+	rec := doJSON(t, s.handleLibraryImport, http.MethodPost, "/api/auto/library/import", autoImportRequest{
 		Targets: []engine.Target{{IP: "1.1.1.1", Port: 443}, {IP: "2.2.2.2", Port: 2053}},
 		Source:  library.SourceManual,
 	})
@@ -88,158 +152,76 @@ func TestAutoLibraryImportAndList(t *testing.T) {
 	}
 	var imp autoImportResponse
 	_ = json.Unmarshal(rec.Body.Bytes(), &imp)
-	if imp.Added != 2 || imp.Total != 2 {
+	if imp.Added != 2 {
 		t.Fatalf("导入统计错误: %+v", imp)
 	}
-	// 重复导入相同目标只更新
-	rec = doJSON(t, s.handleAutoLibraryImport, http.MethodPost, "/api/auto/library/import", autoImportRequest{
-		Targets: []engine.Target{{IP: "1.1.1.1", Port: 443}},
+	// 检测结果导入（更新已有 + 新增）
+	rec = doJSON(t, s.handleLibraryImport, http.MethodPost, "/api/auto/library/import", autoImportRequest{
+		Results: []engine.Result{{IP: "1.1.1.1", Port: 443, LocCode: "US", Country: "美国", TCPLatencyMs: 120, DownloadSpeedKBs: 4500}},
 	})
 	_ = json.Unmarshal(rec.Body.Bytes(), &imp)
 	if imp.Added != 0 || imp.Updated != 1 {
-		t.Fatalf("重复导入统计错误: %+v", imp)
-	}
-	// 按国家/状态过滤（导入后 status=new、country 未知）
-	rec = doJSON(t, s.handleAutoLibraryGet, http.MethodGet, "/api/auto/library?status=new", nil)
-	var lib autoLibraryResponse
-	_ = json.Unmarshal(rec.Body.Bytes(), &lib)
-	if lib.Total != 2 || lib.Stats.New != 2 {
-		t.Fatalf("列表过滤错误: total=%d stats=%+v", lib.Total, lib.Stats)
-	}
-}
-
-func TestAutoLibraryResultsImport(t *testing.T) {
-	s := autoServer(t)
-	// 先导入目标（未测），再以检测结果导入 → 应更新为 active 并带元数据
-	doJSON(t, s.handleAutoLibraryImport, http.MethodPost, "/api/auto/library/import", autoImportRequest{
-		Targets: []engine.Target{{IP: "1.1.1.1", Port: 443}},
-	})
-	rec := doJSON(t, s.handleAutoLibraryImport, http.MethodPost, "/api/auto/library/import", autoImportRequest{
-		Results: []engine.Result{{
-			IP: "1.1.1.1", Port: 443, LocCode: "US", Country: "美国",
-			TCPLatencyMs: 120, DownloadSpeedKBs: 4500,
-		}, {
-			IP: "2.2.2.2", Port: 2053, LocCode: "JP", Country: "日本",
-			TCPLatencyMs: 90,
-		}},
-	})
-	var imp autoImportResponse
-	_ = json.Unmarshal(rec.Body.Bytes(), &imp)
-	if imp.Added != 1 || imp.Updated != 1 {
 		t.Fatalf("结果导入统计错误: %+v", imp)
 	}
-	lib, err := library.Open(s.dataDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	e, ok := lib.Get("1.1.1.1", 443)
-	if !ok || e.Status != library.StatusActive || e.CountryCode != "US" || e.TCPLatencyMs != 120 || !e.SpeedValid {
-		t.Fatalf("结果未回写: %+v", e)
-	}
-	e2, _ := lib.Get("2.2.2.2", 2053)
-	if e2.CountryCode != "JP" || e2.SpeedValid {
-		t.Fatalf("JP 条目错误: %+v", e2)
-	}
-}
-
-func TestAutoLibraryTextImport(t *testing.T) {
-	s := autoServer(t)
-	rec := doJSON(t, s.handleAutoLibraryImport, http.MethodPost, "/api/auto/library/import", autoImportRequest{
-		Text: "1.1.1.1:443\n2.2.2.2",
-	})
-	if rec.Code != http.StatusOK {
-		t.Fatalf("文本导入失败: %d %s", rec.Code, rec.Body.String())
-	}
-	var imp autoImportResponse
-	_ = json.Unmarshal(rec.Body.Bytes(), &imp)
-	if imp.Added != 2 {
-		t.Fatalf("文本导入应识别 2 条: %+v", imp)
-	}
-	// 库文件应已落盘
-	if _, err := os.Stat(filepath.Join(s.dataDir, library.FileName)); err != nil {
-		t.Fatalf("库文件未保存: %v", err)
-	}
-}
-
-func TestAutoLibraryRemoveAndClear(t *testing.T) {
-	s := autoServer(t)
-	doJSON(t, s.handleAutoLibraryImport, http.MethodPost, "/api/auto/library/import", autoImportRequest{
-		Targets: []engine.Target{{IP: "1.1.1.1", Port: 443}, {IP: "2.2.2.2", Port: 443}},
-	})
-	rec := doJSON(t, s.handleAutoLibraryRemove, http.MethodPost, "/api/auto/library/remove", map[string]any{"keys": []string{"1.1.1.1|443"}})
-	var removed map[string]int
-	_ = json.Unmarshal(rec.Body.Bytes(), &removed)
-	if removed["removed"] != 1 {
-		t.Fatalf("删除应命中 1 条: %+v", removed)
-	}
-	rec = doJSON(t, s.handleAutoLibraryClear, http.MethodPost, "/api/auto/library/clear", map[string]bool{"confirm": false})
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("未确认清空应 400: %d", rec.Code)
-	}
-	rec = doJSON(t, s.handleAutoLibraryClear, http.MethodPost, "/api/auto/library/clear", map[string]bool{"confirm": true})
-	if rec.Code != http.StatusOK {
-		t.Fatalf("清空失败: %d %s", rec.Code, rec.Body.String())
-	}
-	rec = doJSON(t, s.handleAutoLibraryGet, http.MethodGet, "/api/auto/library", nil)
+	rec = doJSON(t, s.handleLibraryGet, http.MethodGet, "/api/auto/library?status=active", nil)
 	var lib autoLibraryResponse
 	_ = json.Unmarshal(rec.Body.Bytes(), &lib)
-	if lib.Total != 0 {
-		t.Fatalf("清空后应为 0: %+v", lib.Stats)
+	if lib.Total != 1 || lib.Stats.Active != 1 || lib.Stats.New != 1 {
+		t.Fatalf("列表过滤错误: %+v", lib)
 	}
 }
 
-func TestAutoRunMatchesChineseName(t *testing.T) {
+func TestRunsAppendAndList(t *testing.T) {
 	s := autoServer(t)
-	sub := subscription.Subscription{Name: "日本专线", Groups: []subscription.Group{{Name: "日本", CountryCode: "JP", Count: 1}}}
-	if err := subscription.SaveSubscriptions(s.dataDir, []subscription.Subscription{sub}); err != nil {
+	if err := appendRun(s.dataDir, RunRecord{TaskID: "t-1", Name: "甲", Status: "completed", StartedAt: time.Now(), FinishedAt: time.Now(), TotalLines: 3}); err != nil {
 		t.Fatal(err)
 	}
-	// 占用任务槽后，若名字匹配会走到 409（而不是 404），从而证明中文名查找成功
-	ctx, ok := s.tryStartTask("occupied")
-	if !ok || ctx == nil {
-		t.Fatal("占用任务槽失败")
+	if err := appendRun(s.dataDir, RunRecord{TaskID: "t-2", Name: "乙", Status: "error", StartedAt: time.Now(), FinishedAt: time.Now(), Error: "x"}); err != nil {
+		t.Fatal(err)
 	}
-	defer s.finishTask("occupied")
-	rec := doJSON(t, s.handleAutoRun, http.MethodPost, "/api/auto/run", autoRunRequest{SubscriptionName: "日本专线"})
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("中文订阅名应被找到（409），实际 %d: %s", rec.Code, rec.Body.String())
+	rec := doJSON(t, s.handleRunsGet, http.MethodGet, "/api/auto/runs", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("历史读取失败: %d", rec.Code)
+	}
+	var got struct {
+		Runs []RunRecord `json:"runs"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &got)
+	if len(got.Runs) != 2 || got.Runs[0].Name != "乙" {
+		t.Fatalf("历史应按最新在前: %+v", got.Runs)
 	}
 }
 
 func TestAutoRunNotFoundAndConflict(t *testing.T) {
 	s := autoServer(t)
-	// 订阅器不存在 → 404
-	rec := doJSON(t, s.handleAutoRun, http.MethodPost, "/api/auto/run", autoRunRequest{SubscriptionName: "nope"})
+	// 任务不存在 → 404
+	rec := doJSON(t, s.handleAutoRun, http.MethodPost, "/api/auto/run", autoRunRequest{TaskID: "nope"})
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("应 404: %d %s", rec.Code, rec.Body.String())
 	}
-	// 已有任务运行 → 409
-	subscription.SaveSubscriptions(s.dataDir, []subscription.Subscription{{
-		Name: "x", Groups: []subscription.Group{{Name: "g", Count: 1}},
-		Output: subscription.Output{Path: "out/t.txt"},
+	subscription.SaveTasks(s.dataDir, []subscription.Task{{
+		ID: "t-1", Name: "中文任务", Rules: []subscription.TaskRule{{Name: "r", Limit: 1}},
 	}})
 	ctx, ok := s.tryStartTask("occupied")
 	if !ok || ctx == nil {
 		t.Fatal("占用任务槽失败")
 	}
-	rec = doJSON(t, s.handleAutoRun, http.MethodPost, "/api/auto/run", autoRunRequest{SubscriptionName: "x"})
+	defer s.finishTask("occupied")
+	// 中文任务 ID 应被找到（409 而非 404）
+	rec = doJSON(t, s.handleAutoRun, http.MethodPost, "/api/auto/run", autoRunRequest{TaskID: "t-1"})
 	if rec.Code != http.StatusConflict {
-		t.Fatalf("应 409: %d %s", rec.Code, rec.Body.String())
+		t.Fatalf("中文任务应被找到（409），实际 %d: %s", rec.Code, rec.Body.String())
 	}
-	s.finishTask("occupied")
 }
 
 func TestAutoOutputSecurity(t *testing.T) {
 	s := autoServer(t)
-	// 目录穿越应被拒绝
 	rec := doJSON(t, s.handleAutoOutput, http.MethodGet, "/api/auto/output?path=..%2F..%2Fsecret.txt", nil)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("路径穿越应 400: %d", rec.Code)
 	}
-	// 正常输出文件可下载
-	sub := subscription.Subscription{Name: "x", Groups: []subscription.Group{{Name: "g", Count: 1}},
-		Output: subscription.Output{Path: "out/t.txt", Template: "{ip}:{port}"}}
-	if _, err := subscription.WriteOutput(s.dataDir, sub, []library.Entry{{IP: "9.9.9.9", Port: 443}}); err != nil {
+	out := subscription.Output{Path: "out/t.txt", Template: "{ip}:{port}"}
+	if _, err := subscription.WriteOutput(s.dataDir, out, []library.Entry{{IP: "9.9.9.9", Port: 443}}); err != nil {
 		t.Fatal(err)
 	}
 	rec = doJSON(t, s.handleAutoOutput, http.MethodGet, "/api/auto/output?path=out%2Ft.txt", nil)

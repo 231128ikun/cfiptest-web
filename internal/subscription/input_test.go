@@ -36,7 +36,7 @@ func TestRunImportsInputFile(t *testing.T) {
 	fake.add("1.0.0.12", 443, "JP", true, 0)
 	fake.add("2.0.0.13", 2053, "US", true, 0)
 
-	lib, err := library.Open(dir)
+	lib, err := library.Open(filepath.Join(dir, library.FileName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestRunImportsInputFile(t *testing.T) {
 
 func TestRunRejectsInputTraversal(t *testing.T) {
 	dir := t.TempDir()
-	lib, _ := library.Open(dir)
+	lib, _ := library.Open(filepath.Join(dir, library.FileName))
 	sub := Subscription{Name: "x", InputPath: "../evil.txt", Groups: []Group{{Name: "g", Count: 1}}}
 	if _, err := Run(t.Context(), newFake(), lib, sub, RunOptions{}, nil); err == nil {
 		t.Fatal("目录穿越应被拒绝")

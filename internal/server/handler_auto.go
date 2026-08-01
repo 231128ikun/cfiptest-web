@@ -1,4 +1,4 @@
-package server
+﻿package server
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"iptest-web/internal/engine"
@@ -16,65 +17,194 @@ import (
 	"iptest-web/internal/subscription"
 )
 
-// ---- 订阅器定义 ----
-
-// autoSubsResponse 对应 GET /api/auto/subs。
-type autoSubsResponse struct {
-	Subscriptions []subscription.Subscription `json:"subscriptions"`
+// libraryManager 惰性打开库管理器（多库 data/ipdb/）。
+func (s *Server) libraryManager() (*library.Manager, error) {
+	s.libMgrMu.Lock()
+	defer s.libMgrMu.Unlock()
+	if s.libMgr == nil {
+		m, err := library.OpenManager(s.dataDir)
+		if err != nil {
+			return nil, err
+		}
+		s.libMgr = m
+	}
+	return s.libMgr, nil
 }
 
-func (s *Server) handleAutoSubsGet(w http.ResponseWriter, _ *http.Request) {
-	subs, err := subscription.LoadSubscriptions(s.dataDir)
+// ---- 维护任务 ----
+
+func (s *Server) handleTasksGet(w http.ResponseWriter, _ *http.Request) {
+	tasks, err := subscription.LoadTasks(s.dataDir)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, autoSubsResponse{Subscriptions: subs})
+	writeJSON(w, http.StatusOK, map[string]any{"tasks": tasks})
 }
 
-// handleAutoSubsSave 全量保存订阅器定义。
-func (s *Server) handleAutoSubsSave(w http.ResponseWriter, r *http.Request) {
-	var req autoSubsResponse
+func (s *Server) handleTasksSave(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Tasks []subscription.Task `json:"tasks"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON: "+err.Error())
 		return
 	}
-	if err := subscription.SaveSubscriptions(s.dataDir, req.Subscriptions); err != nil {
+	if err := subscription.SaveTasks(s.dataDir, req.Tasks); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"saved": true})
 }
 
-// handleAutoSubsValidate 校验单个订阅器定义（不落盘）。
-func (s *Server) handleAutoSubsValidate(w http.ResponseWriter, r *http.Request) {
-	var sub subscription.Subscription
-	if err := json.NewDecoder(r.Body).Decode(&sub); err != nil {
+func (s *Server) handleTaskValidate(w http.ResponseWriter, r *http.Request) {
+	var task subscription.Task
+	if err := json.NewDecoder(r.Body).Decode(&task); err != nil {
 		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON: "+err.Error())
 		return
 	}
-	if err := sub.Validate(); err != nil {
+	if err := task.Validate(); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"valid": true})
 }
 
-// ---- IP 库 ----
+// ---- IP 库管理 ----
 
-// autoLibraryResponse 对应 GET /api/auto/library。
-type autoLibraryResponse struct {
-	Stats   library.Stats   `json:"stats"`
-	Entries []library.Entry `json:"entries"`
-	Offset  int             `json:"offset"`
-	Limit   int             `json:"limit"`
-	Total   int             `json:"total"`
-}
-
-func (s *Server) handleAutoLibraryGet(w http.ResponseWriter, r *http.Request) {
-	lib, err := library.Open(s.dataDir)
+func (s *Server) handleLibrariesGet(w http.ResponseWriter, _ *http.Request) {
+	mgr, err := s.libraryManager()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	list, stats, err := mgr.ListWithStats()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"libraries": list, "stats": stats})
+}
+
+func (s *Server) handleLibrariesCreate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON: "+err.Error())
+		return
+	}
+	mgr, err := s.libraryManager()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	info, err := mgr.Create(req.Name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"library": info})
+}
+
+func (s *Server) handleLibrariesRename(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON: "+err.Error())
+		return
+	}
+	mgr, err := s.libraryManager()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := mgr.Rename(req.ID, req.Name); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"renamed": true})
+}
+
+func (s *Server) handleLibrariesDelete(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON: "+err.Error())
+		return
+	}
+	mgr, err := s.libraryManager()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := mgr.Delete(req.ID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"deleted": true})
+}
+
+func (s *Server) handleLibrariesClear(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID      string `json:"id"`
+		Confirm bool   `json:"confirm"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON: "+err.Error())
+		return
+	}
+	if !req.Confirm {
+		writeError(w, http.StatusBadRequest, "请确认清空（confirm=true）")
+		return
+	}
+	mgr, err := s.libraryManager()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := mgr.Clear(req.ID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"cleared": true})
+}
+
+// ---- 库内容 ----
+
+func (s *Server) libraryFor(w http.ResponseWriter, r *http.Request) (*library.Store, *library.Manager, bool) {
+	mgr, err := s.libraryManager()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return nil, nil, false
+	}
+	id := strings.TrimSpace(r.URL.Query().Get("lib"))
+	if id == "" {
+		id = library.DefaultID
+	}
+	lib, err := mgr.Open(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return nil, nil, false
+	}
+	return lib, mgr, true
+}
+
+type autoLibraryResponse struct {
+	Lib     string         `json:"lib"`
+	Stats   library.Stats  `json:"stats"`
+	Entries []library.Entry `json:"entries"`
+	Offset  int            `json:"offset"`
+	Limit   int            `json:"limit"`
+	Total   int            `json:"total"`
+}
+
+func (s *Server) handleLibraryGet(w http.ResponseWriter, r *http.Request) {
+	lib, _, ok := s.libraryFor(w, r)
+	if !ok {
 		return
 	}
 	status := strings.TrimSpace(r.URL.Query().Get("status"))
@@ -94,7 +224,6 @@ func (s *Server) handleAutoLibraryGet(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-
 	all := lib.All()
 	filtered := all[:0]
 	for _, e := range all {
@@ -121,6 +250,7 @@ func (s *Server) handleAutoLibraryGet(w http.ResponseWriter, r *http.Request) {
 		end = total
 	}
 	writeJSON(w, http.StatusOK, autoLibraryResponse{
+		Lib:     libID(r),
 		Stats:   lib.Stats(),
 		Entries: filtered[offset:end],
 		Offset:  offset,
@@ -129,36 +259,53 @@ func (s *Server) handleAutoLibraryGet(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// autoImportRequest 对应 POST /api/auto/library/import。
-type autoImportRequest struct {
-	Targets    []engine.Target  `json:"targets"`    // 已解析目标（前端可直接用现有导入结果）
-	Results    []engine.Result  `json:"results"`    // 检测结果（带元数据，导入后状态 active）
-	Text       string           `json:"text"`       // 或原始文本（后端解析）
-	SampleMode string           `json:"sampleMode"` // CIDR 抽样
-	SampleN    int              `json:"sampleN"`
-	Source     string           `json:"source"` // manual | import | official
+func libID(r *http.Request) string {
+	id := strings.TrimSpace(r.URL.Query().Get("lib"))
+	if id == "" {
+		return library.DefaultID
+	}
+	return id
 }
 
-// autoImportResponse 返回入库统计。
+type autoImportRequest struct {
+	Lib        string          `json:"lib,omitempty"`
+	Targets    []engine.Target `json:"targets"`
+	Results    []engine.Result `json:"results"`
+	Text       string          `json:"text"`
+	SampleMode string          `json:"sampleMode"`
+	SampleN    int             `json:"sampleN"`
+	Source     string          `json:"source"`
+}
+
 type autoImportResponse struct {
 	Added   int `json:"added"`
 	Updated int `json:"updated"`
 	Total   int `json:"total"`
 }
 
-func (s *Server) handleAutoLibraryImport(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleLibraryImport(w http.ResponseWriter, r *http.Request) {
 	var req autoImportRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON: "+err.Error())
 		return
 	}
-	// 检测结果导入：直接带元数据入库（状态 active），覆盖式更新
+	mgr, err := s.libraryManager()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	id := req.Lib
+	if id == "" {
+		id = library.DefaultID
+	}
+	lib, err := mgr.Open(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	// 检测结果导入：带元数据，状态 active
 	if len(req.Results) > 0 {
-		lib, err := library.Open(s.dataDir)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
 		now := time.Now()
 		added, updated := 0, 0
 		for _, res := range req.Results {
@@ -167,7 +314,6 @@ func (s *Server) handleAutoLibraryImport(w http.ResponseWriter, r *http.Request)
 			}
 			e := library.EntryFromResult(res, now)
 			if existing, ok := lib.Get(res.IP, res.Port); ok {
-				// 已存在：保留首见时间与来源，累计检测次数
 				e.FirstSeenAt = existing.FirstSeenAt
 				e.Source = existing.Source
 				e.Checks = existing.Checks + 1
@@ -195,27 +341,17 @@ func (s *Server) handleAutoLibraryImport(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	} else {
-		writeError(w, http.StatusBadRequest, "请提供 targets 或 text")
+		writeError(w, http.StatusBadRequest, "请提供 results、targets 或 text")
 		return
 	}
 	source := req.Source
 	if source != library.SourceManual && source != library.SourceOfficial {
 		source = library.SourceImport
 	}
-
-	lib, err := library.Open(s.dataDir)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
 	now := time.Now()
 	added, updated := 0, 0
 	for _, t := range targets {
-		e := library.Entry{
-			IP: t.IP, Port: t.Port,
-			Source: source, Status: library.StatusNew,
-			FirstSeenAt: now,
-		}
+		e := library.Entry{IP: t.IP, Port: t.Port, Source: source, Status: library.StatusNew, FirstSeenAt: now}
 		if lib.Upsert(e) {
 			added++
 		} else {
@@ -229,20 +365,27 @@ func (s *Server) handleAutoLibraryImport(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, autoImportResponse{Added: added, Updated: updated, Total: lib.Len()})
 }
 
-// autoLibraryRemoveRequest 对应 POST /api/auto/library/remove。
-type autoLibraryRemoveRequest struct {
-	Keys []string `json:"keys"`
-}
-
-func (s *Server) handleAutoLibraryRemove(w http.ResponseWriter, r *http.Request) {
-	var req autoLibraryRemoveRequest
+func (s *Server) handleLibraryRemove(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Lib  string   `json:"lib"`
+		Keys []string `json:"keys"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON: "+err.Error())
 		return
 	}
-	lib, err := library.Open(s.dataDir)
+	mgr, err := s.libraryManager()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	id := req.Lib
+	if id == "" {
+		id = library.DefaultID
+	}
+	lib, err := mgr.Open(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
 	removed := 0
@@ -263,40 +406,11 @@ func (s *Server) handleAutoLibraryRemove(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]int{"removed": removed})
 }
 
-// handleAutoLibraryClear 清空 IP 库（需要显式 confirm）。
-func (s *Server) handleAutoLibraryClear(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Confirm bool `json:"confirm"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON: "+err.Error())
-		return
-	}
-	if !req.Confirm {
-		writeError(w, http.StatusBadRequest, "请确认清空（confirm=true）")
-		return
-	}
-	lib, err := library.Open(s.dataDir)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	for _, e := range lib.All() {
-		lib.RemoveKey(e.Key())
-	}
-	if err := lib.Save(); err != nil {
-		writeError(w, http.StatusInternalServerError, "保存 IP 库失败: "+err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]bool{"cleared": true})
-}
+// ---- 运行 ----
 
-// ---- 自动化运行 ----
-
-// autoRunRequest 对应 POST /api/auto/run。
 type autoRunRequest struct {
-	SubscriptionName string                    `json:"subscriptionName"`
-	Options          *subscription.RunOptions  `json:"options,omitempty"`
+	TaskID  string                   `json:"taskId"`
+	Options *subscription.RunOptions `json:"options,omitempty"`
 }
 
 func (s *Server) handleAutoRun(w http.ResponseWriter, r *http.Request) {
@@ -305,30 +419,28 @@ func (s *Server) handleAutoRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON: "+err.Error())
 		return
 	}
-	subs, err := subscription.LoadSubscriptions(s.dataDir)
+	tasks, err := subscription.LoadTasks(s.dataDir)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	var sub *subscription.Subscription
-	for i := range subs {
-		if subs[i].Name == req.SubscriptionName {
-			sub = &subs[i]
+	var task *subscription.Task
+	for i := range tasks {
+		if tasks[i].ID == req.TaskID || tasks[i].Name == req.TaskID {
+			task = &tasks[i]
 			break
 		}
 	}
-	if sub == nil {
-		writeError(w, http.StatusNotFound, "找不到订阅器: "+req.SubscriptionName)
+	if task == nil {
+		writeError(w, http.StatusNotFound, "找不到维护任务: "+req.TaskID)
 		return
 	}
-	taskID := "auto:" + sub.Name
+	taskID := "auto:" + task.Name
 	ctx, ok := s.tryStartTask(taskID)
 	if !ok {
 		writeError(w, http.StatusConflict, "已有任务在运行")
 		return
 	}
-
-	// 运行参数默认沿用本地配置
 	s.configMu.RLock()
 	latencyDefaults := s.latencyDefaults
 	speedDefaults := s.speedDefaults
@@ -355,34 +467,49 @@ func (s *Server) handleAutoRun(w http.ResponseWriter, r *http.Request) {
 		}
 		opts = merged
 	}
-
-	go s.runAutoTask(ctx, taskID, *sub, opts)
-
+	go s.runAutoTask(ctx, taskID, *task, opts)
 	writeJSON(w, http.StatusOK, taskResponse{TaskID: taskID, Status: "running", TotalTargets: 0})
 }
 
-// runAutoTask 在后台执行一次订阅维护，并通过 SSE 广播进度。
-func (s *Server) runAutoTask(ctx context.Context, taskID string, sub subscription.Subscription, opts subscription.RunOptions) {
+func (s *Server) runAutoTask(ctx context.Context, taskID string, task subscription.Task, opts subscription.RunOptions) {
 	defer s.finishTask(taskID)
 	emit := func(p subscription.Progress) error {
 		body, _ := json.Marshal(p)
 		s.broadcast(engine.Event{Type: engine.EventAuto, Message: string(body)})
 		return ctx.Err()
 	}
+	record := func(status, errMsg string, report *subscription.Report) {
+		rec := recordFromReport(report, status, errMsg)
+		if rec.Name == "" {
+			rec.Name = task.Name
+		}
+		if rec.TaskID == "" {
+			rec.TaskID = task.ID
+		}
+		_ = appendRun(s.dataDir, rec)
+	}
 
-	lib, err := library.Open(s.dataDir)
+	mgr, err := s.libraryManager()
 	if err != nil {
 		s.broadcast(engine.Event{Type: engine.EventError, Message: "打开 IP 库失败: " + err.Error()})
+		record("error", err.Error(), nil)
 		return
 	}
-	report, err := subscription.Run(ctx, s.runner, lib, sub, opts, emit)
+	lib, err := mgr.Open(task.LibraryID)
+	if err != nil {
+		s.broadcast(engine.Event{Type: engine.EventError, Message: "打开 IP 库失败: " + err.Error()})
+		record("error", err.Error(), nil)
+		return
+	}
+	report, err := subscription.RunTask(ctx, s.runner, lib, task, opts, emit)
 	if err != nil {
 		if ctx.Err() != nil {
 			s.broadcast(engine.Event{Type: engine.EventDone, Reason: engine.DoneStopped, Message: "自动化已停止"})
+			record("stopped", "已停止", report)
 			return
 		}
-		s.broadcast(engine.Event{Type: engine.EventDone, Reason: engine.DoneCompleted,
-			Message: "自动化运行出错: " + err.Error()})
+		s.broadcast(engine.Event{Type: engine.EventDone, Reason: engine.DoneCompleted, Message: "自动化运行出错: " + err.Error()})
+		record("error", err.Error(), report)
 		return
 	}
 	summary := fmt.Sprintf("自动化完成：%d 条输出 → %s", report.TotalLines, report.OutputPath)
@@ -391,11 +518,27 @@ func (s *Server) runAutoTask(ctx context.Context, taskID string, sub subscriptio
 	}
 	reportJSON, _ := json.Marshal(report)
 	s.broadcast(engine.Event{Type: engine.EventDone, Reason: engine.DoneCompleted, Message: summary})
-	// 完整报告随 done 事件附带，前端可展示明细
 	s.broadcast(engine.Event{Type: engine.EventAuto, Message: `{"stage":"report","report":` + string(reportJSON) + `}`})
+	record("completed", "", report)
 }
 
-// handleAutoOutput 下载订阅输出文件；path 必须解析到 dataDir 内。
+// ---- 运行历史 ----
+
+func (s *Server) handleRunsGet(w http.ResponseWriter, r *http.Request) {
+	limit := 200
+	if v := r.URL.Query().Get("limit"); v != "" {
+		fmt.Sscanf(v, "%d", &limit)
+	}
+	recs, err := listRuns(s.dataDir, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"runs": recs})
+}
+
+// ---- 输出下载 ----
+
 func (s *Server) handleAutoOutput(w http.ResponseWriter, r *http.Request) {
 	rel := strings.TrimSpace(r.URL.Query().Get("path"))
 	if rel == "" {
@@ -428,3 +571,5 @@ func (s *Server) handleAutoOutput(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", "attachment; filename="+name)
 	w.Write(body)
 }
+
+var _ = sync.Mutex{}

@@ -9,7 +9,9 @@ import { createMultiSelect } from './multiselect.js';
 import { PRESETS, placeholderNames } from './composer.js';
 import { download, copyToClipboard, serialize as serializeExport } from './exporter.js';
 import { boundedNumber } from './validation.js';
-import { initAuto } from './auto.js';
+import { initTasks } from './tasks.js';
+import { initLibrary } from './library.js';
+import { initRuns } from './runs.js';
 
 const $ = id => document.getElementById(id);
 const keyOf = item => `${item.ip}|${item.port || 0}`;
@@ -45,7 +47,7 @@ const SELECTABLE_COLUMN_KEYS = ALL_COLUMNS
 let visibleColumnKeys = [...DEFAULT_COLUMN_KEYS];
 
 let toastTimer = null;
-let autoPage = null;
+let tasksPage = null;`nlet libPage = null;`nlet runsPage = null;
 function toast(message) {
     const el = $('toast');
     el.textContent = message;
@@ -525,13 +527,24 @@ async function startSupplementalSpeed(useVisible) {
 async function importResultsToLib(useVisible) {
     const results = useVisible ? table.getAllResults() : table.getSelectedResults();
     if (!results.length) { toast(useVisible ? '当前没有展示结果' : '请先勾选结果'); return; }
+    const lib = $('lib-target-select').value || '';
+    const libName = $('lib-target-select').selectedOptions[0]?.textContent || '默认库';
     try {
-        const response = await api.importAutoLibrary({ results });
-        toast(`已导入 IP 库：新增 ${response.added} 条，更新 ${response.updated} 条（共 ${response.total} 条）`);
-        autoPage?.refreshLibrary?.();
+        const response = await api.importAutoLibrary({ lib, results });
+        toast(`已导入「${libName}」：新增 ${response.added} 条，更新 ${response.updated} 条（共 ${response.total} 条）`);
+        libPage?.refresh?.();
     } catch (error) {
         toast(`导入失败：${error.message}`);
     }
+}
+
+async function refreshLibraryTargets() {
+    try {
+        const data = await api.fetchLibraries();
+        const list = data.libraries || [];
+        const sel = $('lib-target-select');
+        sel.innerHTML = list.map(l => `<option value="${escapeHTML(l.id)}">${escapeHTML(l.name)}</option>`).join('');
+    } catch { /* 忽略 */ }
 }
 
 function bindRulesAndRun() {
@@ -616,9 +629,9 @@ function bindEvents() {
             table.updateSpeed(result);
             scheduleExportPreview();
         },
-        onAuto: message => autoPage?.onAuto(message),
+        onAuto: message => tasksPage?.onAuto(message),
         onDone: (message, reason) => {
-            if (autoPage?.isAutoRunning()) { autoPage.onDone(message, reason); return; }
+            if (tasksPage?.isAutoRunning()) { tasksPage.onDone(message, reason); return; }
             setRunning(false);
             $('progress-label').textContent = reason === 'limit' ? '已达到最大数量' : reason === 'stopped' ? '已停止' : '已完成';
             $('progress-pct').textContent = reason === 'stopped' ? $('progress-pct').textContent : '100%';
@@ -632,7 +645,7 @@ function bindEvents() {
             regenerateOutput();
         },
         onError: message => {
-            if (autoPage?.isAutoRunning()) { autoPage.onDone(message, 'stopped'); return; }
+            if (tasksPage?.isAutoRunning()) { tasksPage.onDone(message, 'stopped'); return; }
             if (!currentTaskId) return;
             setRunning(false);
             $('progress-label').textContent = '任务出错';
@@ -1310,8 +1323,51 @@ function bindExport() {
     regenerateOutput();
 }
 
+function bindPageNav() {
+    document.querySelectorAll('.side-item').forEach(item => {
+        item.addEventListener('click', e => {
+            e.preventDefault();
+            const page = item.dataset.page;
+            document.querySelectorAll('.side-item').forEach(i => i.classList.toggle('active', i === item));
+            document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === 'page-' + page));
+        });
+    });
+}
+
+// 第 1 步：从本地库导入候选
+async function bindLibraryCandidateImport() {
+    try {
+        const data = await api.fetchLibraries();
+        const sel = $('lib-candidates-select');
+        sel.innerHTML = '<option value="">从本地库导入…</option>'
+            + (data.libraries || []).map(l => `<option value="${escapeHTML(l.id)}">${escapeHTML(l.name)}</option>`).join('');
+        sel.addEventListener('change', async () => {
+            const id = sel.value;
+            if (!id) return;
+            try {
+                const libData = await api.fetchAutoLibrary({ lib: id, limit: 2000 });
+                const targets = (libData.entries || [])
+                    .filter(e => e.ip && (e.status === 'active' || e.status === 'new'))
+                    .map(e => ({ ip: e.ip, port: Number(e.port) || 0 }));
+                const { added } = addUnique(proxyCandidates, targets);
+                renderCandidates();
+                toast(`已从库导入 ${added} 条候选（库内共 ${libData.total} 条）`);
+            } catch (error) {
+                toast(`导入候选失败：${error.message}`);
+            } finally {
+                sel.value = '';
+            }
+        });
+    } catch { /* 忽略 */ }
+}
+
 async function init() {
-    autoPage = initAuto({ toast });
+    tasksPage = initTasks({ toast });
+    libPage = initLibrary({ toast });
+    runsPage = initRuns({ toast });
+    bindPageNav();
+    bindLibraryCandidateImport();
+    refreshLibraryTargets();
     bindFlowNavigation();
     bindModes();
     bindProxyInput();

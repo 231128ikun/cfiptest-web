@@ -99,7 +99,7 @@ func latencyOf(ip string) int64 {
 
 func mkLib(t *testing.T, entries ...library.Entry) *library.Store {
 	t.Helper()
-	s, err := library.Open(t.TempDir())
+	s, err := library.Open(filepath.Join(t.TempDir(), library.FileName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,7 +354,7 @@ func TestWriteOutputCSV(t *testing.T) {
 	dir := t.TempDir()
 	sub := Subscription{Name: "x", Groups: []Group{usGroup(1)},
 		Output: Output{Path: "out/t.csv", Format: "csv"}}
-	path, err := WriteOutput(dir, sub, []library.Entry{{IP: "1.2.3.4", Port: 443, CountryCode: "US", Country: "美国", TCPLatencyMs: 99}})
+	path, err := WriteOutput(dir, sub.Output, []library.Entry{{IP: "1.2.3.4", Port: 443, CountryCode: "US", Country: "美国", TCPLatencyMs: 99}})
 	if err != nil {
 		t.Fatal(err)
 	}

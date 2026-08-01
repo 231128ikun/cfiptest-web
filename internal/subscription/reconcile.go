@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -74,6 +75,9 @@ func (o RunOptions) withDefaults() RunOptions {
 }
 
 func (o RunOptions) candidateCap(count int) int {
+	if count <= 0 {
+		return o.MaxPerGroup
+	}
 	capN := count*o.SlackFactor + o.SlackExtra
 	if capN < count {
 		capN = count
@@ -100,6 +104,7 @@ type GroupReport struct {
 
 // Report 是一次运行的汇总。
 type Report struct {
+	TaskID       string        `json:"taskId,omitempty"`
 	Subscription string        `json:"subscription"`
 	StartedAt    time.Time     `json:"startedAt"`
 	FinishedAt   time.Time     `json:"finishedAt"`
@@ -113,37 +118,70 @@ type Report struct {
 	InputUpdated int           `json:"inputUpdated"` // 输入文件与库重叠更新的条数
 }
 
-// Run 执行一次订阅维护：
-//  1. 从库中收集候选（按分组，含国家未知条目；未指定端口的补 443）；
-//  2. 批量延迟检测：失败者从库移除，通过者回写元数据/延迟/状态；
-//  3. 需要测速的分组对短名单批量测速：失败不判死，只标记 SpeedValid=false；
-//  4. 按分组配额取最新结果，去重后渲染并原子写出订阅文件。
-//
-// ctx 取消时保存已完成的库更新并返回部分报告（带 context 错误）。
+// Run 执行一次订阅维护（兼容旧订阅器模型；新任务模型请用 RunTask）。
 func Run(ctx context.Context, t Tester, lib *library.Store, sub Subscription, opts RunOptions, prog ProgressFunc) (*Report, error) {
 	if err := sub.Validate(); err != nil {
 		return nil, err
 	}
+	return runCore(ctx, t, lib, sub.Groups, sub.InputPath, sub.Output, sub.EnableSpeed, 0, opts, prog)
+}
+
+// RunTask 执行一次维护任务：
+//  1. 解析输入文件（如有）导入绑定的 IP 库；
+//  2. 把任务规则展开成分组（多条件笛卡尔积，每个组合取前 N）；
+//  3. 检测 / 清理 / 回写 / 补足；
+//  4. 合并去重后按任务总数限制截断，渲染并原子写出输出文件。
+func RunTask(ctx context.Context, t Tester, lib *library.Store, task Task, opts RunOptions, prog ProgressFunc) (*Report, error) {
+	if err := task.Validate(); err != nil {
+		return nil, err
+	}
+	groups, err := expandTaskRules(task)
+	if err != nil {
+		return nil, err
+	}
+	inputPath := ""
+	if task.Input.Mode == "file" {
+		inputPath = task.Input.File
+	}
+	output := Output{Path: task.Output.Path, Format: task.Output.Format, Template: task.Output.Template}
+	report, err := runCore(ctx, t, lib, groups, inputPath, output, task.SpeedEnabled, task.Limit, opts, prog)
+	if err != nil {
+		return report, err
+	}
+	report.TaskID = task.ID
+	report.Subscription = task.Name
+	return report, nil
+}
+
+// runCore 执行核心编排流程：
+//  1. 从库中收集候选（按分组，含国家/城市未知条目；未指定端口的补 443）；
+//  2. 批量延迟检测：失败者从库移除，通过者回写元数据/延迟/状态；
+//  3. 需要测速的分组对短名单批量测速：失败不判死，只标记 SpeedValid=false；
+//  4. 按分组配额取最新结果，合并去重；若设了总数限制则按延迟升序截断；
+//  5. 渲染并原子写出输出文件。
+//
+// ctx 取消时保存已完成的库更新并返回部分报告（带 context 错误）。
+func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, inputPath string, out Output, enableSpeed bool, totalLimit int, opts RunOptions, prog ProgressFunc) (*Report, error) {
 	opts = opts.withDefaults()
 	now := time.Now()
-	report := &Report{Subscription: sub.Name, StartedAt: now, Groups: make([]GroupReport, len(sub.Groups))}
+	report := &Report{StartedAt: now, Groups: make([]GroupReport, len(groups))}
 	if prog == nil {
 		prog = func(Progress) error { return nil }
 	}
-	for gi, g := range sub.Groups {
+	for gi, g := range groups {
 		report.Groups[gi] = GroupReport{Name: g.Name, Target: g.Count}
 	}
 
 	// 0. 解析输入订阅文件（ip:port#备注 等格式，复用 engine 解析逻辑）导入 IP 库
-	if strings.TrimSpace(sub.InputPath) != "" {
-		added, updated, err := importInputFile(lib, sub.InputPath, now)
+	if strings.TrimSpace(inputPath) != "" {
+		added, updated, err := importInputFile(lib, inputPath, now)
 		if err != nil {
-			return nil, fmt.Errorf("读取订阅输入文件失败: %w", err)
+			return nil, fmt.Errorf("读取输入文件失败: %w", err)
 		}
 		report.InputAdded = added
 		report.InputUpdated = updated
 		_ = prog(Progress{Stage: "input", Tested: added + updated,
-			Log: fmt.Sprintf("解析输入订阅文件 %s：新增 %d / 更新 %d", sub.InputPath, added, updated)})
+			Log: fmt.Sprintf("解析输入文件 %s：新增 %d / 更新 %d", inputPath, added, updated)})
 	}
 
 	// ---- 1. 收集候选（多分组去重） ----
@@ -153,7 +191,7 @@ func Run(ctx context.Context, t Tester, lib *library.Store, sub Subscription, op
 	}
 	candidates := make(map[string]*cand)
 	var order []string
-	for gi, g := range sub.Groups {
+	for gi, g := range groups {
 		capN := opts.candidateCap(g.Count)
 		matched := make([]library.Entry, 0, capN)
 		for _, e := range lib.All() {
@@ -266,8 +304,8 @@ func Run(ctx context.Context, t Tester, lib *library.Store, sub Subscription, op
 	// ---- 3. 测速短名单（仅需要测速的分组） ----
 	speedPool := make(map[int][]library.Entry)   // 分组 -> 短名单
 	speedQueue := make(map[string]library.Entry) // 跨分组去重
-	for gi, g := range sub.Groups {
-		if !g.RequiresSpeed(sub) {
+	for gi, g := range groups {
+		if !groupNeedsSpeed(g, enableSpeed) {
 			continue
 		}
 		pool := freshForGroup(fresh, g)
@@ -342,12 +380,12 @@ func Run(ctx context.Context, t Tester, lib *library.Store, sub Subscription, op
 	// ---- 4. 按分组配额选结果 ----
 	var output []library.Entry
 	seenOut := make(map[string]bool)
-	for gi, g := range sub.Groups {
+	for gi, g := range groups {
 		gr := &report.Groups[gi]
-		if g.RequiresSpeed(sub) {
+		if groupNeedsSpeed(g, enableSpeed) {
 			filled := 0
 			for _, e := range speedPool[gi] {
-				if filled >= g.Count {
+				if g.Count > 0 && filled >= g.Count {
 					break
 				}
 				if !g.SpeedOK(e.SpeedKBs, e.SpeedValid) {
@@ -360,13 +398,15 @@ func Run(ctx context.Context, t Tester, lib *library.Store, sub Subscription, op
 				filled++
 			}
 			gr.Filled = filled
-			gr.Shortage = g.Count - filled
+			if g.Count > 0 {
+				gr.Shortage = g.Count - filled
+			}
 			continue
 		}
 		pool := freshForGroup(fresh, g)
 		filled := 0
 		for _, e := range pool {
-			if filled >= g.Count {
+			if g.Count > 0 && filled >= g.Count {
 				break
 			}
 			if !seenOut[e.Key()] {
@@ -376,7 +416,9 @@ func Run(ctx context.Context, t Tester, lib *library.Store, sub Subscription, op
 			filled++
 		}
 		gr.Filled = filled
-		gr.Shortage = g.Count - filled
+		if g.Count > 0 {
+			gr.Shortage = g.Count - filled
+		}
 	}
 	for gi := range report.Groups {
 		if report.Groups[gi].Shortage > 0 {
@@ -385,8 +427,19 @@ func Run(ctx context.Context, t Tester, lib *library.Store, sub Subscription, op
 		}
 	}
 
+	// 总数限制：合并去重后按延迟升序截断
+	if totalLimit > 0 && len(output) > totalLimit {
+		sort.SliceStable(output, func(i, j int) bool {
+			if output[i].TCPLatencyMs != output[j].TCPLatencyMs {
+				return output[i].TCPLatencyMs < output[j].TCPLatencyMs
+			}
+			return output[i].Key() < output[j].Key()
+		})
+		output = output[:totalLimit]
+	}
+
 	// ---- 5. 写出订阅文件 ----
-	path, err := WriteOutput(lib.Dir(), sub, output)
+	path, err := WriteOutput(lib.BaseDir(), out, output)
 	if err != nil {
 		_ = lib.Save()
 		return report, fmt.Errorf("写出订阅文件失败: %w", err)
@@ -403,11 +456,86 @@ func Run(ctx context.Context, t Tester, lib *library.Store, sub Subscription, op
 	return report, nil
 }
 
+// groupNeedsSpeed 判断分组是否需要在本次运行中测速：任务开启测速且该分组设了速度范围。
+func groupNeedsSpeed(g Group, enableSpeed bool) bool {
+	return enableSpeed && (g.RequireSpeed || g.MinSpeedKBs > 0 || g.MaxSpeedKBs > 0)
+}
+
+// expandTaskRules 把任务规则展开成编排分组：规则内多条件取笛卡尔积，
+// 每个组合 = 一个分组（国家/城市/端口 交集），取前 Limit 条。
+func expandTaskRules(task Task) ([]Group, error) {
+	var groups []Group
+	seen := make(map[string]bool)
+	for _, rule := range task.Rules {
+		combos := expandCombinations(rule.Conditions)
+		if len(combos) == 0 {
+			combos = []map[string]string{{}}
+		}
+		for _, combo := range combos {
+			g := Group{
+				Name:          rule.Name,
+				CountryCode:   strings.ToUpper(strings.TrimSpace(combo["country"])),
+				LatencyMinMs:  rule.LatencyMin,
+				MaxLatencyMs:  rule.LatencyMax,
+				MinSpeedKBs:   rule.SpeedMin,
+				MaxSpeedKBs:   rule.SpeedMax,
+				RequireSpeed:  task.SpeedEnabled && (rule.SpeedMin > 0 || rule.SpeedMax > 0),
+				Count:         rule.Limit,
+			}
+			if city := strings.TrimSpace(combo["city"]); city != "" {
+				g.Cities = []string{city}
+			}
+			if port := strings.TrimSpace(combo["port"]); port != "" {
+				p, perr := strconv.Atoi(port)
+				if perr != nil || p < 1 || p > 65535 {
+					return nil, fmt.Errorf("任务 %q 规则 %s 端口非法: %s", task.Name, rule.Name, port)
+				}
+				g.Ports = []int{p}
+			}
+			if len(combos) > 1 {
+				g.Name = fmt.Sprintf("%s-%d", rule.Name, len(groups)+1)
+			}
+			key := fmt.Sprintf("%s|%v|%v|%d|%d|%v|%v|%d", g.CountryCode, g.Cities, g.Ports, g.LatencyMinMs, g.MaxLatencyMs, g.MinSpeedKBs, g.MaxSpeedKBs, g.Count)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			groups = append(groups, g)
+		}
+	}
+	return groups, nil
+}
+
+// expandCombinations 计算条件字段取值集合的笛卡尔积；空值条件 = 不限，不参与组合。
+func expandCombinations(conds []Condition) []map[string]string {
+	combos := []map[string]string{{}}
+	for _, c := range conds {
+		if len(c.Values) == 0 {
+			continue
+		}
+		var next []map[string]string
+		for _, combo := range combos {
+			for _, v := range c.Values {
+				cp := make(map[string]string, len(combo)+1)
+				for k, vv := range combo {
+					cp[k] = vv
+				}
+				cp[c.Field] = v
+				next = append(next, cp)
+			}
+		}
+		combos = next
+	}
+	return combos
+}
 // freshForGroup 从本次延迟通过的条目中，按分组实测约束筛选并排序。
 func freshForGroup(fresh map[string]library.Entry, g Group) []library.Entry {
 	pool := make([]library.Entry, 0)
 	for _, e := range fresh {
 		if !g.CountryMatches(e.CountryCode) || !g.LatencyOK(e.TCPLatencyMs) {
+			continue
+		}
+		if len(g.Cities) > 0 && !containsFold(g.Cities, e.CityZh) {
 			continue
 		}
 		if len(g.Ports) > 0 && !containsInt(g.Ports, e.Port) {
@@ -465,7 +593,7 @@ func applyResult(e library.Entry, res engine.Result, now time.Time) (library.Ent
 // importInputFile 读取原订阅文件（相对库目录），解析出 IP 并导入 IP 库（状态 new）。
 // 解析复用 engine.ParseTargetsWithCIDR：支持 ip:port、ip:port#备注、CIDR 展开等现有输入逻辑。
 func importInputFile(lib *library.Store, rel string, now time.Time) (int, int, error) {
-	abs, err := resolveInDir(lib.Dir(), rel)
+	abs, err := resolveInDir(lib.BaseDir(), rel)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -503,21 +631,24 @@ func resolveInDir(dir, rel string) (string, error) {
 }
 
 // WriteOutput 将订阅结果按格式渲染并原子写入 dataDir 下的输出文件。
-func WriteOutput(dataDir string, sub Subscription, entries []library.Entry) (string, error) {
-	if err := sub.Validate(); err != nil {
-		return "", err
+func WriteOutput(dataDir string, out Output, entries []library.Entry) (string, error) {
+	if strings.TrimSpace(out.Path) == "" {
+		return "", fmt.Errorf("输出路径为空")
 	}
-	path := filepath.Join(dataDir, filepath.FromSlash(sub.Output.Path))
+	if out.Format == "" {
+		out.Format = "txt"
+	}
+	path := filepath.Join(dataDir, filepath.FromSlash(out.Path))
 	if dir := filepath.Dir(path); dir != "" {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return "", err
 		}
 	}
 	var lines []string
-	if sub.Output.Format == "csv" {
+	if out.Format == "csv" {
 		lines = RenderCSV(entries)
 	} else {
-		lines = RenderTXT(sub.Output.Template, entries)
+		lines = RenderTXT(out.Template, entries)
 	}
 	body := []byte(strings.Join(lines, "\n"))
 	if len(body) > 0 {

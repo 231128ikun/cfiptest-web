@@ -202,27 +202,33 @@ scripts/                前端模块的 Node 校验脚本（状态、表格、�
 > 公开发布前必须核对并保留上述上游项目的许可证与署名要求；在完成核对前，
 > 本仓库不应自行声明一个可能与上游不兼容的许可证。
 
-## 自动化维护（IP 库 → 订阅器）
+## 自动化维护（任务 → IP 库 → 运行记录）
 
-除手动三步检测外，程序内置一套“维护订阅器”的自动化流水线：**库 → 现测 → 清理 → 补足 → 输出**。
+应用按生产工具结构组织为五个页签（左侧导航）：**测速工作台 / 自动维护 / IP 库 / 运行记录 / 设置**。
 
-- **IP 库**：`data/ipdb.jsonl`，纯后台存储（无需手动管理）。检测结果页（第 3 步）的「导入当前展示 / 导入勾选到 IP 库」把 IP 连同国家、延迟、速度等元数据一键入库；维护运行也会自动回写。
-- **现测现更**：每次运行从库中取候选实时检测——延迟失败的 IP 直接从库中移除；测速失败**不判死**（测速链路本身不稳定），仅标记速度无效保留待下次验证；检测结果与库不一致（国家/延迟/ASN 变化）会整体回写更新。
-- **订阅器**：`data/subscriptions.json` 可定义多个订阅器（页面表单编辑）。每个订阅器含：输入订阅文件（`out/原订阅.txt`，可选，维护时自动解析 `ip:port#备注` 导入 IP 库）、若干分组（国家 / 端口 / 最大延迟 / 最低速度 / 需测速 / 配额 count）、输出（路径 / txt|csv / 模板，模板下拉与导出页共用内置模板与「我的模板」）。
-- **配额补足**：按分组从库中取候选检测，直到满足配额或候选耗尽；不足部分在运行报告中提示导入更多该地区 IP，宁缺毋滥。
-- **输出**：按模板生成订阅文件；未填输出文件时直接**覆盖更新原订阅文件**。模板占位符：`{ip} {port} {country} {emoji} {city} {latency} {speed} {dc} {asn} {asnOrg}`。
+- **测速工作台**：三步流水线（准备候选 → 检测规则 → 检测及结果）。第 1 步可「从本地库导入」候选；结果页可「导入当前展示 / 导入勾选」到指定 IP 库。
+- **IP 库**（`data/ipdb/`）：支持多个命名库（新建 / 改名 / 删除 / 清空），库内容表格支持搜索筛选、粘贴导入、移除勾选。首次启动自动把旧版 `data/ipdb.jsonl` 迁移为「默认库」。
+- **自动维护**（`data/tasks.json`）：任务卡片（Master-Detail）。每个任务绑定一个 IP 库，可设：输入订阅文件（自动解析 `ip:port#备注` 导入库）、输出文件与模板（复用导出页内置/我的模板）、总数限制、测速总开关，以及多条规则。
+  - 规则：多字段（国家/城市/端口），字段内多值=或、多字段=交集（笛卡尔积），每个组合取前 N 条；延迟范围；速度范围（测速开关开启后可用）。
+  - 每个任务有独立「启用」开关；顶部「一键维护」依次执行所有已启用任务。
+- **运行记录**（`data/runs.jsonl`）：每次维护运行的摘要（输出行数、移除失效、缺口等），可展开查看明细，可追溯。
 
-使用：打开页面顶部「自动化维护」页签 → 新建订阅器（填输入文件 / 分组规则 / 选模板）→ 保存 → 点「运行」。也支持外部触发（HTTP API）。
+维护流程：**库（现测现更）→ 检测：延迟失败移除、测速失败保留、结果回写 → 按规则补足配额 → 模板输出（未设输出文件时直接覆盖更新输入文件）**。
 
 自动化 API：
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET/PUT | `/api/auto/subs` | 读取 / 全量保存订阅器定义 |
-| POST | `/api/auto/subs/validate` | 校验单个订阅器定义 |
-| GET | `/api/auto/library` | 查询 IP 库（`status` / `country` / `q` / `offset` / `limit`） |
-| POST | `/api/auto/library/import` | 导入 IP 到库（`targets` 或 `text` + `source`） |
-| POST | `/api/auto/library/remove` | 按 `keys`（ip\|port）移除条目 |
-| POST | `/api/auto/library/clear` | 清空 IP 库（需 `confirm:true`） |
-| POST | `/api/auto/run` | 启动一次维护运行（`subscriptionName`），进度走 SSE `auto` 事件 |
-| GET | `/api/auto/output` | 下载订阅输出文件（`path` 相对 data 目录） |
+| GET/PUT | `/api/auto/tasks` | 读取 / 全量保存维护任务 |
+| POST | `/api/auto/tasks/validate` | 校验单个任务 |
+| GET | `/api/auto/libraries` | IP 库列表（含统计） |
+| POST | `/api/auto/libraries` | 新建 IP 库（`name`） |
+| POST | `/api/auto/libraries/rename` | 改名（`id`,`name`） |
+| POST | `/api/auto/libraries/delete` | 删除库（默认库不可删） |
+| POST | `/api/auto/libraries/clear` | 清空库（需 `confirm:true`） |
+| GET | `/api/auto/library?lib=` | 库内容（`status`/`country`/`q`/分页） |
+| POST | `/api/auto/library/import` | 导入（`lib` + `targets`/`text`/`results`） |
+| POST | `/api/auto/library/remove` | 按 `keys` 移除条目 |
+| POST | `/api/auto/run` | 运行任务（`taskId`），进度走 SSE `auto` 事件 |
+| GET | `/api/auto/runs` | 运行历史（最新在前） |
+| GET | `/api/auto/output?path=` | 下载输出文件 |

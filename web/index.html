@@ -21,16 +21,25 @@
         </div>
     </header>
 
-    <nav class="flow-nav" aria-label="处理流程">
-        <div class="flow-nav-inner">
-            <a href="#stage-input" class="flow-step active"><span>1</span>准备候选</a>
-            <a href="#stage-test" class="flow-step"><span>2</span>检测规则</a>
-            <a href="#stage-results" class="flow-step"><span>3</span>检测及结果</a>
-            <a href="#stage-auto" class="flow-step auto-step"><span>A</span>自动化维护</a>
-        </div>
-    </nav>
-
-    <main class="pipeline">
+    <div class="app-shell">
+    <aside class="sidebar">
+        <nav class="sidebar-nav" aria-label="主导航">
+            <a href="#page-workspace" class="side-item active" data-page="workspace"><span class="side-icon">◎</span>测速工作台</a>
+            <a href="#page-tasks" class="side-item" data-page="tasks"><span class="side-icon">♻</span>自动维护</a>
+            <a href="#page-library" class="side-item" data-page="library"><span class="side-icon">▤</span>IP 库</a>
+            <a href="#page-runs" class="side-item" data-page="runs"><span class="side-icon">◷</span>运行记录</a>
+            <a href="#page-settings" class="side-item" data-page="settings"><span class="side-icon">⚙</span>设置</a>
+        </nav>
+    </aside>
+    <main class="content">
+        <section id="page-workspace" class="page active">
+            <nav class="flow-nav" aria-label="处理流程">
+                <div class="flow-nav-inner">
+                    <a href="#stage-input" class="flow-step active"><span>1</span>准备候选</a>
+                    <a href="#stage-test" class="flow-step"><span>2</span>检测规则</a>
+                    <a href="#stage-results" class="flow-step"><span>3</span>检测及结果</a>
+                </div>
+            </nav>
         <section id="stage-input" class="flow-section">
             <div class="section-heading">
                 <div><span class="eyebrow">STEP 1</span><h2>准备待检测候选</h2></div>
@@ -46,7 +55,9 @@
                 <div class="source-toolbar compact-toolbar">
                     <label class="file-btn">导入 TXT / CSV<input type="file" id="file-input" accept=".txt,.csv,.text" hidden></label>
                     <input type="text" id="remote-url" placeholder="远程 TXT / CSV 链接">
-                    <button id="btn-import-remote">加载</button>
+                    <button id="btn-import-remote">加载</button>    <select id="lib-candidates-select" aria-label="从本地库导入候选" title="把本地 IP 库的内容导入候选区">
+        <option value="">从本地库导入…</option>
+    </select>
                 </div>
                 <div class="input-candidate-grid">
                     <div class="input-pane">
@@ -152,65 +163,7 @@
                 </div>
             </div>
 
-            <details class="advanced-settings">
-                <summary>其他检测规则与本地配置</summary>
-                <div class="advanced-config-grid">
-                    <label class="checkbox"><input type="checkbox" id="lat-ipapi"> 检测 IPS 类型</label>
-                    <label>IPS 检测地址 <input type="text" id="advanced-ips-url" placeholder="使用 {ip} 表示被测 IP"></label>
-                    <label>测速地址 <input type="text" id="advanced-speed-url"></label>
-                    <label>Trace 地址 <input type="text" id="advanced-trace-url"></label>
-                    <label>地理位置数据源 <textarea id="advanced-location-sources" rows="3" placeholder="每行一个地址"></textarea></label>
-                    <label>ASN 数据源 <textarea id="advanced-asn-sources" rows="3" placeholder="每行一个地址"></textarea></label>
-                    <label>官方 IP 段源 <textarea id="advanced-official-sources" rows="2" placeholder="每行一个地址"></textarea></label>
-                    <div class="advanced-group">
-                        <div class="advanced-group-title">结果颜色阈值</div>
-                        <div class="threshold-grid">
-                            <div class="threshold-card latency-thresholds">
-                                <div class="threshold-card-head"><strong>延迟</strong><span>数值越低越好</span></div>
-                                <div class="threshold-range-list">
-                                    <label class="threshold-range range-fast">
-                                        <span class="threshold-label"><i class="threshold-swatch fast"></i>绿色</span>
-                                        <span class="threshold-expression">延迟 &lt;</span>
-                                        <span class="threshold-end"><input type="number" id="badge-latency-green-end" min="1" step="1" placeholder="200" aria-label="绿色延迟区间右端值"><em>ms</em></span>
-                                    </label>
-                                    <label class="threshold-range range-mid">
-                                        <span class="threshold-label"><i class="threshold-swatch mid"></i>黄色</span>
-                                        <span class="threshold-expression"><span id="badge-latency-yellow-start">200 ms</span> ≤ 延迟 ≤</span>
-                                        <span class="threshold-end"><input type="number" id="badge-latency-yellow-end" min="2" step="1" placeholder="1000" aria-label="黄色延迟区间右端值"><em>ms</em></span>
-                                    </label>
-                                    <div class="threshold-range range-slow">
-                                        <span class="threshold-label"><i class="threshold-swatch slow"></i>红色</span>
-                                        <span class="threshold-expression">延迟 &gt;</span>
-                                        <span class="threshold-derived" id="badge-latency-red-range">1000 ms</span>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="threshold-card speed-thresholds">
-                                <div class="threshold-card-head"><strong>下载速度</strong><span>数值越高越好</span></div>
-                                <div class="threshold-range-list">
-                                    <label class="threshold-range range-slow">
-                                        <span class="threshold-label"><i class="threshold-swatch slow"></i>红色</span>
-                                        <span class="threshold-expression">0 &lt; 速度 &lt;</span>
-                                        <span class="threshold-end"><input type="number" id="badge-speed-red-end" min="1" step="1" placeholder="100" aria-label="红色速度区间右端值"><em>kB/s</em></span>
-                                    </label>
-                                    <label class="threshold-range range-mid">
-                                        <span class="threshold-label"><i class="threshold-swatch mid"></i>黄色</span>
-                                        <span class="threshold-expression"><span id="badge-speed-yellow-start">100 kB/s</span> ≤ 速度 &lt;</span>
-                                        <span class="threshold-end"><input type="number" id="badge-speed-yellow-end" min="2" step="1" placeholder="1000" aria-label="黄色速度区间右端值"><em>kB/s</em></span>
-                                    </label>
-                                    <div class="threshold-range range-fast">
-                                        <span class="threshold-label"><i class="threshold-swatch fast"></i>绿色</span>
-                                        <span class="threshold-expression">速度 ≥</span>
-                                        <span class="threshold-derived" id="badge-speed-green-range">1000 kB/s</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="threshold-note">输入框编辑所在区间的右端值，其余区间会自动衔接；未测速显示灰色。</div>
-                    </div>
-                </div>
-                <div class="settings-actions"><button id="btn-save-settings" class="primary">保存到本地</button><span id="settings-status" class="hint">保存在 data/config.json 与 data/settings.json</span></div>
-            </details>
+            
             </details>
 
         </section>
@@ -269,8 +222,9 @@
                 <button id="btn-speed-filtered">对当前展示结果测速</button>
                 <button id="btn-start-speed" disabled>对勾选结果测速</button>
                 <span class="result-actions-divider" aria-hidden="true"></span>
-                <button id="btn-import-filtered">导入当前展示到 IP 库</button>
-                <button id="btn-import-selected" disabled>导入勾选到 IP 库</button>
+                <select id="lib-target-select" aria-label="导入目标 IP 库" title="选择导入到哪个 IP 库"><option value="">导入到：默认库</option></select>
+                <button id="btn-import-filtered">导入当前展示</button>
+                <button id="btn-import-selected" disabled>导入勾选</button>
             </div>
             <div id="result-table-container"></div>
 
@@ -340,62 +294,198 @@
                 </div>
             </div>
         </section>
-        <section id="stage-auto" class="flow-section auto-section">
-            <div class="section-heading">
-                <div><span class="eyebrow">AUTO</span><h2>自动化维护：订阅器</h2></div>
-                <div class="section-metric"><strong id="auto-lib-total">库 0 条</strong><span>检测结果页可一键导入 IP 库；维护自动现测、清理失效、配额补足</span></div>
+        
+            </section>
+
+        <section id="page-tasks" class="page">
+            <div class="page-head">
+                <div>
+                    <h2>自动维护</h2>
+                    <p class="page-desc">给任务设定规则与配额，开启的任务会被「一键维护」依次执行；点击左侧任务可展开编辑。</p>
+                </div>
+                <div class="page-actions">
+                    <button type="button" id="btn-run-all" class="primary">一键维护</button>
+                    <button type="button" id="btn-task-new" class="secondary-button">+ 新建任务</button>
+                </div>
             </div>
-
-            <details class="auto-block" open>
-                <summary>订阅器定义 <span class="hint">导入订阅器.txt → 设定分组规则 → 保存 → 运行维护更新原文件</span></summary>
-                <div class="auto-toolbar">
-                    <select id="auto-sub-select" aria-label="选择订阅器"></select>
-                    <button type="button" id="btn-auto-sub-new">新建</button>
-                    <button type="button" id="btn-auto-sub-delete" class="small danger" disabled>删除</button>
-                    <button type="button" id="btn-auto-save" class="primary">保存订阅器</button>
-                    <span id="auto-subs-status" class="hint" aria-live="polite"></span>
-                </div>
-                <div class="auto-form-grid">
-                    <label>订阅器名称<input type="text" id="auto-sub-name" placeholder="如：我的订阅"></label>
-                    <label>输入订阅文件<input type="text" id="auto-sub-input" placeholder="out/原订阅.txt（相对 data，可选）"></label>
-                    <label>输出文件<input type="text" id="auto-sub-output" placeholder="留空 = 直接更新输入文件"></label>
-                    <label>输出格式<select id="auto-sub-format"><option value="txt">txt</option><option value="csv">csv</option></select></label>
-                    <label class="auto-form-wide">输出模板
-                        <span class="auto-template-row">
-                            <select id="auto-tpl-select" aria-label="选择模板"></select>
-                            <input type="text" id="auto-tpl-custom" placeholder="{ip}:{port}#{emoji}{country}">
-                            <button type="button" id="btn-auto-tpl-save" class="small" title="保存为我的模板（与导出页共用）">存为模板</button>
-                        </span>
-                    </label>
-                    <label class="checkbox auto-form-wide"><input type="checkbox" id="auto-sub-speed"> 需要测速（满足最低速度才入订阅）</label>
-                </div>
-                <div class="auto-groups">
-                    <div class="pane-head"><span>分组规则（每个分组按约束保留 count 条）</span><button type="button" id="btn-auto-group-add" class="small">添加分组</button></div>
-                    <div class="auto-group-head">
-                        <span>名称</span><span>国家码</span><span>端口</span><span>最大延迟 ms</span><span>最低速度 kB/s</span><span>测速</span><span>数量</span><span></span>
+            <div class="task-layout">
+                <div class="task-list" id="task-list"></div>
+                <div class="task-detail" id="task-detail">
+                    <div class="task-detail-empty" id="task-detail-empty">← 选择或新建一个任务</div>
+                    <div id="task-form" hidden>
+                        <div class="task-form-row">
+                            <label>任务名称<input type="text" id="task-name" placeholder="如：日本专线"></label>
+                            <label class="checkbox"><input type="checkbox" id="task-enabled" checked> 启用维护</label>
+                        </div>
+                        <div class="task-form-row">
+                            <label>使用 IP 库<select id="task-library"></select></label>
+                            <label>输入文件<input type="text" id="task-input" placeholder="out/原订阅.txt（相对 data，可选）"></label>
+                        </div>
+                        <div class="task-form-row">
+                            <label>输出文件<input type="text" id="task-output" placeholder="留空 = 更新输入文件"></label>
+                            <label>输出格式<select id="task-format"><option value="txt">txt</option><option value="csv">csv</option></select></label>
+                            <label>总数限制<input type="number" id="task-limit" min="0" placeholder="0 = 不限"> 条</label>
+                            <label class="checkbox"><input type="checkbox" id="task-speed" title="开启后各规则可选择速度范围"> 开启测速</label>
+                        </div>
+                        <div class="task-form-row">
+                            <label class="task-template-label">输出模板
+                                <span class="auto-template-row">
+                                    <select id="task-tpl-select" aria-label="选择模板"></select>
+                                    <input type="text" id="task-tpl-custom" placeholder="{ip}:{port}#{emoji}{country}">
+                                    <button type="button" id="task-tpl-save" class="small" title="保存为我的模板（与导出页共用）">存为模板</button>
+                                </span>
+                            </label>
+                        </div>
+                        <div class="task-rules-head">
+                            <span>规则（条件多值=或，多字段=交集；每个组合取前 N 条）</span>
+                            <button type="button" id="task-rule-add" class="small">+ 添加规则</button>
+                        </div>
+                        <div id="task-rules"></div>
+                        <div class="task-form-actions">
+                            <button type="button" id="task-save" class="primary">保存任务</button>
+                            <button type="button" id="task-run" class="secondary-button">运行此任务</button>
+                            <button type="button" id="task-delete" class="danger">删除任务</button>
+                            <span id="task-form-status" class="hint" aria-live="polite"></span>
+                        </div>
                     </div>
-                    <div id="auto-groups-rows"></div>
                 </div>
-                <div class="auto-hint">
-                    国家码填 ISO 二字母（如 US/JP/SG，空=不限）；端口逗号分隔（空=不限）；「输入订阅文件」的 <code>ip:port#备注</code> 由系统解析导入 IP 库（复用检测页导入逻辑），备注本身忽略、国家以实测为准。
-                    模板占位符：<code>{ip} {port} {country} {emoji} {city} {latency} {speed} {dc} {asn} {asnOrg}</code>。
-                </div>
-            </details>
+            </div>
+            <div class="task-log-block">
+                <div class="page-subhead" style="display:flex;align-items:center;gap:10px">运行日志 <span id="task-log-status" class="hint"></span><button type="button" id="btn-task-stop" class="small danger" disabled>停止</button></div>
+                <div id="task-log" class="auto-log" aria-live="polite"></div>
+                <div id="task-report" class="auto-report" hidden></div>
+            </div>
+        </section>
 
-            <details class="auto-block" open>
-                <summary>运行维护 <span class="hint">从 IP 库取候选现测：延迟失败移除、测速失败保留、结果回写，直到配额满足或候选耗尽</span></summary>
-                <div class="auto-toolbar">
-                    <select id="auto-run-select" aria-label="选择订阅器"></select>
-                    <button type="button" id="btn-auto-run" class="primary">运行</button>
-                    <button type="button" id="btn-auto-stop" class="danger" disabled>停止</button>
-                    <a id="auto-output-link" class="small" hidden>下载订阅文件</a>
-                    <span id="auto-run-status" class="hint" aria-live="polite"></span>
+        <section id="page-library" class="page">
+            <div class="page-head">
+                <div>
+                    <h2>IP 库</h2>
+                    <p class="page-desc">多个命名 IP 库；检测结果页可一键导入，维护任务按需现测。库内条目会随检测自动更新。</p>
                 </div>
-                <div id="auto-log" class="auto-log" aria-live="polite"></div>
-                <div id="auto-report" class="auto-report" hidden></div>
+                <div class="page-actions">
+                    <button type="button" id="lib-new" class="secondary-button">+ 新建库</button>
+                </div>
+            </div>
+            <div class="lib-layout">
+                <div class="lib-side">
+                    <div class="page-subhead">库列表</div>
+                    <div id="lib-list"></div>
+                </div>
+                <div class="lib-main">
+                    <div class="lib-toolbar">
+                        <input type="text" id="lib-q" placeholder="搜索 IP / 国家 / 城市 / 数据中心 / ASN">
+                        <select id="lib-status" aria-label="按状态筛选">
+                            <option value="">全部状态</option>
+                            <option value="active">有效</option>
+                            <option value="new">未测</option>
+                        </select>
+                        <select id="lib-country" aria-label="按国家筛选"><option value="">全部国家</option></select>
+                        <input type="text" id="lib-import-text" placeholder="粘贴 ip:port 或 ip:port#备注，每行一个">
+                        <button type="button" id="lib-import" class="primary">导入到库</button>
+                        <button type="button" id="lib-remove-selected" class="small danger">移除勾选</button>
+                        <button type="button" id="lib-clear" class="small danger">清空库</button>
+                        <button type="button" id="lib-rename" class="small">改名</button>
+                        <button type="button" id="lib-delete" class="small danger">删除库</button>
+                    </div>
+                    <div id="lib-stats" class="lib-stats"></div>
+                    <div class="lib-table-wrap">
+                        <table class="results">
+                            <thead>
+                                <tr>
+                                    <th class="no-sort"><input type="checkbox" id="lib-checkall" aria-label="全选"></th>
+                                    <th>IP</th><th>端口</th><th>国家</th><th>城市</th><th>延迟</th><th>速度</th><th>状态</th><th>来源</th><th>上次检测</th>
+                                </tr>
+                            </thead>
+                            <tbody id="lib-tbody"></tbody>
+                        </table>
+                    </div>
+                    <div id="lib-count" class="hint"></div>
+                </div>
+            </div>
+        </section>
+
+        <section id="page-runs" class="page">
+            <div class="page-head">
+                <div>
+                    <h2>运行记录</h2>
+                    <p class="page-desc">每次维护运行的摘要与结果，最新在前；数据保存在 data/runs.jsonl。</p>
+                </div>
+                <div class="page-actions">
+                    <button type="button" id="runs-refresh" class="secondary-button">刷新</button>
+                </div>
+            </div>
+            <div class="runs-list" id="runs-list"></div>
+        </section>
+
+        <section id="page-settings" class="page">
+            <div class="page-head">
+                <div>
+                    <h2>设置</h2>
+                    <p class="page-desc">全局默认检测参数与本地数据源配置，保存到 data/config.json 与 data/settings.json。</p>
+                </div>
+            </div><details class="advanced-settings">
+                <summary>其他检测规则与本地配置</summary>
+                <div class="advanced-config-grid">
+                    <label class="checkbox"><input type="checkbox" id="lat-ipapi"> 检测 IPS 类型</label>
+                    <label>IPS 检测地址 <input type="text" id="advanced-ips-url" placeholder="使用 {ip} 表示被测 IP"></label>
+                    <label>测速地址 <input type="text" id="advanced-speed-url"></label>
+                    <label>Trace 地址 <input type="text" id="advanced-trace-url"></label>
+                    <label>地理位置数据源 <textarea id="advanced-location-sources" rows="3" placeholder="每行一个地址"></textarea></label>
+                    <label>ASN 数据源 <textarea id="advanced-asn-sources" rows="3" placeholder="每行一个地址"></textarea></label>
+                    <label>官方 IP 段源 <textarea id="advanced-official-sources" rows="2" placeholder="每行一个地址"></textarea></label>
+                    <div class="advanced-group">
+                        <div class="advanced-group-title">结果颜色阈值</div>
+                        <div class="threshold-grid">
+                            <div class="threshold-card latency-thresholds">
+                                <div class="threshold-card-head"><strong>延迟</strong><span>数值越低越好</span></div>
+                                <div class="threshold-range-list">
+                                    <label class="threshold-range range-fast">
+                                        <span class="threshold-label"><i class="threshold-swatch fast"></i>绿色</span>
+                                        <span class="threshold-expression">延迟 &lt;</span>
+                                        <span class="threshold-end"><input type="number" id="badge-latency-green-end" min="1" step="1" placeholder="200" aria-label="绿色延迟区间右端值"><em>ms</em></span>
+                                    </label>
+                                    <label class="threshold-range range-mid">
+                                        <span class="threshold-label"><i class="threshold-swatch mid"></i>黄色</span>
+                                        <span class="threshold-expression"><span id="badge-latency-yellow-start">200 ms</span> ≤ 延迟 ≤</span>
+                                        <span class="threshold-end"><input type="number" id="badge-latency-yellow-end" min="2" step="1" placeholder="1000" aria-label="黄色延迟区间右端值"><em>ms</em></span>
+                                    </label>
+                                    <div class="threshold-range range-slow">
+                                        <span class="threshold-label"><i class="threshold-swatch slow"></i>红色</span>
+                                        <span class="threshold-expression">延迟 &gt;</span>
+                                        <span class="threshold-derived" id="badge-latency-red-range">1000 ms</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="threshold-card speed-thresholds">
+                                <div class="threshold-card-head"><strong>下载速度</strong><span>数值越高越好</span></div>
+                                <div class="threshold-range-list">
+                                    <label class="threshold-range range-slow">
+                                        <span class="threshold-label"><i class="threshold-swatch slow"></i>红色</span>
+                                        <span class="threshold-expression">0 &lt; 速度 &lt;</span>
+                                        <span class="threshold-end"><input type="number" id="badge-speed-red-end" min="1" step="1" placeholder="100" aria-label="红色速度区间右端值"><em>kB/s</em></span>
+                                    </label>
+                                    <label class="threshold-range range-mid">
+                                        <span class="threshold-label"><i class="threshold-swatch mid"></i>黄色</span>
+                                        <span class="threshold-expression"><span id="badge-speed-yellow-start">100 kB/s</span> ≤ 速度 &lt;</span>
+                                        <span class="threshold-end"><input type="number" id="badge-speed-yellow-end" min="2" step="1" placeholder="1000" aria-label="黄色速度区间右端值"><em>kB/s</em></span>
+                                    </label>
+                                    <div class="threshold-range range-fast">
+                                        <span class="threshold-label"><i class="threshold-swatch fast"></i>绿色</span>
+                                        <span class="threshold-expression">速度 ≥</span>
+                                        <span class="threshold-derived" id="badge-speed-green-range">1000 kB/s</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="threshold-note">输入框编辑所在区间的右端值，其余区间会自动衔接；未测速显示灰色。</div>
+                    </div>
+                </div>
+                <div class="settings-actions"><button id="btn-save-settings" class="primary">保存到本地</button><span id="settings-status" class="hint">保存在 data/config.json 与 data/settings.json</span></div>
             </details>
         </section>
     </main>
+</div></main>
 
     <div id="toast" role="status" aria-live="polite"></div>
     <script type="module" src="js/app.js"></script>

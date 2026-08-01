@@ -18,17 +18,20 @@ const FileName = "ipdb.jsonl"
 // Store 是一个内存映射 + JSONL 落盘的 IP 库。
 // 个人量级（几万条以内）全量读入内存与整体重写都足够快，故不做增量写。
 type Store struct {
-	path string
-	mu   sync.RWMutex
-	by   map[string]*Entry
+	path    string // JSONL 文件完整路径
+	baseDir string // 应用数据目录（输出订阅文件等相对该目录）
+	mu      sync.RWMutex
+	by      map[string]*Entry
 }
 
-// Open 加载 dataDir/ipdb.jsonl；文件不存在时返回空库（不报错）。
+// Open 加载指定路径的 JSONL 库；文件不存在时返回空库（不报错）。
 // 损坏的行会被跳过并计数，避免单行错误导致整个库不可用。
-func Open(dataDir string) (*Store, error) {
+// 库文件所在目录同时作为 baseDir（输出文件默认相对它）。
+func Open(path string) (*Store, error) {
 	s := &Store{
-		path: filepath.Join(dataDir, FileName),
-		by:   make(map[string]*Entry),
+		path:    path,
+		baseDir: filepath.Dir(path),
+		by:      make(map[string]*Entry),
 	}
 	body, err := os.ReadFile(s.path)
 	if err != nil {
@@ -68,8 +71,11 @@ func Open(dataDir string) (*Store, error) {
 // Path 返回库文件完整路径。
 func (s *Store) Path() string { return s.path }
 
-// Dir 返回库所在目录。
+// Dir 返回库文件所在目录（兼容旧调用）。
 func (s *Store) Dir() string { return filepath.Dir(s.path) }
+
+// BaseDir 返回应用数据目录（输出订阅文件等相对它）。
+func (s *Store) BaseDir() string { return s.baseDir }
 
 // Len 返回条目总数。
 func (s *Store) Len() int {

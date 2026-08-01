@@ -59,14 +59,21 @@ export function importText(text, { sampleMode = 'one', sampleN = 1 } = {}) {
     return postJSON('/api/import/text', { text, sampleMode, sampleN });
 }
 
-// ---- 自动化（IP 库 / 订阅器 / 运行维护） ----
+// ---- 自动化（维护任务 / IP 库 / 运行历史） ----
 
-export function fetchAutoSubs() { return postJSON('/api/auto/subs', {}, 'GET'); }
-export function saveAutoSubs(subscriptions) { return postJSON('/api/auto/subs', { subscriptions }, 'PUT'); }
-export function validateAutoSub(subscription) { return postJSON('/api/auto/subs/validate', subscription); }
+export function fetchTasks() { return postJSON('/api/auto/tasks', {}, 'GET'); }
+export function saveTasks(tasks) { return postJSON('/api/auto/tasks', { tasks }, 'PUT'); }
+export function validateTask(task) { return postJSON('/api/auto/tasks/validate', task); }
+
+export function fetchLibraries() { return postJSON('/api/auto/libraries', {}, 'GET'); }
+export function createLibrary(name) { return postJSON('/api/auto/libraries', { name }); }
+export function renameLibrary(id, name) { return postJSON('/api/auto/libraries/rename', { id, name }); }
+export function deleteLibrary(id) { return postJSON('/api/auto/libraries/delete', { id }); }
+export function clearLibrary(id) { return postJSON('/api/auto/libraries/clear', { id, confirm: true }); }
 
 export function fetchAutoLibrary(params = {}) {
     const query = new URLSearchParams();
+    if (params.lib) query.set('lib', params.lib);
     if (params.status) query.set('status', params.status);
     if (params.country) query.set('country', params.country);
     if (params.q) query.set('q', params.q);
@@ -76,13 +83,13 @@ export function fetchAutoLibrary(params = {}) {
     return postJSON(`/api/auto/library${qs}`, {}, 'GET');
 }
 
-export function importAutoLibrary({ targets, text, source, results }) {
-    return postJSON('/api/auto/library/import', { targets, text, source, results });
+export function importAutoLibrary({ lib, targets, text, source, results }) {
+    return postJSON('/api/auto/library/import', { lib, targets, text, source, results });
 }
-export function removeAutoLibrary(keys) { return postJSON('/api/auto/library/remove', { keys }); }
-export function clearAutoLibrary() { return postJSON('/api/auto/library/clear', { confirm: true }); }
+export function removeAutoLibrary(lib, keys) { return postJSON('/api/auto/library/remove', { lib, keys }); }
 
-export function runAuto(subscriptionName) { return postJSON('/api/auto/run', { subscriptionName }); }
+export function runAuto(taskId) { return postJSON('/api/auto/run', { taskId }); }
+export function fetchRuns(limit = 200) { return postJSON(`/api/auto/runs?limit=${limit}`, {}, 'GET'); }
 
 /** 下载订阅输出文件（path 相对 data 目录） */
 export function autoOutputUrl(path) {

@@ -11,17 +11,20 @@ import (
 	"strings"
 )
 
-// Group 是订阅器中的一个分组约束：满足该约束的 IP 保留 Count 条。
-// 字段复用现有检测规则：国家（二字母码）、端口、最大延迟、最低速度。
+// Group 是编排器内部的一个分组约束：满足该约束的 IP 保留 Count 条。
+// 由任务规则（TaskRule）展开得到；字段与前端规则编辑器一一对应。
 type Group struct {
-	Name         string  `json:"name"`                   // 分组名（如 "美国"）
-	CountryCode  string  `json:"countryCode,omitempty"`  // ISO 3166-1 alpha-2；空 = 不限国家
-	Country      string  `json:"country,omitempty"`      // 展示用中文名
-	Ports        []int   `json:"ports,omitempty"`        // 空 = 不限端口
-	MaxLatencyMs int64   `json:"maxLatencyMs,omitempty"` // 0 = 不限
-	MinSpeedKBs  float64 `json:"minSpeedKBs,omitempty"`  // 0 = 不限
-	RequireSpeed bool    `json:"requireSpeed,omitempty"` // 需要有效测速结果（配合 EnableSpeed）
-	Count        int     `json:"count"`                  // 配额
+	Name          string   `json:"name"`                   // 分组名（如 "美国"）
+	CountryCode   string   `json:"countryCode,omitempty"`  // ISO 3166-1 alpha-2；空 = 不限国家
+	Country       string   `json:"country,omitempty"`      // 展示用中文名
+	Cities        []string `json:"cities,omitempty"`       // 城市（中文名），空 = 不限
+	Ports         []int    `json:"ports,omitempty"`        // 空 = 不限端口
+	LatencyMinMs  int64    `json:"latencyMinMs,omitempty"` // 0 = 不限
+	MaxLatencyMs  int64    `json:"maxLatencyMs,omitempty"` // 0 = 不限
+	MinSpeedKBs   float64  `json:"minSpeedKBs,omitempty"`  // 0 = 不限
+	MaxSpeedKBs   float64  `json:"maxSpeedKBs,omitempty"`  // 0 = 不限
+	RequireSpeed  bool     `json:"requireSpeed,omitempty"` // 需要有效测速结果（配合 EnableSpeed）
+	Count         int      `json:"count"`                  // 配额
 }
 
 // Output 描述订阅文件的输出方式。

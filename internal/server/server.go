@@ -12,6 +12,7 @@ import (
 
 	"iptest-web/internal/config"
 	"iptest-web/internal/engine"
+	"iptest-web/internal/library"
 )
 
 // Server 是应用层 HTTP 服务器。
@@ -31,6 +32,10 @@ type Server struct {
 	// 前端 /api/config 读它做表单初值，请求里缺省的字段也回落到它。
 	latencyDefaults engine.LatencyOptions
 	speedDefaults   engine.SpeedOptions
+
+	// IP 库管理器（惰性初始化）
+	libMgr   *library.Manager
+	libMgrMu sync.Mutex
 
 	// 任务生命周期
 	mu         sync.Mutex
@@ -100,16 +105,25 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/task/status", s.handleTaskStatus)
 	s.mux.HandleFunc("GET /api/task/events", s.handleEvents)
 
-	// 自动化：订阅器 / IP 库 / 运行
-	s.mux.HandleFunc("GET /api/auto/subs", s.handleAutoSubsGet)
-	s.mux.HandleFunc("PUT /api/auto/subs", s.handleAutoSubsSave)
-	s.mux.HandleFunc("POST /api/auto/subs/validate", s.handleAutoSubsValidate)
-	s.mux.HandleFunc("GET /api/auto/library", s.handleAutoLibraryGet)
-	s.mux.HandleFunc("POST /api/auto/library/import", s.handleAutoLibraryImport)
-	s.mux.HandleFunc("POST /api/auto/library/remove", s.handleAutoLibraryRemove)
-	s.mux.HandleFunc("POST /api/auto/library/clear", s.handleAutoLibraryClear)
+	// 自动化：维护任务 / IP 库 / 运行 / 历史
+	s.mux.HandleFunc("GET /api/auto/tasks", s.handleTasksGet)
+	s.mux.HandleFunc("PUT /api/auto/tasks", s.handleTasksSave)
+	s.mux.HandleFunc("POST /api/auto/tasks/validate", s.handleTaskValidate)
+	s.mux.HandleFunc("GET /api/auto/libraries", s.handleLibrariesGet)
+	s.mux.HandleFunc("POST /api/auto/libraries", s.handleLibrariesCreate)
+	s.mux.HandleFunc("POST /api/auto/libraries/rename", s.handleLibrariesRename)
+	s.mux.HandleFunc("POST /api/auto/libraries/delete", s.handleLibrariesDelete)
+	s.mux.HandleFunc("POST /api/auto/libraries/clear", s.handleLibrariesClear)
+	s.mux.HandleFunc("GET /api/auto/library", s.handleLibraryGet)
+	s.mux.HandleFunc("POST /api/auto/library/import", s.handleLibraryImport)
+	s.mux.HandleFunc("POST /api/auto/library/remove", s.handleLibraryRemove)
 	s.mux.HandleFunc("POST /api/auto/run", s.handleAutoRun)
+	s.mux.HandleFunc("GET /api/auto/runs", s.handleRunsGet)
 	s.mux.HandleFunc("GET /api/auto/output", s.handleAutoOutput)
+	// 旧订阅器路径别名（兼容旧页面）
+	s.mux.HandleFunc("GET /api/auto/subs", s.handleTasksGet)
+	s.mux.HandleFunc("PUT /api/auto/subs", s.handleTasksSave)
+	s.mux.HandleFunc("POST /api/auto/subs/validate", s.handleTaskValidate)
 }
 
 // broadcast 将事件推送给所有 SSE 订阅者（engine 回调入口）。

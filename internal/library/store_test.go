@@ -10,7 +10,7 @@ import (
 )
 
 func TestOpenEmptyWhenMissing(t *testing.T) {
-	s, err := Open(t.TempDir())
+	s, err := Open(filepath.Join(t.TempDir(), FileName))
 	if err != nil {
 		t.Fatalf("Open 空目录失败: %v", err)
 	}
@@ -21,7 +21,7 @@ func TestOpenEmptyWhenMissing(t *testing.T) {
 
 func TestUpsertSaveReload(t *testing.T) {
 	dir := t.TempDir()
-	s, err := Open(dir)
+	s, err := Open(filepath.Join(dir, FileName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestUpsertSaveReload(t *testing.T) {
 		t.Fatalf("库文件未生成: %v", err)
 	}
 
-	s2, err := Open(dir)
+	s2, err := Open(filepath.Join(dir, FileName))
 	if err != nil {
 		t.Fatalf("重载失败: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestUpsertSaveReload(t *testing.T) {
 }
 
 func TestRemove(t *testing.T) {
-	s, _ := Open(t.TempDir())
+	s, _ := Open(filepath.Join(t.TempDir(), FileName))
 	s.Upsert(Entry{IP: "1.1.1.1", Port: 443, Status: StatusNew})
 	if !s.Remove("1.1.1.1", 443) {
 		t.Fatal("Remove 应命中")
@@ -85,7 +85,7 @@ func TestRemove(t *testing.T) {
 }
 
 func TestStats(t *testing.T) {
-	s, _ := Open(t.TempDir())
+	s, _ := Open(filepath.Join(t.TempDir(), FileName))
 	s.Upsert(Entry{IP: "1.0.0.1", Port: 443, Status: StatusActive, CountryCode: "US", SpeedValid: true})
 	s.Upsert(Entry{IP: "1.0.0.2", Port: 443, Status: StatusActive, CountryCode: "JP"})
 	s.Upsert(Entry{IP: "1.0.0.3", Port: 443, Status: StatusNew})
@@ -105,7 +105,7 @@ func TestSkipsCorruptLines(t *testing.T) {
 	if err := os.WriteFile(path, []byte(body), 0644); err != nil {
 		t.Fatal(err)
 	}
-	s, err := Open(dir)
+	s, err := Open(filepath.Join(dir, FileName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestEntryFromResult(t *testing.T) {
 }
 
 func TestUpsertFillsFirstSeen(t *testing.T) {
-	s, _ := Open(t.TempDir())
+	s, _ := Open(filepath.Join(t.TempDir(), FileName))
 	created := s.Upsert(Entry{IP: "9.9.9.9", Port: 8443, Status: StatusNew})
 	if !created {
 		t.Fatal("应创建新条目")
