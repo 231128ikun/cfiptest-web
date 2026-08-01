@@ -1,4 +1,4 @@
-﻿package subscription
+package subscription
 
 import (
 	"encoding/json"
@@ -97,7 +97,7 @@ func (t *Task) Validate() error {
 			c := &r.Conditions[j]
 			c.Field = strings.ToLower(strings.TrimSpace(c.Field))
 			switch c.Field {
-			case "country", "city", "port":
+			case "country", "city", "port", "dataCenter", "asn", "region":
 			default:
 				return fmt.Errorf("任务 %q 规则 %s 含未知条件字段 %q", t.Name, r.Name, c.Field)
 			}

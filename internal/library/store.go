@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -142,18 +143,30 @@ func (s *Store) All() []Entry {
 	return out
 }
 
-// Stats 是库的概览统计。
+// Stats 是库的概览统计（含按字段分布，各取 Top N）。
 type Stats struct {
 	Total      int            `json:"total"`
 	Active     int            `json:"active"`
 	New        int            `json:"new"`
-	ByCountry  map[string]int `json:"byCountry"` // countryCode -> 数量
 	SpeedValid int            `json:"speedValid"`
+	ByCountry  map[string]int `json:"byCountry"` // countryCode -> 数量
+	ByCity     map[string]int `json:"byCity"`
+	ByDC       map[string]int `json:"byDC"`   // 数据中心 IATA
+	ByASN      map[string]int `json:"byASN"`  // ASN 数字串 -> 数量
+	ByPort     map[string]int `json:"byPort"` // 端口 -> 数量
 }
+
+const statsTopN = 30
 
 // Stats 汇总当前库。
 func (s *Store) Stats() Stats {
-	st := Stats{ByCountry: make(map[string]int)}
+	st := Stats{
+		ByCountry: make(map[string]int),
+		ByCity:    make(map[string]int),
+		ByDC:      make(map[string]int),
+		ByASN:     make(map[string]int),
+		ByPort:    make(map[string]int),
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	st.Total = len(s.by)
@@ -172,8 +185,49 @@ func (s *Store) Stats() Stats {
 			cc = "unknown"
 		}
 		st.ByCountry[cc]++
+		if e.CityZh != "" {
+			st.ByCity[e.CityZh]++
+		}
+		if e.DataCenter != "" {
+			st.ByDC[e.DataCenter]++
+		}
+		if e.ASN != 0 {
+			st.ByASN[strconv.FormatUint(uint64(e.ASN), 10)]++
+		}
+		st.ByPort[strconv.Itoa(e.Port)]++
 	}
+	st.ByCountry = topN(st.ByCountry, statsTopN)
+	st.ByCity = topN(st.ByCity, statsTopN)
+	st.ByDC = topN(st.ByDC, statsTopN)
+	st.ByASN = topN(st.ByASN, statsTopN)
+	st.ByPort = topN(st.ByPort, statsTopN)
 	return st
+}
+
+// topN 按数量降序取前 n 项。
+func topN(m map[string]int, n int) map[string]int {
+	if len(m) <= n {
+		return m
+	}
+	type kv struct {
+		k string
+		v int
+	}
+	list := make([]kv, 0, len(m))
+	for k, v := range m {
+		list = append(list, kv{k, v})
+	}
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].v != list[j].v {
+			return list[i].v > list[j].v
+		}
+		return list[i].k < list[j].k
+	})
+	out := make(map[string]int, n)
+	for i := 0; i < n; i++ {
+		out[list[i].k] = list[i].v
+	}
+	return out
 }
 
 // Save 将全量条目原子写回 JSONL（按 key 排序，输出稳定）。

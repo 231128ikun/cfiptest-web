@@ -69,6 +69,42 @@ func (m *Manager) migrateLegacy() error {
 	return nil
 }
 
+// syncDiscovered 自动把 ipdb 目录下未被索引的 *.jsonl 文件注册为库（用户直接放入文件即可使用）。
+func (m *Manager) syncDiscovered() error {
+	list, err := m.readIndex()
+	if err != nil {
+		return err
+	}
+	known := make(map[string]bool, len(list))
+	for _, info := range list {
+		known[info.File] = true
+	}
+	entries, err := os.ReadDir(m.dir)
+	if err != nil {
+		return err
+	}
+	changed := false
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if name == IndexFile || strings.HasPrefix(name, ".") || !strings.HasSuffix(strings.ToLower(name), ".jsonl") {
+			continue
+		}
+		if known[name] {
+			continue
+		}
+		list = append(list, Info{ID: nextID(list), Name: strings.TrimSuffix(name, ".jsonl"), File: name})
+		known[name] = true
+		changed = true
+	}
+	if changed {
+		return m.writeIndex(list)
+	}
+	return nil
+}
+
 func (m *Manager) indexPath() string { return filepath.Join(m.dir, IndexFile) }
 
 func (m *Manager) readIndex() ([]Info, error) {
@@ -122,13 +158,19 @@ func (m *Manager) fileOf(id string) (Info, bool, error) {
 	return Info{}, false, nil
 }
 
-// List 返回全部库（含各自统计）。
+// List 返回全部库（含各自统计）。会先自动发现目录下新增的 *.jsonl 文件。
 func (m *Manager) List() ([]Info, error) {
+	if err := m.syncDiscovered(); err != nil {
+		return nil, err
+	}
 	return m.readIndex()
 }
 
-// ListWithStats 返回全部库及统计信息。
+// ListWithStats 返回全部库及统计信息（自动发现新增文件）。
 func (m *Manager) ListWithStats() ([]Info, map[string]Stats, error) {
+	if err := m.syncDiscovered(); err != nil {
+		return nil, nil, err
+	}
 	list, err := m.readIndex()
 	if err != nil {
 		return nil, nil, err

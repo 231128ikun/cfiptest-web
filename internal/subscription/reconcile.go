@@ -485,6 +485,19 @@ func expandTaskRules(task Task) ([]Group, error) {
 			if city := strings.TrimSpace(combo["city"]); city != "" {
 				g.Cities = []string{city}
 			}
+			if dc := strings.TrimSpace(combo["dataCenter"]); dc != "" {
+				g.DataCenters = []string{strings.ToUpper(dc)}
+			}
+			if region := strings.TrimSpace(combo["region"]); region != "" {
+				g.Regions = []string{region}
+			}
+			if asn := strings.TrimSpace(combo["asn"]); asn != "" {
+				n, aerr := strconv.ParseUint(asn, 10, 32)
+				if aerr != nil || n == 0 {
+					return nil, fmt.Errorf("任务 %q 规则 %s ASN 非法: %s", task.Name, rule.Name, asn)
+				}
+				g.ASNs = []uint{uint(n)}
+			}
 			if port := strings.TrimSpace(combo["port"]); port != "" {
 				p, perr := strconv.Atoi(port)
 				if perr != nil || p < 1 || p > 65535 {
@@ -495,7 +508,7 @@ func expandTaskRules(task Task) ([]Group, error) {
 			if len(combos) > 1 {
 				g.Name = fmt.Sprintf("%s-%d", rule.Name, len(groups)+1)
 			}
-			key := fmt.Sprintf("%s|%v|%v|%d|%d|%v|%v|%d", g.CountryCode, g.Cities, g.Ports, g.LatencyMinMs, g.MaxLatencyMs, g.MinSpeedKBs, g.MaxSpeedKBs, g.Count)
+			key := fmt.Sprintf("%s|%v|%v|%v|%v|%v|%d|%d|%v|%v|%d", g.CountryCode, g.Cities, g.DataCenters, g.Regions, g.ASNs, g.Ports, g.LatencyMinMs, g.MaxLatencyMs, g.MinSpeedKBs, g.MaxSpeedKBs, g.Count)
 			if seen[key] {
 				continue
 			}
@@ -536,6 +549,15 @@ func freshForGroup(fresh map[string]library.Entry, g Group) []library.Entry {
 			continue
 		}
 		if len(g.Cities) > 0 && !containsFold(g.Cities, e.CityZh) {
+			continue
+		}
+		if len(g.DataCenters) > 0 && !containsFold(g.DataCenters, e.DataCenter) {
+			continue
+		}
+		if len(g.Regions) > 0 && !containsFold(g.Regions, e.RegionZh) {
+			continue
+		}
+		if len(g.ASNs) > 0 && !containsUint(g.ASNs, e.ASN) {
 			continue
 		}
 		if len(g.Ports) > 0 && !containsInt(g.Ports, e.Port) {

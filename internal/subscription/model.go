@@ -18,6 +18,9 @@ type Group struct {
 	CountryCode   string   `json:"countryCode,omitempty"`  // ISO 3166-1 alpha-2；空 = 不限国家
 	Country       string   `json:"country,omitempty"`      // 展示用中文名
 	Cities        []string `json:"cities,omitempty"`       // 城市（中文名），空 = 不限
+	DataCenters   []string `json:"dataCenters,omitempty"`  // 数据中心 IATA（colo），空 = 不限
+	ASNs          []uint   `json:"asns,omitempty"`         // ASN，空 = 不限
+	Regions       []string `json:"regions,omitempty"`      // 区域（中文名），空 = 不限
 	Ports         []int    `json:"ports,omitempty"`        // 空 = 不限端口
 	LatencyMinMs  int64    `json:"latencyMinMs,omitempty"` // 0 = 不限
 	MaxLatencyMs  int64    `json:"maxLatencyMs,omitempty"` // 0 = 不限

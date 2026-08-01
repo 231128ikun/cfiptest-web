@@ -44,6 +44,7 @@ const SELECTABLE_COLUMN_KEYS = ALL_COLUMNS
     .filter(column => column.key !== '_sel' && column.key !== 'enableTLS' && column.inCSV)
     .map(column => column.key);
 let visibleColumnKeys = [...DEFAULT_COLUMN_KEYS];
+let templateEditorOpen = false; // 导出弹窗里「＋模板设置」的展开状态
 
 let toastTimer = null;
 let tasksPage = null;
@@ -627,7 +628,7 @@ function bindEvents() {
             table.updateSpeed(result);
             scheduleExportPreview();
         },
-        onAuto: message => tasksPage?.onAuto(message),
+        onAuto: message => { tasksPage?.onAuto(message); sideLogFromAuto(message); },
         onDone: (message, reason) => {
             if (tasksPage?.isAutoRunning()) { tasksPage.onDone(message, reason); return; }
             setRunning(false);
@@ -651,6 +652,20 @@ function bindEvents() {
         },
     });
     window.addEventListener('beforeunload', () => eventSource?.close());
+}
+
+// SSE auto 事件转成侧边栏日志行
+function sideLogFromAuto(message) {
+    if (!message) return;
+    let p;
+    try { p = JSON.parse(message); } catch { return; }
+    if (p.stage === 'report' && p.report) {
+        const r = p.report;
+        const shortage = (r.shortages || []).length ? `，缺口 ${r.shortages.length} 项` : '';
+        sideLog(`任务「${r.subscription || ''}」完成：输出 ${r.totalLines ?? 0} 行，移除失效 ${r.removedDead ?? 0}，回写 ${(r.groups || []).reduce((s, g) => s + (g.updated || 0), 0)}${shortage}`, 'ok');
+        return;
+    }
+    if (p.log) sideLog(`[${p.group || '维护'}] ${p.log}`);
 }
 
 function selectedColumns() {
@@ -892,7 +907,7 @@ function applySavedSettings(settings = {}) {
     if (settings.exportFormat === 'txt' || settings.exportFormat === 'csv') {
         $('export-format').value = settings.exportFormat;
     }
-    $('set-debug-log').checked = settings.debugLog === true;
+    $('side-log-enable').checked = settings.debugLog === true;
     if (Array.isArray(settings.savedTemplates)) {
         savedTemplates = settings.savedTemplates
             .filter(item => item && typeof item.name === 'string' && typeof item.template === 'string');
@@ -1185,7 +1200,7 @@ function renderTemplateOptions(selected = '') {
         $('custom-field-picker').hidden = scope !== 'custom';
         return;
     }
-    txtEditor.hidden = false;
+    txtEditor.hidden = !templateEditorOpen;
     csvHint.hidden = true;
     const presetOptions = PRESETS.map((item, index) =>
         `<option value="preset:${index}">${escapeHTML(item.name)}</option>`).join('');
@@ -1351,10 +1366,8 @@ function bindPageNav() {
 // 第 1 步：从本地库导入候选
 async function bindLibraryCandidateImport() {
     try {
-        const data = await api.fetchLibraries();
+        await refreshLibraryCandidateOptions();
         const sel = $('lib-candidates-select');
-        sel.innerHTML = '<option value="">从本地库导入…</option>'
-            + (data.libraries || []).map(l => `<option value="${escapeHTML(l.id)}">${escapeHTML(l.name)}</option>`).join('');
         sel.addEventListener('change', async () => {
             const id = sel.value;
             if (!id) return;
@@ -1375,9 +1388,19 @@ async function bindLibraryCandidateImport() {
     } catch { /* 忽略 */ }
 }
 
-// 设置页：调试日志
+// 侧边栏日志：所有日志集中在这里（运行进度 / 错误 / 调试记录）
+function sideLog(line, kind = '') {
+    const body = $('side-log-body');
+    const div = document.createElement('div');
+    div.className = `side-log-line ${kind}`;
+    div.textContent = `[${new Date().toLocaleTimeString('zh-CN', { hour12: false })}] ${line}`;
+    body.appendChild(div);
+    while (body.children.length > 300) body.removeChild(body.firstChild);
+    body.scrollTop = body.scrollHeight;
+}
+
 function bindDebugLog() {
-    const checkbox = $('set-debug-log');
+    const checkbox = $('side-log-enable');
     checkbox.addEventListener('change', async () => {
         try {
             const config = await api.fetchConfig();
@@ -1387,21 +1410,20 @@ function bindDebugLog() {
             toast(`保存失败：${error.message}`);
         }
     });
-    $('btn-log-view').addEventListener('click', async () => {
+    $('side-log-refresh').addEventListener('click', async () => {
         try {
             const data = await api.fetchLog(300);
-            $('log-viewer').textContent = data.lines?.join('\n') || '（无日志）';
-            $('log-viewer').hidden = false;
-            $('log-status').textContent = data.enabled ? `日志位置：data/${data.path}` : '日志未开启（当前不会记录）';
+            const body = $('side-log-body');
+            body.innerHTML = (data.lines || []).map(l => `<div class="side-log-line file">${escapeHTML(l)}</div>`).join('');
+            body.scrollTop = body.scrollHeight;
         } catch (error) {
             toast(`读取日志失败：${error.message}`);
         }
     });
-    $('btn-log-clear').addEventListener('click', async () => {
+    $('side-log-clear').addEventListener('click', async () => {
         if (!confirm('确认清空日志文件？')) return;
         try {
             await api.clearLog();
-            $('log-viewer').textContent = '';
             toast('日志已清空');
         } catch (error) {
             toast(`清空失败：${error.message}`);
@@ -1409,11 +1431,51 @@ function bindDebugLog() {
     });
 }
 
+// 导出 / 导入 本地库 弹窗 + 模板"＋"
+function bindExportPopovers() {
+    const open = id => { $(id).hidden = false; };
+    const close = id => { $(id).hidden = true; };
+    $('btn-export-open').addEventListener('click', () => open('export-modal'));
+    $('btn-export-close').addEventListener('click', () => close('export-modal'));
+    $('export-modal').addEventListener('click', e => { if (e.target === $('export-modal')) close('export-modal'); });
+    $('btn-import-open').addEventListener('click', () => {
+        const scope = $('input[name="export-scope"]:checked')?.value || 'direct';
+        const label = { direct: '全部（所有检测结果）', rules: '当前规则（当前展示范围与字段）', custom: '自定义（勾选追加的列表）' }[scope] || '全部';
+        $('import-scope-hint').textContent = label;
+        open('import-modal');
+    });
+    $('btn-import-close').addEventListener('click', () => close('import-modal'));
+    $('import-modal').addEventListener('click', e => { if (e.target === $('import-modal')) close('import-modal'); });
+    $('btn-template-toggle').addEventListener('click', () => {
+        templateEditorOpen = !templateEditorOpen;
+        $('txt-template-editor').hidden = !templateEditorOpen;
+    });
+}
+
+// 库变更后各入口实时刷新
+function bindLibraryChanged() {
+    window.addEventListener('library-changed', () => {
+        refreshLibraryTargets();
+        refreshLibraryCandidateOptions();
+    });
+}
+
+async function refreshLibraryCandidateOptions() {
+    try {
+        const data = await api.fetchLibraries();
+        const sel = $('lib-candidates-select');
+        sel.innerHTML = '<option value="">从本地库导入…</option>'
+            + (data.libraries || []).map(l => `<option value="${escapeHTML(l.id)}">${escapeHTML(l.name)}</option>`).join('');
+    } catch { /* 忽略 */ }
+}
+
 async function init() {
     tasksPage = initTasks({ toast });
     libPage = initLibrary({ toast });
     bindPageNav();
     bindDebugLog();
+    bindExportPopovers();
+    bindLibraryChanged();
     bindLibraryCandidateImport();
     refreshLibraryTargets();
     bindFlowNavigation();

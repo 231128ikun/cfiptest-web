@@ -1,4 +1,4 @@
-﻿package library
+package library
 
 import (
 	"os"
@@ -98,6 +98,32 @@ func TestManagerNameSanitize(t *testing.T) {
 		if got := SanitizeName(in); got != want {
 			t.Fatalf("SanitizeName(%q)=%q want %q", in, got, want)
 		}
+	}
+}
+
+func TestManagerAutoDiscoversFiles(t *testing.T) {
+	dir := t.TempDir()
+	m, _ := OpenManager(dir)
+	// 用户直接放入一个 jsonl 文件（未注册进 index）
+	if err := os.WriteFile(filepath.Join(dir, ManagerDir, "手工库.jsonl"), []byte("{\"ip\":\"8.8.8.8\",\"port\":443,\"status\":\"active\"}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	list, err := m.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, info := range list {
+		if info.Name == "手工库" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("应自动发现放入的文件: %+v", list)
+	}
+	s, err := m.Open("default")
+	if err != nil || s.Len() != 0 {
+		t.Fatalf("默认库不应被干扰: %v", err)
 	}
 }
 

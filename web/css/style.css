@@ -534,3 +534,39 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 
 /* ---- 调试日志 ---- */
 .log-viewer { max-height: 320px; overflow: auto; margin-top: 8px; padding: 10px 12px; background: #172522; color: #cfe3dd; font-family: var(--mono); font-size: 12px; line-height: 1.6; border-radius: var(--radius-sm); white-space: pre-wrap; word-break: break-all; }
+
+/* ---- 任务卡片网格 ---- */
+.task-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.task-card { border: 1px solid var(--border-light); background: var(--surface); border-radius: var(--radius); padding: 12px 14px; transition: border-color .15s, box-shadow .15s; }
+.task-card:hover { border-color: var(--border); }
+.task-card-actions { display: flex; align-items: center; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.task-editor-panel { width: min(760px, 100%); }
+.task-editor-panel .help-panel-body { max-height: none; }
+
+/* ---- 侧边栏日志 ---- */
+.side-log { margin-top: auto; border-top: 1px solid rgba(255,255,255,.08); padding-top: 8px; display: flex; flex-direction: column; min-height: 0; }
+.side-log-head { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #7f948d; margin-bottom: 6px; }
+.side-log-title { font-weight: 650; }
+.side-log-switch { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.side-log-btn { border: 0; background: transparent; color: #7f948d; cursor: pointer; font-size: 13px; padding: 0 3px; border-radius: 4px; }
+.side-log-btn:hover { color: #e7efec; background: rgba(255,255,255,.06); }
+.side-log-body { flex: 1; min-height: 60px; max-height: 220px; overflow-y: auto; font-family: var(--mono); font-size: 11px; line-height: 1.6; color: #9fb3ac; }
+.side-log-line { white-space: pre-wrap; word-break: break-all; }
+.side-log-line.ok { color: #9fe0c0; }
+.side-log-line.warn { color: #f2c879; }
+.side-log-line.error { color: #f09a9f; }
+.sidebar.collapsed .side-log { display: none; }
+
+/* ---- 导出/导入弹窗 ---- */
+.export-modal-panel { width: min(860px, 100%); }
+.import-modal-panel { width: min(420px, 100%); }
+.export-modal-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.export-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.import-config { display: flex; flex-direction: column; gap: 8px; }
+.import-scope-hint { font-size: 13px; color: var(--text); }
+.import-actions { margin-top: 6px; }
+
+@media (max-width: 900px) {
+    .export-modal-body { grid-template-columns: 1fr; }
+    .side-log-body { max-height: 120px; }
+}

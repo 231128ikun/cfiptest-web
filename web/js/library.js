@@ -1,9 +1,8 @@
-﻿// library.js —— IP 库页：库列表（多库管理）+ 库内容表格 + 导入/移除/清空/改名/删除
+// library.js —— IP 库页：库列表（多库管理）+ 库内容表格 + 导入/移除/清空/改名/删除
 import { escapeHTML } from './columns.js';
 import * as api from './api.js';
 
 const $ = id => document.getElementById(id);
-const SOURCE_LABEL = { manual: '手动', import: '导入', official: '官方', topup: '补足' };
 const STATUS_LABEL = { active: '有效', new: '未测' };
 
 const fmtTime = ts => {
@@ -60,6 +59,9 @@ export function initLibrary({ toast }) {
     async function loadEntries() {
         const sel = $('lib-status').value;
         const country = $('lib-country').value;
+        const city = $('lib-city').value;
+        const dc = $('lib-dc').value;
+        const asn = $('lib-asn').value;
         const q = $('lib-q').value.trim();
         if (!state.current) {
             state.entries = [];
@@ -68,7 +70,7 @@ export function initLibrary({ toast }) {
             return;
         }
         try {
-            const data = await api.fetchAutoLibrary({ lib: state.current.id, status: sel, country, q, limit: 500 });
+            const data = await api.fetchAutoLibrary({ lib: state.current.id, status: sel, country, city, dc, asn, q, limit: 500 });
             state.entries = data.entries || [];
             state.total = data.total || 0;
             state.stats = { ...(state.stats || {}), [state.current.id]: data.stats };
@@ -76,7 +78,7 @@ export function initLibrary({ toast }) {
             renderTable();
             renderLibList();
             renderStats();
-            renderCountryFilter(data.stats);
+            renderFieldFilters(data.stats);
         } catch (error) {
             toast(`加载库内容失败：${error.message}`);
         }
@@ -89,20 +91,25 @@ export function initLibrary({ toast }) {
             : '';
     }
 
-    function renderCountryFilter(stats) {
-        const sel = $('lib-country');
-        const current = sel.value;
-        const codes = Object.keys(stats?.byCountry || {}).filter(c => c && c !== 'unknown').sort();
-        sel.innerHTML = ['<option value="">全部国家</option>']
-            .concat(codes.map(c => `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`))
-            .join('');
-        sel.value = current;
+    function renderFieldFilters(stats) {
+        const fill = (sel, map, emptyLabel) => {
+            const current = sel.value;
+            const keys = Object.keys(map || {}).sort();
+            sel.innerHTML = [`<option value="">${emptyLabel}</option>`]
+                .concat(keys.map(k => `<option value="${escapeHTML(k)}">${escapeHTML(k)}</option>`))
+                .join('');
+            sel.value = current;
+        };
+        fill($('lib-country'), stats?.byCountry, '全部国家');
+        fill($('lib-city'), stats?.byCity, '全部城市');
+        fill($('lib-dc'), stats?.byDC, '全部数据中心');
+        fill($('lib-asn'), stats?.byASN, '全部 ASN');
     }
 
     function renderTable() {
         const tbody = $('lib-tbody');
         if (!state.entries.length) {
-            tbody.innerHTML = `<tr class="pad"><td colspan="10" class="auto-lib-empty">${state.current ? '库为空：粘贴 IP 到上方导入，或在检测结果页一键导入' : '请先选择 IP 库'}</td></tr>`;
+            tbody.innerHTML = `<tr class="pad"><td colspan="9" class="auto-lib-empty">${state.current ? '库为空：粘贴 IP 到上方导入，或在检测结果页一键导入' : '请先选择 IP 库'}</td></tr>`;
             $('lib-count').textContent = state.current ? `共 ${state.total} 条` : '';
             return;
         }
@@ -115,10 +122,10 @@ export function initLibrary({ toast }) {
                 <td>${e.port || '—'}</td>
                 <td>${escapeHTML(e.emoji || '')}${escapeHTML(e.country || e.countryCode || '—')}</td>
                 <td>${escapeHTML(e.cityZh || '—')}</td>
-                <td>${e.tcpLatencyMs ? `${e.tcpLatencyMs} ms` : '—'}</td>
-                <td>${e.speedValid ? `${Math.round(e.speedKBs)} kB/s` : '—'}</td>
+
+                <td>${escapeHTML(e.dataCenter || '—')}</td>
+
                 <td>${STATUS_LABEL[e.status] || escapeHTML(e.status || '—')}</td>
-                <td>${SOURCE_LABEL[e.source] || escapeHTML(e.source || '—')}</td>
                 <td>${fmtTime(e.lastCheckedAt)}</td>
             </tr>`;
         }).join('');
@@ -158,6 +165,7 @@ export function initLibrary({ toast }) {
         try {
             await api.clearLibrary(state.current.id);
             toast('库已清空');
+            window.dispatchEvent(new CustomEvent('library-changed'));
             await loadEntries();
         } catch (error) {
             toast(`清空失败：${error.message}`);
@@ -171,6 +179,7 @@ export function initLibrary({ toast }) {
         try {
             await api.renameLibrary(state.current.id, name.trim());
             toast('库已改名');
+            window.dispatchEvent(new CustomEvent('library-changed'));
             await loadLibraries();
         } catch (error) {
             toast(`改名失败：${error.message}`);
@@ -184,6 +193,7 @@ export function initLibrary({ toast }) {
             await api.deleteLibrary(state.current.id);
             toast('库已删除');
             state.current = null;
+            window.dispatchEvent(new CustomEvent('library-changed'));
             await loadLibraries();
         } catch (error) {
             toast(`删除失败：${error.message}`);
@@ -218,9 +228,8 @@ export function initLibrary({ toast }) {
     $('lib-clear').addEventListener('click', clearCurrent);
     $('lib-rename').addEventListener('click', renameCurrent);
     $('lib-delete').addEventListener('click', deleteCurrent);
-    ['lib-q', 'lib-status', 'lib-country'].forEach(id => $(id).addEventListener('input', loadEntries));
-    $('lib-status').addEventListener('change', loadEntries);
-    $('lib-country').addEventListener('change', loadEntries);
+    ['lib-q', 'lib-country', 'lib-city', 'lib-dc', 'lib-asn'].forEach(id => $(id).addEventListener('input', loadEntries));
+    ['lib-status', 'lib-country', 'lib-city', 'lib-dc', 'lib-asn'].forEach(id => $(id).addEventListener('change', loadEntries));
     $('lib-tbody').addEventListener('change', e => {
         const box = e.target.closest('.lib-check');
         if (!box) return;

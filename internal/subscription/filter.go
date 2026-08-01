@@ -16,33 +16,65 @@ func (g Group) SoftMatch(e library.Entry) bool {
 	if len(g.Cities) > 0 && e.CityZh != "" && !containsFold(g.Cities, e.CityZh) {
 		return false
 	}
+	if len(g.DataCenters) > 0 && e.DataCenter != "" && !containsFold(g.DataCenters, e.DataCenter) {
+		return false
+	}
+	if len(g.Regions) > 0 && e.RegionZh != "" && !containsFold(g.Regions, e.RegionZh) {
+		return false
+	}
+	if len(g.ASNs) > 0 && e.ASN != 0 && !containsUint(g.ASNs, e.ASN) {
+		return false
+	}
 	if len(g.Ports) > 0 && !containsInt(g.Ports, e.Port) {
 		return false
 	}
 	return true
 }
 
-// CandidatePriority 是候选排序优先级：2=记录已匹配（最优先），1=国家/城市未知（测后可能匹配）。
+// CandidatePriority 是候选排序优先级：2=记录已匹配（最优先），1=字段值未知（测后可能匹配）。
 // 返回 0 表示不匹配（SoftMatch 应已排除，这里兜底）。
 func (g Group) CandidatePriority(e library.Entry) int {
-	if g.CountryCode != "" && e.CountryCode == "" {
-		return 1
-	}
-	if len(g.Cities) > 0 && e.CityZh == "" {
-		return 1
-	}
-	if g.CountryCode != "" && !strings.EqualFold(e.CountryCode, g.CountryCode) {
+	unknown := false
+	// 已知值不匹配 → 排除
+	if g.CountryCode != "" && e.CountryCode != "" && !strings.EqualFold(e.CountryCode, g.CountryCode) {
 		return 0
 	}
-	if len(g.Cities) > 0 && !containsFold(g.Cities, e.CityZh) {
+	if len(g.Cities) > 0 && e.CityZh != "" && !containsFold(g.Cities, e.CityZh) {
+		return 0
+	}
+	if len(g.DataCenters) > 0 && e.DataCenter != "" && !containsFold(g.DataCenters, e.DataCenter) {
+		return 0
+	}
+	if len(g.Regions) > 0 && e.RegionZh != "" && !containsFold(g.Regions, e.RegionZh) {
+		return 0
+	}
+	if len(g.ASNs) > 0 && e.ASN != 0 && !containsUint(g.ASNs, e.ASN) {
 		return 0
 	}
 	if len(g.Ports) > 0 && !containsInt(g.Ports, e.Port) {
 		return 0
 	}
+	// 约束字段值未知 → 仍作候选（测后可能匹配），优先级次之
+	if g.CountryCode != "" && e.CountryCode == "" {
+		unknown = true
+	}
+	if len(g.Cities) > 0 && e.CityZh == "" {
+		unknown = true
+	}
+	if len(g.DataCenters) > 0 && e.DataCenter == "" {
+		unknown = true
+	}
+	if len(g.Regions) > 0 && e.RegionZh == "" {
+		unknown = true
+	}
+	if len(g.ASNs) > 0 && e.ASN == 0 {
+		unknown = true
+	}
+	if unknown {
+		return 1
+	}
 	return 2
 }
-
 // RequiresSpeed 判断该分组是否需要测速结果。
 func (g Group) RequiresSpeed(sub Subscription) bool {
 	return groupNeedsSpeed(g, sub.EnableSpeed)
@@ -84,6 +116,15 @@ func (g Group) CountryMatches(code string) bool {
 func containsFold(list []string, v string) bool {
 	for _, x := range list {
 		if strings.EqualFold(strings.TrimSpace(x), strings.TrimSpace(v)) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsUint(list []uint, v uint) bool {
+	for _, x := range list {
+		if x == v {
 			return true
 		}
 	}

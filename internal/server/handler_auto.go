@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -209,6 +210,9 @@ func (s *Server) handleLibraryGet(w http.ResponseWriter, r *http.Request) {
 	}
 	status := strings.TrimSpace(r.URL.Query().Get("status"))
 	country := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("country")))
+	city := strings.TrimSpace(r.URL.Query().Get("city"))
+	dc := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("dc")))
+	asn := strings.TrimSpace(r.URL.Query().Get("asn"))
 	q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
 	offset, limit := 0, 500
 	if v := r.URL.Query().Get("offset"); v != "" {
@@ -231,6 +235,15 @@ func (s *Server) handleLibraryGet(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if country != "" && e.CountryCode != country {
+			continue
+		}
+		if city != "" && e.CityZh != city {
+			continue
+		}
+		if dc != "" && !strings.EqualFold(e.DataCenter, dc) {
+			continue
+		}
+		if asn != "" && strconv.FormatUint(uint64(e.ASN), 10) != asn {
 			continue
 		}
 		if q != "" {

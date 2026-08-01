@@ -39,6 +39,15 @@
                 <a href="#page-settings" class="side-item" data-page="settings" title="设置"><span class="side-icon">⚙</span><span class="side-label">设置</span></a>
             </div>
         </nav>
+        <div class="side-log">
+            <div class="side-log-head">
+                <span class="side-log-title">日志</span>
+                <label class="side-log-switch" title="开启后写入 data/logs/app.log 供排查"><input type="checkbox" id="side-log-enable"> 记录</label>
+                <button type="button" id="side-log-refresh" class="side-log-btn" title="刷新">⟳</button>
+                <button type="button" id="side-log-clear" class="side-log-btn" title="清空日志">×</button>
+            </div>
+            <div id="side-log-body" class="side-log-body"></div>
+        </div>
     </aside>
     <main class="content">
         <section id="page-workspace" class="page active">
@@ -202,6 +211,9 @@
                     <span class="sort-bar"><label for="sort-key">排序</label><select id="sort-key"></select><button id="btn-sort-dir" class="small">▲ 升序</button></span>
                     <button id="btn-column-toggle" aria-expanded="false" aria-controls="column-box">显示字段</button>
                     <button id="btn-quota-toggle" aria-expanded="false" aria-controls="quota-box">自定义展示规则</button>
+                    <span class="result-actions-divider" aria-hidden="true"></span>
+                    <button id="btn-export-open" class="primary">导出</button>
+                    <button id="btn-import-open">导入本地库</button>
                 </div>
             </div>
 
@@ -233,75 +245,89 @@
             </div>
             <div id="result-table-container"></div>
 
-            <div class="direct-export">
-                <div class="direct-export-head">
-                    <div><h3>直接导出</h3><span>全部 = 所有检测结果 + 全部字段；当前规则 = 第三步当前显示范围与显示字段；自定义 = 手动添加或勾选追加，默认空</span></div>
+            <div id="export-modal" class="help-overlay" hidden>
+    <div class="help-panel export-modal-panel">
+        <div class="help-panel-head"><strong>导出</strong><button type="button" id="btn-export-close" class="side-toggle" aria-label="关闭">×</button></div>
+        <div class="help-panel-body export-modal-body">
+            <div class="export-config">
+                <div class="export-config-section">
+                    <div class="export-config-label">导出范围</div>
+                    <div class="export-scope export-segmented" role="radiogroup" aria-label="导出范围">
+                        <label class="radio"><input type="radio" name="export-scope" value="direct" checked><span>全部</span></label>
+                        <label class="radio"><input type="radio" name="export-scope" value="rules"><span>当前规则</span></label>
+                        <label class="radio"><input type="radio" name="export-scope" value="custom"><span>自定义</span></label>
+                    </div>
                 </div>
-                <div class="export-layout">
-                    <div class="export-config">
-                        <div class="export-config-section">
-                            <div class="export-config-label">导出范围</div>
-                            <div class="export-scope export-segmented" role="radiogroup" aria-label="导出范围">
-                                <label class="radio"><input type="radio" name="export-scope" value="direct" checked><span>全部</span></label>
-                                <label class="radio"><input type="radio" name="export-scope" value="rules"><span>当前规则</span></label>
-                                <label class="radio"><input type="radio" name="export-scope" value="custom"><span>自定义</span></label>
-                            </div>
-                        </div>
-                        <div class="export-toolbar">
-                            <label class="export-field">导出格式<select id="export-format">
-                                <option value="txt">TXT</option>
-                                <option value="csv">CSV</option>
-                            </select></label>
-                            <label class="export-field">导出模板<select id="format-presets"></select></label>
-                        </div>
-                        <div class="template-editor" id="txt-template-editor">
-                            <div class="template-main">
-                                <input type="text" id="format-template" class="template" value="{ip}:{port}#{country}">
-                                <input type="text" id="template-name" placeholder="新模板名称，或修改当前自定义模板">
-                                <button id="btn-save-template">保存</button>
-                                <button id="btn-delete-template" class="danger" disabled>删除</button>
-                            </div>
-                            <details class="template-fields">
-                                <summary>可用模板字段 <span id="placeholder-count"></span></summary>
-                                <div class="placeholder-help" id="placeholder-help"></div>
-                            </details>
-                        </div>
-                        <div id="csv-template-hint" class="csv-template-hint" hidden>CSV 字段：<span id="csv-column-label"></span></div>
-                        <div class="custom-export-actions" id="custom-export-actions" hidden>
-                            <button id="btn-custom-append" class="small">追加勾选结果</button>
-                            <button id="btn-custom-clear" class="small">清空自定义</button>
-                            <span id="custom-count" class="hint"></span>
-                            <details class="custom-field-picker" id="custom-field-picker">
-                                <summary>自定义 CSV 字段 <span id="custom-field-count"></span></summary>
-                                <div class="custom-field-actions">
-                                    <button type="button" id="btn-custom-fields-all" class="small">全选</button>
-                                    <button type="button" id="btn-custom-fields-default" class="small">默认</button>
-                                </div>
-                                <div class="custom-field-options" id="custom-field-options"></div>
-                            </details>
-                        </div>
-                        <div class="export-actions">
-                            <button id="btn-copy" class="primary">复制到粘贴板</button>
-                            <button id="btn-download">下载文件</button>
-                            <span class="result-actions-divider" aria-hidden="true"></span>
-                            <select id="lib-target-select" aria-label="导入目标 IP 库" title="按当前导出范围导入到所选 IP 库"><option value="">导入到：默认库</option></select>
-                            <button id="btn-import-lib">导入到 IP 库</button>
-                        </div>
+                <div class="export-toolbar">
+                    <label class="export-field">导出格式<select id="export-format">
+                        <option value="txt">TXT</option>
+                        <option value="csv">CSV</option>
+                    </select></label>
+                    <label class="export-field">导出模板<select id="format-presets"></select></label>
+                    <button type="button" id="btn-template-toggle" class="small" title="模板设置（自定义/保存/删除）">＋ 模板设置</button>
+                </div>
+                <div class="template-editor" id="txt-template-editor" hidden>
+                    <div class="template-main">
+                        <input type="text" id="format-template" class="template" value="{ip}:{port}#{country}">
+                        <input type="text" id="template-name" placeholder="新模板名称，或修改当前自定义模板">
+                        <button id="btn-save-template">保存</button>
+                        <button id="btn-delete-template" class="danger" disabled>删除</button>
                     </div>
-                    <div class="export-preview">
-                        <div class="pane-head"><span id="output-title">导出预览</span><span id="output-count" class="hint" aria-live="polite">0 条</span></div>
-                        <textarea id="output-box" class="output-box" rows="12" readonly placeholder="导出内容会按当前格式生成到这里"></textarea>
-                        <div id="csv-preview" class="csv-preview" hidden>
-                            <table>
-                                <thead id="csv-preview-head"></thead>
-                                <tbody id="csv-preview-body"></tbody>
-                            </table>
-                            <div id="csv-preview-empty" class="csv-preview-empty">暂无可预览的结果</div>
+                    <details class="template-fields">
+                        <summary>可用模板字段 <span id="placeholder-count"></span></summary>
+                        <div class="placeholder-help" id="placeholder-help"></div>
+                    </details>
+                </div>
+                <div id="csv-template-hint" class="csv-template-hint" hidden>CSV 字段：<span id="csv-column-label"></span></div>
+                <div class="custom-export-actions" id="custom-export-actions" hidden>
+                    <button id="btn-custom-append" class="small">追加勾选结果</button>
+                    <button id="btn-custom-clear" class="small">清空自定义</button>
+                    <span id="custom-count" class="hint"></span>
+                    <details class="custom-field-picker" id="custom-field-picker">
+                        <summary>自定义 CSV 字段 <span id="custom-field-count"></span></summary>
+                        <div class="custom-field-actions">
+                            <button type="button" id="btn-custom-fields-all" class="small">全选</button>
+                            <button type="button" id="btn-custom-fields-default" class="small">默认</button>
                         </div>
-                    </div>
+                        <div class="custom-field-options" id="custom-field-options"></div>
+                    </details>
+                </div>
+                <div class="export-actions">
+                    <button id="btn-copy" class="primary">复制到粘贴板</button>
+                    <button id="btn-download">下载文件</button>
                 </div>
             </div>
-        </section>
+            <div class="export-preview">
+                <div class="pane-head"><span id="output-title">导出预览</span><span id="output-count" class="hint" aria-live="polite">0 条</span></div>
+                <textarea id="output-box" class="output-box" rows="10" readonly placeholder="导出内容会按当前格式生成到这里"></textarea>
+                <div id="csv-preview" class="csv-preview" hidden>
+                    <table>
+                        <thead id="csv-preview-head"></thead>
+                        <tbody id="csv-preview-body"></tbody>
+                    </table>
+                    <div id="csv-preview-empty" class="csv-preview-empty">暂无可预览的结果</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<div id="import-modal" class="help-overlay" hidden>
+    <div class="help-panel import-modal-panel">
+        <div class="help-panel-head"><strong>导入到 IP 库</strong><button type="button" id="btn-import-close" class="side-toggle" aria-label="关闭">×</button></div>
+        <div class="help-panel-body">
+            <div class="import-config">
+                <div class="export-config-label">导入范围</div>
+                <div class="import-scope-hint" id="import-scope-hint">全部（所有检测结果）</div>
+                <div class="export-config-label">导入到</div>
+                <select id="lib-target-select" aria-label="导入目标 IP 库"><option value="">导入到：默认库</option></select>
+                <div class="import-actions">
+                    <button id="btn-import-lib" class="primary">导入</button>
+                </div>
+                <div class="auto-hint">与导出使用同一范围：全部 / 当前规则 / 自定义。导入会连同国家、延迟、速度等元数据写入所选 IP 库。</div>
+            </div>
+        </div>
+    </div>
+</div></section>
         
             </section>
 
@@ -316,54 +342,51 @@
                     <button type="button" id="btn-task-new" class="secondary-button">+ 新建任务</button>
                 </div>
             </div>
-            <div class="task-layout">
-                <div class="task-list" id="task-list"></div>
-                <div class="task-detail" id="task-detail">
-                    <div class="task-detail-empty" id="task-detail-empty">← 选择或新建一个任务</div>
-                    <div id="task-form" hidden>
-                        <div class="task-form-row">
-                            <label>任务名称<input type="text" id="task-name" placeholder="如：日本专线"></label>
-                            <label class="checkbox"><input type="checkbox" id="task-enabled" checked> 启用维护</label>
-                        </div>
-                        <div class="task-form-row">
-                            <label>使用 IP 库<select id="task-library"></select></label>
-                            <label>输入文件<input type="text" id="task-input" placeholder="out/原订阅.txt（相对 data，可选）"></label>
-                        </div>
-                        <div class="task-form-row">
-                            <label>输出文件<input type="text" id="task-output" placeholder="留空 = 更新输入文件"></label>
-                            <label>输出格式<select id="task-format"><option value="txt">txt</option><option value="csv">csv</option></select></label>
-                            <label>总数限制<input type="number" id="task-limit" min="0" placeholder="0 = 不限"> 条</label>
-                            <label class="checkbox"><input type="checkbox" id="task-speed" title="开启后各规则可选择速度范围"> 开启测速</label>
-                        </div>
-                        <div class="task-form-row">
-                            <label class="task-template-label">输出模板
-                                <span class="auto-template-row">
-                                    <select id="task-tpl-select" aria-label="选择模板"></select>
-                                    <input type="text" id="task-tpl-custom" placeholder="{ip}:{port}#{emoji}{country}">
-                                    <button type="button" id="task-tpl-save" class="small" title="保存为我的模板（与导出页共用）">存为模板</button>
-                                </span>
-                            </label>
-                        </div>
-                        <div class="task-rules-head">
-                            <span>规则（条件多值=或，多字段=交集；每个组合取前 N 条）</span>
-                            <button type="button" id="task-rule-add" class="small">+ 添加规则</button>
-                        </div>
-                        <div id="task-rules"></div>
-                        <div class="task-form-actions">
-                            <button type="button" id="task-save" class="primary">保存任务</button>
-                            <button type="button" id="task-run" class="secondary-button">运行此任务</button>
-                            <button type="button" id="task-delete" class="danger">删除任务</button>
-                            <span id="task-form-status" class="hint" aria-live="polite"></span>
+                        <div class="task-grid" id="task-grid"></div>
+            <div id="task-editor-overlay" class="help-overlay" hidden>
+                <div class="help-panel task-editor-panel">
+                    <div class="help-panel-head"><strong>编辑任务</strong><button type="button" id="btn-task-editor-close" class="side-toggle" aria-label="关闭">×</button></div>
+                    <div class="help-panel-body">
+                        <div id="task-form">
+                            <div class="task-form-row">
+                                <label>任务名称<input type="text" id="task-name" placeholder="如：日本专线"></label>
+                                <label class="checkbox"><input type="checkbox" id="task-enabled" checked> 启用维护</label>
+                            </div>
+                            <div class="task-form-row">
+                                <label>使用 IP 库<select id="task-library"></select></label>
+                                <label>输入文件<input type="text" id="task-input" placeholder="out/原订阅.txt（相对 data，可选）"></label>
+                            </div>
+                            <div class="task-form-row">
+                                <label>输出文件<input type="text" id="task-output" placeholder="留空 = 更新输入文件"></label>
+                                <label>输出格式<select id="task-format"><option value="txt">txt</option><option value="csv">csv</option></select></label>
+                                <label>总数限制<input type="number" id="task-limit" min="0" placeholder="0 = 不限"> 条</label>
+                                <label class="checkbox"><input type="checkbox" id="task-speed" title="开启后各规则可选择速度范围"> 开启测速</label>
+                            </div>
+                            <div class="task-form-row">
+                                <label class="task-template-label">输出模板
+                                    <span class="auto-template-row">
+                                        <select id="task-tpl-select" aria-label="选择模板"></select>
+                                        <input type="text" id="task-tpl-custom" placeholder="{ip}:{port}#{emoji}{country}">
+                                        <button type="button" id="task-tpl-save" class="small" title="保存为我的模板（与导出页共用）">存为模板</button>
+                                    </span>
+                                </label>
+                            </div>
+                            <div class="task-rules-head">
+                                <span>规则（字段多值=或、多字段=交集；每个组合取前 N 条）</span>
+                                <button type="button" id="task-rule-add" class="small">+ 添加规则</button>
+                            </div>
+                            <div id="task-rules"></div>
+                            <div class="task-form-actions">
+                                <button type="button" id="task-save" class="primary">保存任务</button>
+                                <button type="button" id="task-run" class="secondary-button">运行此任务</button>
+                                <button type="button" id="task-delete" class="danger">删除任务</button>
+                                <span id="task-form-status" class="hint" aria-live="polite"></span>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
-            <div class="task-log-block">
-                <div class="page-subhead" style="display:flex;align-items:center;gap:10px">运行日志 <span id="task-log-status" class="hint"></span><button type="button" id="btn-task-stop" class="small danger" disabled>停止</button></div>
-                <div id="task-log" class="auto-log" aria-live="polite"></div>
-                <div id="task-report" class="auto-report" hidden></div>
-            </div>
-        </section>
+</section>
 
         <section id="page-library" class="page">
             <div class="page-head">
@@ -389,6 +412,9 @@
                             <option value="new">未测</option>
                         </select>
                         <select id="lib-country" aria-label="按国家筛选"><option value="">全部国家</option></select>
+                        <select id="lib-city" aria-label="按城市筛选"><option value="">全部城市</option></select>
+                        <select id="lib-dc" aria-label="按数据中心筛选"><option value="">全部数据中心</option></select>
+                        <select id="lib-asn" aria-label="按 ASN 筛选"><option value="">全部 ASN</option></select>
                         <input type="text" id="lib-import-text" placeholder="粘贴 ip:port 或 ip:port#备注，每行一个">
                         <button type="button" id="lib-import" class="primary">导入到库</button>
                         <button type="button" id="lib-remove-selected" class="small danger">移除勾选</button>
@@ -402,7 +428,7 @@
                             <thead>
                                 <tr>
                                     <th class="no-sort"><input type="checkbox" id="lib-checkall" aria-label="全选"></th>
-                                    <th>IP</th><th>端口</th><th>国家</th><th>城市</th><th>延迟</th><th>速度</th><th>状态</th><th>来源</th><th>上次检测</th>
+                                    <th>IP</th><th>端口</th><th>国家</th><th>城市</th><th>数据中心</th><th>延迟</th><th>速度</th><th>状态</th><th>上次检测</th>
                                 </tr>
                             </thead>
                             <tbody id="lib-tbody"></tbody>

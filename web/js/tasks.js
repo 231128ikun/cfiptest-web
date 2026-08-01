@@ -1,84 +1,44 @@
-// tasks.js —— 自动维护页：任务列表（Master-Detail）+ 规则编辑器 + 一键维护
+// tasks.js —— 自动维护页：任务卡片网格 + 编辑弹窗（规则编辑器）+ 一键维护
 import { PRESETS } from './composer.js';
 import { escapeHTML } from './columns.js';
 import * as api from './api.js';
 
 const $ = id => document.getElementById(id);
 const SAVED_TEMPLATE_KEY = 'iptest.savedTemplates.v1';
-const FIELD_LABEL = { country: '国家', city: '城市', port: '端口' };
-
-let seq = 0;
+const FIELD_OPTIONS = [
+    { value: 'country', label: '国家' },
+    { value: 'city', label: '城市' },
+    { value: 'port', label: '端口' },
+    { value: 'dataCenter', label: '数据中心' },
+    { value: 'asn', label: 'ASN' },
+    { value: 'region', label: '区域' },
+];
+const FIELD_LABEL = Object.fromEntries(FIELD_OPTIONS.map(f => [f.value, f.label]));
 
 export function initTasks({ toast }) {
     const state = {
         tasks: [],
         libraries: [],
         libNames: {},
-        selected: -1,
+        selected: -1, // 当前编辑的任务下标；-1 = 新建草稿
         savedTemplates: [],
         running: false,
-        runningTaskId: null,
         runQueue: [],
-        lastRuns: new Map(), // taskId -> {status, totalLines, outputPath}
+        lastRuns: new Map(),
     };
 
     function currentTask() {
         return state.selected >= 0 && state.selected < state.tasks.length ? state.tasks[state.selected] : null;
     }
 
-    // ---- 日志 ----
-    function log(line, kind = '') {
-        const box = $('task-log');
-        const div = document.createElement('div');
-        div.className = `auto-log-line ${kind}`;
-        div.textContent = `[${new Date().toLocaleTimeString('zh-CN', { hour12: false })}] ${line}`;
-        box.appendChild(div);
-        box.scrollTop = box.scrollHeight;
-    }
-
     function setRunning(running) {
         state.running = running;
         $('btn-run-all').disabled = running;
-        $('btn-task-stop').disabled = !running;
         const runBtn = $('task-run');
         if (runBtn) runBtn.disabled = running;
-        $('task-log-status').textContent = running ? '运行中…' : '';
     }
 
-    function showReport(report) {
-        const box = $('task-report');
-        box.hidden = !report;
-        if (!report) return;
-        const rows = (report.groups || []).map(g => `
-            <tr>
-                <td>${escapeHTML(g.name || '')}</td>
-                <td>${g.filled ?? 0}${g.target ? ` / ${g.target}` : ' / 不限'}</td>
-                <td class="${g.shortage > 0 ? 'bad-shortage' : ''}">${g.shortage ?? 0}</td>
-                <td>${g.tested ?? 0}</td>
-                <td>${g.failed ?? 0}</td>
-                <td>${g.speedTested ?? 0}</td>
-                <td>${g.speedFailed ?? 0}</td>
-                <td>${g.updated ?? 0}</td>
-            </tr>`).join('');
-        const shortages = (report.shortages || []).map(s => `<div class="auto-shortage">⚠ ${escapeHTML(s)}</div>`).join('');
-        const inputLine = (report.inputAdded || report.inputUpdated)
-            ? `<div class="auto-report-row">输入文件：新增 ${report.inputAdded ?? 0} 条，更新 ${report.inputUpdated ?? 0} 条</div>` : '';
-        const link = report.outputPath
-            ? `<div class="auto-report-row">输出：<a href="${api.autoOutputUrl(report.outputPath.replace(/\\/g, '/').replace(/^.*[\\/]data[\\/]/, 'out/'))}" download>下载 ${escapeHTML(report.outputPath)}</a></div>`
-            : '';
-        box.innerHTML = `
-            <div class="auto-report-head">本次运行（${Math.round((report.durationMs ?? 0) / 1000)}s）</div>
-            <table class="results auto-report-table">
-                <thead><tr><th>分组</th><th>配额</th><th>缺口</th><th>延迟测试</th><th>延迟失败(移除)</th><th>测速</th><th>测速失败(保留)</th><th>回写更新</th></tr></thead>
-                <tbody>${rows}</tbody>
-            </table>
-            ${inputLine}
-            ${shortages}
-            ${link}
-            <div class="auto-report-row">共输出 ${report.totalLines ?? 0} 行，移除失效 ${report.removedDead ?? 0} 条</div>`;
-    }
-
-    // ---- 数据加载 ----
+    // ---- 加载 ----
     async function loadAll() {
         try {
             const [tasksData, libsData] = await Promise.all([api.fetchTasks(), api.fetchLibraries()]);
@@ -86,76 +46,61 @@ export function initTasks({ toast }) {
             state.libraries = libsData.libraries || [];
             state.libNames = {};
             (state.libraries || []).forEach(l => { state.libNames[l.id] = l.name; });
-            if (state.selected >= state.tasks.length) state.selected = state.tasks.length ? state.tasks.length - 1 : -1;
-            renderTaskList();
+            if (state.selected >= state.tasks.length) state.selected = -1;
+            renderTaskGrid();
             renderLibraryOptions();
-            fillForm();
         } catch (error) {
             toast(`加载失败：${error.message}`);
         }
     }
 
     async function loadLastRuns() {
-        try {
-            const data = await api.fetchRuns(80);
-            state.lastRuns.clear();
-            (data.runs || []).forEach(r => {
-                if (!state.lastRuns.has(r.taskId) || state.lastRuns.get(r.taskId).startedAt < r.startedAt) {
-                    state.lastRuns.set(r.taskId, r);
-                }
-            });
-            renderTaskList();
-        } catch { /* 忽略 */ }
+        // 轻量：从调试日志里不再读取；徽标直接显示"未运行/上次维护信息"由运行日志提供
+        renderTaskGrid();
     }
 
-    // ---- 任务列表 ----
-    function renderTaskList() {
-        const wrap = $('task-list');
+    // ---- 卡片网格 ----
+    function renderTaskGrid() {
+        const wrap = $('task-grid');
         if (state.tasks.length === 0) {
-            wrap.innerHTML = '<div class="task-detail-empty">暂无任务，点击右上角「+ 新建任务」开始</div>';
+            wrap.innerHTML = '<div class="task-detail-empty">暂无任务，点击右上角「+ 新建任务」创建第一个维护任务</div>';
             return;
         }
         wrap.innerHTML = state.tasks.map((task, i) => {
-            const run = state.lastRuns.get(task.id);
-            let badge = '';
-            if (run) {
-                const kind = run.status === 'completed' ? (run.shortages?.length ? 'shortage' : 'ok') : (run.status === 'error' ? 'error' : 'shortage');
-                const label = run.status === 'completed' ? `✓ ${run.totalLines} 条` : (run.status === 'error' ? '× 出错' : '已停止');
-                badge = `<span class="task-badge ${kind}" title="${escapeHTML(run.outputPath || '')}">${label}</span>`;
-            } else {
-                badge = '<span class="task-badge none">未运行</span>';
-            }
             const ruleSummary = (task.rules || []).map(r => {
                 const conds = (r.conditions || []).map(c => {
                     const vals = (c.values || []).join(',');
-                    return `${FIELD_LABEL[c.field] || c.field}${vals ? ':' + vals : '不限'}`;
+                    return `${FIELD_LABEL[c.field] || c.field}${vals ? ':' + vals : '·任意'}`;
                 }).join(' ∩ ');
-                return conds || '全部';
+                return conds || '任意';
             }).join('；');
-            return `<div class="task-card ${i === state.selected ? 'selected' : ''}" data-i="${i}">
+            const limit = task.limit ? ` · 总数≤${task.limit}` : '';
+            const speed = task.speedEnabled ? ' · 测速开' : '';
+            return `<div class="task-card" data-i="${i}">
                 <div class="task-card-head">
                     <span class="task-card-name">${escapeHTML(task.name || '未命名')}</span>
-                    ${badge}
+                    <span class="task-badge ${task.enabled ? 'ok' : 'none'}">${task.enabled ? '启用' : '停用'}</span>
                 </div>
                 <div class="task-card-summary">
-                    ${task.enabled ? '' : '（已停用）'}规则：${escapeHTML(ruleSummary)}<br>
-                    库：${escapeHTML(state.libNames[task.libraryId] || task.libraryId || '默认库')} · 输出：${escapeHTML(task.output?.path || '未设置')}
+                    规则：${escapeHTML(ruleSummary)}<br>
+                    库：${escapeHTML(state.libNames[task.libraryId] || task.libraryId || '默认库')} · 输出：${escapeHTML(task.output?.path || '未设置')}${limit}${speed}
                 </div>
-                <div class="task-card-actions" style="margin-top:8px">
+                <div class="task-card-actions">
                     <label class="checkbox" title="一键维护时是否执行"><input type="checkbox" class="task-enable" data-i="${i}" ${task.enabled ? 'checked' : ''}> 启用</label>
+                    <button type="button" class="small task-edit" data-i="${i}">编辑</button>
                     <button type="button" class="small primary task-run-one" data-i="${i}">维护</button>
+                    <button type="button" class="small danger task-del" data-i="${i}">删除</button>
                 </div>
             </div>`;
         }).join('');
     }
 
-    // ---- 库下拉 ----
     function renderLibraryOptions() {
         const sel = $('task-library');
         sel.innerHTML = (state.libraries || []).map(l => `<option value="${escapeHTML(l.id)}">${escapeHTML(l.name)}</option>`).join('');
     }
 
-    // ---- 模板（复用导出页） ----
+    // ---- 模板 ----
     function loadTemplates() {
         try {
             const parsed = JSON.parse(localStorage.getItem(SAVED_TEMPLATE_KEY) || '[]');
@@ -218,14 +163,20 @@ export function initTasks({ toast }) {
         toast('模板已保存');
     }
 
-    // ---- 表单 ----
-    function fillForm() {
-        const task = currentTask();
-        const form = $('task-form');
-        const empty = $('task-detail-empty');
-        form.hidden = !task;
-        empty.hidden = !!task;
-        if (!task) return;
+    // ---- 编辑弹窗 ----
+    function openEditor(task) {
+        state.selected = state.tasks.indexOf(task);
+        $('task-editor-overlay').hidden = false;
+        fillForm(task);
+    }
+
+    function closeEditor() {
+        $('task-editor-overlay').hidden = true;
+        state.selected = -1;
+        renderTaskGrid();
+    }
+
+    function fillForm(task) {
         $('task-name').value = task.name || '';
         $('task-enabled').checked = task.enabled !== false;
         if (state.libraries.some(l => l.id === task.libraryId)) $('task-library').value = task.libraryId;
@@ -257,11 +208,9 @@ export function initTasks({ toast }) {
                     ${(rule.conditions || []).map((c, ci) => `
                         <div class="task-condition" data-ri="${ri}" data-ci="${ci}">
                             <select class="c-field" data-ri="${ri}" data-ci="${ci}">
-                                <option value="country" ${c.field === 'country' ? 'selected' : ''}>国家</option>
-                                <option value="city" ${c.field === 'city' ? 'selected' : ''}>城市</option>
-                                <option value="port" ${c.field === 'port' ? 'selected' : ''}>端口</option>
+                                ${FIELD_OPTIONS.map(f => `<option value="${f.value}" ${c.field === f.value ? 'selected' : ''}>${f.label}</option>`).join('')}
                             </select>
-                            <input class="c-values" data-ri="${ri}" data-ci="${ci}" value="${escapeHTML((c.values || []).join(','))}" placeholder="多值用逗号分隔，如 US,JP；留空 = 不限">
+                            <input class="c-values" data-ri="${ri}" data-ci="${ci}" value="${escapeHTML((c.values || []).join(','))}" placeholder="${c.field === 'country' || c.field === 'dataCenter' ? '多值逗号分隔；留空 = 任意' : '多值逗号分隔'}">
                             <button type="button" class="small c-remove" data-ri="${ri}" data-ci="${ci}" title="删除条件">✕</button>
                         </div>`).join('')}
                     <button type="button" class="small c-add" data-ri="${ri}">+ 添加条件</button>
@@ -303,8 +252,9 @@ export function initTasks({ toast }) {
                 speedMin: task.speedEnabled ? num('.r-spd-min') : 0,
                 speedMax: task.speedEnabled ? num('.r-spd-max') : 0,
             };
-            // 国家值大写；端口值转数字校验由后端完成
-            rule.conditions.forEach(c => { if (c.field === 'country') c.values = c.values.map(v => v.toUpperCase()); });
+            rule.conditions.forEach(c => {
+                if (c.field === 'country' || c.field === 'dataCenter') c.values = c.values.map(v => v.toUpperCase());
+            });
             return rule;
         });
         task.rules = rules;
@@ -322,47 +272,28 @@ export function initTasks({ toast }) {
             return;
         }
         if (!task.id) task.id = `t-${Date.now().toString(36)}`;
-        if (state.selected >= 0 && state.selected < state.tasks.length) {
-            state.tasks[state.selected] = task;
-        } else {
+        if (!(state.selected >= 0 && state.selected < state.tasks.length && state.tasks[state.selected] === task)) {
             state.tasks.push(task);
             state.selected = state.tasks.length - 1;
         }
         try {
             await api.saveTasks(state.tasks);
             toast('任务已保存');
-            $('task-form-status').textContent = '已保存到 data/tasks.json';
-            renderTaskList();
+            closeEditor();
         } catch (error) {
             toast(`保存失败：${error.message}`);
         }
-    }
-
-    function newTask() {
-        state.tasks.push({
-            id: `t-${Date.now().toString(36)}`,
-            name: '新任务', enabled: true, libraryId: 'default',
-            input: { mode: 'file' },
-            output: { format: 'txt', template: '{ip}:{port}#{emoji}{country}' },
-            limit: 0, speedEnabled: false,
-            rules: [{ name: '规则 1', conditions: [], limit: 0 }],
-        });
-        state.selected = state.tasks.length - 1;
-        renderTaskList();
-        fillForm();
     }
 
     async function deleteTask() {
         const task = currentTask();
         if (!task) return;
         if (!confirm(`确认删除任务「${task.name}」？`)) return;
-        state.tasks.splice(state.selected, 1);
-        state.selected = state.tasks.length ? Math.min(state.selected, state.tasks.length - 1) : -1;
-        renderTaskList();
-        fillForm();
+        state.tasks = state.tasks.filter(t => t !== task);
         try {
             await api.saveTasks(state.tasks);
             toast('任务已删除');
+            closeEditor();
         } catch (error) {
             toast(`保存失败：${error.message}`);
         }
@@ -374,12 +305,8 @@ export function initTasks({ toast }) {
             const result = await api.runAuto(taskId);
             setRunning(true);
             state.runningTaskId = taskId;
-            state.report = null;
-            $('task-report').hidden = true;
-            log(`启动维护：${taskId}（taskId=${result.taskId}）`);
         } catch (error) {
             toast(`启动失败：${error.message}`);
-            log(`启动失败：${error.message}`, 'error');
         }
     }
 
@@ -393,64 +320,27 @@ export function initTasks({ toast }) {
     function runAll() {
         if (state.running) { toast('已有任务在运行'); return; }
         const enabled = state.tasks.filter(t => t.enabled && t.id);
-        if (!enabled.length) { toast('没有已启用的任务（先勾选任务卡片上的「启用」）'); return; }
+        if (!enabled.length) { toast('没有已启用的任务（勾选卡片上的「启用」）'); return; }
         state.runQueue = enabled.map(t => t.id);
-        log(`一键维护：共 ${state.runQueue.length} 个任务`);
         runNextInQueue();
     }
 
     function runNextInQueue() {
         if (!state.runQueue.length) {
             setRunning(false);
-            log('一键维护全部完成', 'ok');
             return;
         }
         runTaskId(state.runQueue.shift());
     }
 
-    function stop() {
-        api.stopTask('').catch(() => {});
-        log('正在停止…', 'warn');
-    }
-
-    function onAuto(message) {
-        if (!message) return;
-        let p;
-        try { p = JSON.parse(message); } catch { return; }
-        if (p.stage === 'report' && p.report) { showReport(p.report); return; }
-        const prefix = p.group ? `[${p.group}] ` : '';
-        switch (p.stage) {
-            case 'input':
-            case 'gather':
-                log(`${prefix}${p.log || `收集候选 ${p.tested} 条`}`, 'info');
-                break;
-            case 'latency':
-                log(`${prefix}延迟检测完成：通过 ${p.passed}，失败 ${p.failed}（已从库移除）`, p.failed > 0 ? 'warn' : 'ok');
-                break;
-            case 'speed':
-                log(`${prefix}测速完成：有效 ${p.tested - p.failed}，失败 ${p.failed}（保留待下次验证）`, p.failed > 0 ? 'warn' : 'ok');
-                break;
-            case 'output':
-                log(`${prefix}${p.log || '已写出订阅文件'}`, 'ok');
-                break;
-            default:
-                if (p.log) log(`${prefix}${p.log}`);
-        }
-    }
+    function stop() { api.stopTask('').catch(() => {}); }
 
     function onDone(message, reason) {
         if (!state.running) return;
         if (reason === 'stopped') {
             setRunning(false);
             state.runQueue = [];
-            log('已停止', 'warn');
-        } else if (message && message.startsWith('自动化完成')) {
-            log(message, 'ok');
-            $('task-log-status').textContent = '完成';
-        } else {
-            log(message || '运行结束', 'error');
         }
-        loadLastRuns();
         loadAll();
         if (state.runQueue.length) {
             setTimeout(runNextInQueue, 600);
@@ -459,15 +349,8 @@ export function initTasks({ toast }) {
         }
     }
 
-    // ---- 事件绑定 ----
-    $('task-list').addEventListener('click', e => {
-        const card = e.target.closest('.task-card');
-        if (card && !e.target.closest('input,button')) {
-            state.selected = Number(card.dataset.i);
-            renderTaskList();
-            fillForm();
-            return;
-        }
+    // ---- 事件 ----
+    $('task-grid').addEventListener('click', e => {
         const enable = e.target.closest('.task-enable');
         if (enable) {
             const i = Number(enable.dataset.i);
@@ -475,32 +358,44 @@ export function initTasks({ toast }) {
             api.saveTasks(state.tasks).catch(() => {});
             return;
         }
+        const edit = e.target.closest('.task-edit');
+        if (edit) { openEditor(state.tasks[Number(edit.dataset.i)]); return; }
         const runOne = e.target.closest('.task-run-one');
         if (runOne) {
-            const i = Number(runOne.dataset.i);
-            const task = state.tasks[i];
+            const task = state.tasks[Number(runOne.dataset.i)];
             if (!state.running && task.id) runTaskId(task.id);
             return;
         }
+        const del = e.target.closest('.task-del');
+        if (del) {
+            state.selected = Number(del.dataset.i);
+            deleteTask();
+        }
     });
-
-    $('btn-task-new').addEventListener('click', newTask);
+    $('btn-task-new').addEventListener('click', () => {
+        const task = {
+            id: `t-${Date.now().toString(36)}`,
+            name: '新任务', enabled: true, libraryId: state.libraries[0]?.id || 'default',
+            input: { mode: 'file' },
+            output: { format: 'txt', template: '{ip}:{port}#{emoji}{country}' },
+            limit: 0, speedEnabled: false,
+            rules: [{ name: '规则 1', conditions: [{ field: 'country', values: [] }], limit: 0 }],
+        };
+        state.tasks.push(task);
+        openEditor(task);
+    });
+    $('btn-task-editor-close').addEventListener('click', closeEditor);
+    $('task-editor-overlay').addEventListener('click', e => { if (e.target === $('task-editor-overlay')) closeEditor(); });
     $('task-save').addEventListener('click', saveTask);
     $('task-run').addEventListener('click', runSelected);
     $('task-delete').addEventListener('click', deleteTask);
     $('btn-run-all').addEventListener('click', runAll);
-    $('btn-task-stop').addEventListener('click', stop);
     $('task-speed').addEventListener('change', () => { const t = currentTask(); if (t) renderRules(t.rules || []); });
-
-    $('task-tpl-select').addEventListener('change', e => {
-        const tpl = tplFor(e.target.value);
-        if (tpl) $('task-tpl-custom').value = tpl;
-    });
+    $('task-tpl-select').addEventListener('change', e => { const tpl = tplFor(e.target.value); if (tpl) $('task-tpl-custom').value = tpl; });
     $('task-tpl-save').addEventListener('click', saveCurrentTemplate);
     $('task-rule-add').addEventListener('click', () => {
-        const task = currentTask();
-        if (!task) { newTask(); }
         const t = currentTask();
+        if (!t) return;
         t.rules = t.rules || [];
         t.rules.push({ name: `规则 ${t.rules.length + 1}`, conditions: [], limit: 0 });
         renderRules(t.rules);
@@ -509,18 +404,9 @@ export function initTasks({ toast }) {
         const t = currentTask();
         if (!t) return;
         const removeRule = e.target.closest('.task-rule-remove');
-        if (removeRule) {
-            t.rules.splice(Number(removeRule.dataset.ri), 1);
-            renderRules(t.rules);
-            return;
-        }
+        if (removeRule) { t.rules.splice(Number(removeRule.dataset.ri), 1); renderRules(t.rules); return; }
         const removeCond = e.target.closest('.c-remove');
-        if (removeCond) {
-            const ri = Number(removeCond.dataset.ri);
-            t.rules[ri].conditions.splice(Number(removeCond.dataset.ci), 1);
-            renderRules(t.rules);
-            return;
-        }
+        if (removeCond) { t.rules[Number(removeCond.dataset.ri)].conditions.splice(Number(removeCond.dataset.ci), 1); renderRules(t.rules); return; }
         const addCond = e.target.closest('.c-add');
         if (addCond) {
             const ri = Number(addCond.dataset.ri);
@@ -537,27 +423,38 @@ export function initTasks({ toast }) {
         const ri = Number(row.dataset.ri);
         const rule = t.rules[ri];
         if (!rule) return;
-        if (e.target.classList.contains('r-limit')) rule.limit = Number(e.target.value) > 0 ? Number(e.target.value) : 0;
-        else if (e.target.classList.contains('r-lat-min')) rule.latencyMin = Number(e.target.value) > 0 ? Number(e.target.value) : 0;
-        else if (e.target.classList.contains('r-lat-max')) rule.latencyMax = Number(e.target.value) > 0 ? Number(e.target.value) : 0;
-        else if (e.target.classList.contains('r-spd-min')) rule.speedMin = Number(e.target.value) > 0 ? Number(e.target.value) : 0;
-        else if (e.target.classList.contains('r-spd-max')) rule.speedMax = Number(e.target.value) > 0 ? Number(e.target.value) : 0;
-        else if (e.target.classList.contains('c-field')) {
+        const cls = e.target.classList;
+        if (cls.contains('r-limit')) rule.limit = Number(e.target.value) > 0 ? Number(e.target.value) : 0;
+        else if (cls.contains('r-lat-min')) rule.latencyMin = Number(e.target.value) > 0 ? Number(e.target.value) : 0;
+        else if (cls.contains('r-lat-max')) rule.latencyMax = Number(e.target.value) > 0 ? Number(e.target.value) : 0;
+        else if (cls.contains('r-spd-min')) rule.speedMin = Number(e.target.value) > 0 ? Number(e.target.value) : 0;
+        else if (cls.contains('r-spd-max')) rule.speedMax = Number(e.target.value) > 0 ? Number(e.target.value) : 0;
+        else if (cls.contains('c-field')) {
             const ci = Number(e.target.dataset.ci);
             rule.conditions[ci].field = e.target.value;
-        } else if (e.target.classList.contains('c-values')) {
+            // 更新占位符提示
+            const input = e.target.closest('.task-condition').querySelector('.c-values');
+            input.placeholder = (e.target.value === 'country' || e.target.value === 'dataCenter') ? '多值逗号分隔；留空 = 任意' : '多值逗号分隔';
+        } else if (cls.contains('c-values')) {
             const ci = Number(e.target.dataset.ci);
             rule.conditions[ci].values = (e.target.value || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
         }
     });
-    $('btn-run-all').disabled = false;
-    // 停止按钮（复用现有 btn-stop？任务页提供独立停止）——任务页无独立停止按钮时跳转工作台
-    // 直接复用全局停止：任务运行中点击导航到工作台可停止。为简单起见，日志区上方不设停止。
+
+    // 库变更实时刷新（新建/改名/删除后任务页下拉同步）
+    window.addEventListener('library-changed', () => {
+        api.fetchLibraries().then(data => {
+            state.libraries = data.libraries || [];
+            state.libNames = {};
+            (state.libraries || []).forEach(l => { state.libNames[l.id] = l.name; });
+            renderLibraryOptions();
+            renderTaskGrid();
+        }).catch(() => {});
+    });
 
     loadTemplates();
     fetchSettingsTemplates();
     loadAll();
-    loadLastRuns();
 
-    return { onAuto, onDone, isAutoRunning: () => state.running, refreshLibrary: () => {} };
+    return { onAuto: () => {}, onDone, isAutoRunning: () => state.running, refreshLibrary: () => {} };
 }
