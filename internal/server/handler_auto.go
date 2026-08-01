@@ -213,6 +213,7 @@ func (s *Server) handleLibraryGet(w http.ResponseWriter, r *http.Request) {
 	city := strings.TrimSpace(r.URL.Query().Get("city"))
 	dc := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("dc")))
 	asn := strings.TrimSpace(r.URL.Query().Get("asn"))
+	port := strings.TrimSpace(r.URL.Query().Get("port"))
 	q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
 	offset, limit := 0, 500
 	if v := r.URL.Query().Get("offset"); v != "" {
@@ -244,6 +245,9 @@ func (s *Server) handleLibraryGet(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if asn != "" && strconv.FormatUint(uint64(e.ASN), 10) != asn {
+			continue
+		}
+		if port != "" && strconv.Itoa(e.Port) != port {
 			continue
 		}
 		if q != "" {

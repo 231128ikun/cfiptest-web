@@ -56,13 +56,15 @@ export function initLibrary({ toast }) {
         }).join('');
     }
 
+    const FIELD_PARAM = { country: 'country', city: 'city', dc: 'dc', asn: 'asn', port: 'port' };
+
     async function loadEntries() {
         const sel = $('lib-status').value;
-        const country = $('lib-country').value;
-        const city = $('lib-city').value;
-        const dc = $('lib-dc').value;
-        const asn = $('lib-asn').value;
         const q = $('lib-q').value.trim();
+        const field = $('lib-field').value;
+        const fieldValue = $('lib-field-value').value;
+        const params = {};
+        if (field && fieldValue) params[FIELD_PARAM[field] || field] = fieldValue;
         if (!state.current) {
             state.entries = [];
             state.total = 0;
@@ -70,7 +72,7 @@ export function initLibrary({ toast }) {
             return;
         }
         try {
-            const data = await api.fetchAutoLibrary({ lib: state.current.id, status: sel, country, city, dc, asn, q, limit: 500 });
+            const data = await api.fetchAutoLibrary({ lib: state.current.id, status: sel, q, limit: 500, ...params });
             state.entries = data.entries || [];
             state.total = data.total || 0;
             state.stats = { ...(state.stats || {}), [state.current.id]: data.stats };
@@ -78,7 +80,7 @@ export function initLibrary({ toast }) {
             renderTable();
             renderLibList();
             renderStats();
-            renderFieldFilters(data.stats);
+            renderFieldValueOptions(data.stats);
         } catch (error) {
             toast(`加载库内容失败：${error.message}`);
         }
@@ -91,19 +93,30 @@ export function initLibrary({ toast }) {
             : '';
     }
 
-    function renderFieldFilters(stats) {
-        const fill = (sel, map, emptyLabel) => {
-            const current = sel.value;
-            const keys = Object.keys(map || {}).sort();
-            sel.innerHTML = [`<option value="">${emptyLabel}</option>`]
-                .concat(keys.map(k => `<option value="${escapeHTML(k)}">${escapeHTML(k)}</option>`))
-                .join('');
-            sel.value = current;
-        };
-        fill($('lib-country'), stats?.byCountry, '全部国家');
-        fill($('lib-city'), stats?.byCity, '全部城市');
-        fill($('lib-dc'), stats?.byDC, '全部数据中心');
-        fill($('lib-asn'), stats?.byASN, '全部 ASN');
+    const FIELD_LABEL = { country: '国家', city: '城市', dc: '数据中心', asn: 'ASN', port: '端口' };
+
+    function renderFieldValueOptions(stats) {
+        const field = $('lib-field').value;
+        const sel = $('lib-field-value');
+        if (!field) {
+            sel.disabled = true;
+            sel.innerHTML = '<option value="">选择取值…</option>';
+            return;
+        }
+        const map = {
+            country: stats?.byCountry,
+            city: stats?.byCity,
+            dc: stats?.byDC,
+            asn: stats?.byASN,
+            port: stats?.byPort,
+        }[field] || {};
+        const current = sel.value;
+        const keys = Object.keys(map).sort();
+        sel.disabled = keys.length === 0;
+        sel.innerHTML = ['<option value="">全部</option>']
+            .concat(keys.map(k => `<option value="${escapeHTML(k)}">${escapeHTML(k)}（${map[k]}）</option>`))
+            .join('');
+        sel.value = current;
     }
 
     function renderTable() {
@@ -228,8 +241,10 @@ export function initLibrary({ toast }) {
     $('lib-clear').addEventListener('click', clearCurrent);
     $('lib-rename').addEventListener('click', renameCurrent);
     $('lib-delete').addEventListener('click', deleteCurrent);
-    ['lib-q', 'lib-country', 'lib-city', 'lib-dc', 'lib-asn'].forEach(id => $(id).addEventListener('input', loadEntries));
-    ['lib-status', 'lib-country', 'lib-city', 'lib-dc', 'lib-asn'].forEach(id => $(id).addEventListener('change', loadEntries));
+    $('lib-field').addEventListener('change', () => { renderFieldValueOptions(state.stats?.[state.current?.id]); loadEntries(); });
+    $('lib-field-value').addEventListener('change', loadEntries);
+    ['lib-q', 'lib-status'].forEach(id => $(id).addEventListener('input', loadEntries));
+    $('lib-status').addEventListener('change', loadEntries);
     $('lib-tbody').addEventListener('change', e => {
         const box = e.target.closest('.lib-check');
         if (!box) return;

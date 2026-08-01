@@ -212,9 +212,6 @@
                     <span class="sort-bar"><label for="sort-key">排序</label><select id="sort-key"></select><button id="btn-sort-dir" class="small">▲ 升序</button></span>
                     <button id="btn-column-toggle" aria-expanded="false" aria-controls="column-box">显示字段</button>
                     <button id="btn-quota-toggle" aria-expanded="false" aria-controls="quota-box">自定义展示规则</button>
-                    <span class="result-actions-divider" aria-hidden="true"></span>
-                    <button id="btn-export-open" class="primary">导出</button>
-                    <button id="btn-import-open">导入本地库</button>
                 </div>
             </div>
 
@@ -243,6 +240,9 @@
             <div class="result-actions">
                 <button id="btn-speed-filtered">对当前展示结果测速</button>
                 <button id="btn-start-speed" disabled>对勾选结果测速</button>
+                <span class="result-actions-divider" aria-hidden="true"></span>
+                <button id="btn-export-open" class="primary">导出</button>
+                <button id="btn-import-open">导入本地库</button>
             </div>
             <div id="result-table-container"></div>
 
@@ -412,15 +412,20 @@
                             <option value="active">有效</option>
                             <option value="new">未测</option>
                         </select>
-                        <select id="lib-country" aria-label="按国家筛选"><option value="">全部国家</option></select>
-                        <select id="lib-city" aria-label="按城市筛选"><option value="">全部城市</option></select>
-                        <select id="lib-dc" aria-label="按数据中心筛选"><option value="">全部数据中心</option></select>
-                        <select id="lib-asn" aria-label="按 ASN 筛选"><option value="">全部 ASN</option></select>
+                        <select id="lib-field" aria-label="筛选字段">
+                            <option value="">筛选字段：不筛选</option>
+                            <option value="country">国家</option>
+                            <option value="city">城市</option>
+                            <option value="dc">数据中心</option>
+                            <option value="asn">ASN</option>
+                            <option value="port">端口</option>
+                        </select>
+                        <select id="lib-field-value" aria-label="字段取值（含统计）" disabled><option value="">选择取值…</option></select>
                         <input type="text" id="lib-import-text" placeholder="粘贴 ip:port 或 ip:port#备注，每行一个">
                         <button type="button" id="lib-import" class="primary">导入到库</button>
                         <button type="button" id="lib-remove-selected" class="small danger">移除勾选</button>
                         <button type="button" id="lib-clear" class="small danger">清空库</button>
-                        <button type="button" id="lib-rename" class="small">改名</button>
+                        <button type="button" id="lib-rename" class="small">重命名</button>
                         <button type="button" id="lib-delete" class="small danger">删除库</button>
                     </div>
                     <div id="lib-stats" class="lib-stats"></div>
