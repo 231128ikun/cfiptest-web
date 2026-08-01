@@ -684,7 +684,7 @@ function selectedColumns() {
 
 function renderSortOptions() {
     const sortable = selectedColumns().filter(column => column.sortable);
-    $('sort-key').innerHTML = sortable.map(column => `<option value="${column.key}">${escapeHTML(column.label)}</option>`).join('');
+    $('sort-key').innerHTML = '<option value="">默认排序</option>' + sortable.map(column => `<option value="${column.key}">${escapeHTML(column.label)}</option>`).join('');
     if (!sortable.some(column => column.key === table.sortKey)) {
         table.setSort(sortable.find(column => column.key === 'tcpLatencyMs')?.key || sortable[0]?.key || 'ip', true);
     }
@@ -1025,7 +1025,10 @@ function bindResults() {
     $('result-filter').addEventListener('input', applyResultFilters);
     $('result-max-latency').addEventListener('input', applyResultFilters);
     $('result-min-speed').addEventListener('input', applyResultFilters);
-    $('sort-key').addEventListener('change', () => table.setSort($('sort-key').value, table.sortAsc));
+    $('sort-key').addEventListener('change', () => {
+        const key = $('sort-key').value;
+        if (!key) table.clearSort(); else table.setSort(key, table.sortAsc);
+    });
     $('btn-sort-dir').addEventListener('click', () => table.setSort(table.sortKey, !table.sortAsc));
     $('result-table-container').addEventListener('sortchange', event => {
         $('sort-key').value = event.detail.key;

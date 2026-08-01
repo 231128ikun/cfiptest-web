@@ -121,6 +121,16 @@ export class ResultTable {
         }));
     }
 
+    /** 清除自定义排序，还原为默认（到达顺序）。 */
+    clearSort() {
+        this.sortKey = '';
+        this.sortAsc = true;
+        this._invalidate();
+        this.render();
+        this.container.querySelectorAll('thead th[data-key]').forEach(th => th.setAttribute('aria-sort', 'none'));
+        this.container.dispatchEvent(new CustomEvent('sortchange', { bubbles: true, detail: { key: '', asc: true } }));
+    }
+
     /** 全选框状态跟随可见行：全选/部分选/未选。 */
     _syncSelectAll() {
         const box = this.container.querySelector('#sel-all');

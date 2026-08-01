@@ -312,13 +312,13 @@ table.results .empty-row td { padding: 34px 0; text-align: center; color: var(--
 .custom-field-options label { font-size: 12px; }
 .output-box { flex: 1; min-height: 350px; resize: none; color: #e8f3ef; background: #172522; border-color: #172522; }
 .output-box:focus { background: #172522; border-color: #548e80; }
-.csv-preview { flex: 1; min-height: 350px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
-.csv-preview[hidden] { display: none; }
-.csv-preview table { width: max-content; min-width: 100%; border-collapse: collapse; font-size: 11px; }
-.csv-preview th, .csv-preview td { max-width: 220px; padding: 8px 10px; overflow: hidden; border-right: 1px solid var(--border-light); border-bottom: 1px solid var(--border-light); text-align: left; text-overflow: ellipsis; white-space: nowrap; }
-.csv-preview th { position: sticky; top: 0; z-index: 1; color: var(--text-secondary); background: var(--surface-strong); font-weight: 650; }
-.csv-preview-empty { padding: 72px 20px; color: var(--text-secondary); text-align: center; }
-.csv-preview-empty[hidden] { display: none; }
+.csv-preview { flex: 1; min-height: 350px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface);  max-height: 260px; overflow-y: auto;}
+.csv-preview[hidden] { display: none;  max-height: 260px; overflow-y: auto;}
+.csv-preview table { width: max-content; min-width: 100%; border-collapse: collapse; font-size: 11px;  max-height: 260px; overflow-y: auto;}
+.csv-preview th, .csv-preview td { max-width: 220px; padding: 8px 10px; overflow: hidden; border-right: 1px solid var(--border-light); border-bottom: 1px solid var(--border-light); text-align: left; text-overflow: ellipsis; white-space: nowrap;  max-height: 260px; overflow-y: auto;}
+.csv-preview th { position: sticky; top: 0; z-index: 1; color: var(--text-secondary); background: var(--surface-strong); font-weight: 650;  max-height: 260px; overflow-y: auto;}
+.csv-preview-empty { padding: 72px 20px; color: var(--text-secondary); text-align: center;  max-height: 260px; overflow-y: auto;}
+.csv-preview-empty[hidden] { display: none;  max-height: 260px; overflow-y: auto;}
 
 #toast { position: fixed; left: 50%; bottom: 24px; z-index: 100; padding: 9px 14px; border: 1px solid #3d514b; border-radius: var(--radius); background: #172522; color: #fff; box-shadow: var(--shadow); opacity: 0; pointer-events: none; transform: translate(-50%, 70px); transition: opacity .2s, transform .2s; }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
@@ -462,7 +462,7 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 .task-card:hover { border-color: var(--border); }
 .task-card.selected { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
 .task-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.task-card-name { font-weight: 650; font-size: 13px; }
+.task-card-name { font-weight: 680; font-size: 15px; }
 .task-card-summary { margin-top: 6px; font-size: 11px; color: var(--text-secondary); line-height: 1.6; }
 .task-card-actions { display: flex; align-items: center; gap: 6px; }
 .task-run-one { font-size: 11px; padding: 3px 8px; }
@@ -496,7 +496,7 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 .lib-layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 14px; align-items: start; }
 .lib-side .lib-item { border: 1px solid var(--border-light); background: var(--surface); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 8px; cursor: pointer; }
 .lib-item.selected { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
-.lib-item-name { font-weight: 650; font-size: 13px; }
+.lib-item-name { font-weight: 680; font-size: 15px; }
 .lib-item-stats { margin-top: 4px; font-size: 11px; color: var(--text-secondary); }
 .lib-toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; align-items: center; }
 .lib-toolbar input[type="text"] { min-width: 220px; flex: 1; }
@@ -522,7 +522,7 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
     .content { overflow: visible; }
     .sidebar { flex-basis: auto; padding: 8px; }
     .sidebar-nav { flex-direction: row; flex-wrap: wrap; position: static; }
-    .task-layout, .lib-layout { grid-template-columns: 1fr; }
+    .task-grid, .lib-list { grid-template-columns: 1fr; }
     .task-template-label { grid-column: span 1; }
 }
 
@@ -542,8 +542,8 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 .log-viewer { max-height: 320px; overflow: auto; margin-top: 8px; padding: 10px 12px; background: #172522; color: #cfe3dd; font-family: var(--mono); font-size: 12px; line-height: 1.6; border-radius: var(--radius-sm); white-space: pre-wrap; word-break: break-all; }
 
 /* ---- 任务卡片网格 ---- */
-.task-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
-.task-card { border: 1px solid var(--border-light); background: var(--surface); border-radius: var(--radius); padding: 12px 14px; transition: border-color .15s, box-shadow .15s; }
+.task-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.task-card { border: 1px solid var(--border-light); background: var(--surface); border-radius: var(--radius); padding: 16px 18px; transition: border-color .15s, box-shadow .15s; }
 .task-card:hover { border-color: var(--border); }
 .task-card-actions { display: flex; align-items: center; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
 .task-editor-panel { width: min(760px, 100%); }
@@ -613,9 +613,9 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 .proxy-source-toolbar select, .proxy-source-toolbar input { min-width: 0; }
 
 /* ---- IP 库列表卡片 ---- */
-.lib-list { display: flex; flex-direction: column; gap: 8px; }
-.lib-item { border: 1px solid var(--border-light); background: var(--surface); border-radius: var(--radius); padding: 10px 12px; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.lib-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.lib-item { border: 1px solid var(--border-light); background: var(--surface); border-radius: var(--radius); padding: 14px 16px; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
 .lib-item:hover { border-color: var(--border); }
 .lib-item.selected { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
-.lib-item-name { font-weight: 650; font-size: 13px; }
+.lib-item-name { font-weight: 680; font-size: 15px; }
 .lib-item-stats { margin-top: 4px; font-size: 11px; color: var(--text-secondary); }
