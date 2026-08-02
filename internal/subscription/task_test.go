@@ -3,6 +3,8 @@ package subscription
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"time"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +12,62 @@ import (
 
 	"iptest-web/internal/library"
 )
+
+func TestValidateCron(t *testing.T) {
+	valid := []string{"0 3 * * *", "*/15 * * * *", "0 */6 * * *", "5 4 * * 1", "0 0 1 * *", "10-20 * * * *", "0,30 * * * *", "0 0 1 1 *", "*/5 9-18 * * 1-5"}
+	for _, expr := range valid {
+		if err := ValidateCron(expr); err != nil {
+			t.Fatalf("表达式 %q 应合法: %v", expr, err)
+		}
+	}
+	invalid := []string{"", "* * *", "* * * * * *", "60 * * * *", "* 24 * * *", "* * 0 * *", "* * * 13 *", "* * * * 8", "*/0 * * * *", "a * * * *", "5-1 * * * *"}
+	for _, expr := range invalid {
+		if err := ValidateCron(expr); err == nil {
+			t.Fatalf("表达式 %q 应非法", expr)
+		}
+	}
+}
+
+func TestCronMatches(t *testing.T) {
+	at := func(h, m int) time.Time { return time.Date(2026, 8, 2, h, m, 0, 0, time.Local) }
+	if !CronMatches("0 3 * * *", at(3, 0)) {
+		t.Fatal("每天 03:00 应命中")
+	}
+	if CronMatches("0 3 * * *", at(3, 1)) {
+		t.Fatal("非指定分钟不应命中")
+	}
+	if !CronMatches("*/15 * * * *", at(10, 30)) {
+		t.Fatal("每 15 分钟应命中")
+	}
+	if CronMatches("*/15 * * * *", at(10, 31)) {
+		t.Fatal("非 15 分钟倍数不应命中")
+	}
+	if !CronMatches("0 */6 * * *", at(6, 0)) {
+		t.Fatal("每 6 小时应命中")
+	}
+	day := time.Date(2026, 8, 2, 3, 0, 0, 0, time.Local)
+	sunday0 := fmt.Sprintf("0 3 * * %d", int(day.Weekday()))
+	if !CronMatches(sunday0, day) {
+		t.Fatalf("星期 %d 应命中 %q", int(day.Weekday()), sunday0)
+	}
+	if day.Weekday() == time.Sunday && !CronMatches("0 3 * * 7", day) {
+		t.Fatal("周日 7 别名应命中")
+	}
+	if !CronMatches("0 3 * * 0", day) && day.Weekday() != time.Sunday {
+		t.Fatalf("非周日不应命中 0")
+	}
+}
+
+func TestTaskValidateSchedule(t *testing.T) {
+	task := Task{Name: "定时任务", Rules: []TaskRule{{Name: "r", Limit: 1}}, Schedule: TaskSchedule{Enabled: true, Cron: "0 3 * * *"}}
+	if err := task.Validate(); err != nil {
+		t.Fatalf("合法定时应通过: %v", err)
+	}
+	task.Schedule.Cron = "bad cron"
+	if err := task.Validate(); err == nil {
+		t.Fatal("非法 Cron 应校验失败")
+	}
+}
 
 func TestTaskValidateDefaults(t *testing.T) {
 	task := Task{Name: "日本专线", Rules: []TaskRule{{Name: "r1", Limit: 5, Conditions: []Condition{{Field: "country", Values: []string{"jp"}}}}}}

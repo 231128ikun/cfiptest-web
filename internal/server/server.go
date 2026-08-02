@@ -9,10 +9,12 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"iptest-web/internal/config"
 	"iptest-web/internal/engine"
 	"iptest-web/internal/library"
+	"iptest-web/internal/subscription"
 )
 
 // Server 是应用层 HTTP 服务器。
@@ -45,6 +47,11 @@ type Server struct {
 	taskID     string
 	taskCancel context.CancelFunc
 
+	// 定时维护：按分钟检查标准 5 段 Cron，记录本进程已触发的分钟，避免重复执行。
+	schedulerStop chan struct{}
+	scheduleMu    sync.Mutex
+	scheduleRuns  map[string]string
+
 	// SSE 订阅者
 	sseMu      sync.Mutex
 	sseClients map[chan engine.Event]struct{}
@@ -71,9 +78,12 @@ func New(runner *engine.Runner, assets fs.FS, version string, cfg config.Config,
 		latencyDefaults: engine.DefaultLatencyOptions(),
 		speedDefaults:   speedDefaults,
 		sseClients:      make(map[chan engine.Event]struct{}),
+		schedulerStop:   make(chan struct{}),
+		scheduleRuns:    make(map[string]string),
 		log:             NewLogger(dataDir, logEnabled),
 	}
 	s.registerRoutes()
+	go s.runScheduler()
 	return s
 }
 
@@ -195,8 +205,71 @@ func (s *Server) stopTask(id string) bool {
 	return true
 }
 
-// CancelActive 在进程退出前取消进行中的任务。
-func (s *Server) CancelActive() { s.stopTask("") }
+// CancelActive 在进程退出前停止定时器并取消进行中的任务。
+func (s *Server) CancelActive() {
+	select {
+	case <-s.schedulerStop:
+	default:
+		close(s.schedulerStop)
+	}
+	s.stopTask("")
+}
+
+func (s *Server) runScheduler() {
+	// 启动后立即检查一次，之后对齐到下一分钟，避免固定从启动秒数漂移。
+	timer := time.NewTimer(200 * time.Millisecond)
+	defer timer.Stop()
+	for {
+		select {
+		case <-s.schedulerStop:
+			return
+		case now := <-timer.C:
+			s.checkScheduledTasks(now)
+			delay := time.Until(time.Now().Truncate(time.Minute).Add(time.Minute))
+			if delay < time.Second {
+				delay = time.Minute
+			}
+			timer.Reset(delay)
+		}
+	}
+}
+
+func (s *Server) checkScheduledTasks(now time.Time) {
+	tasks, err := subscription.LoadTasks(s.dataDir)
+	if err != nil {
+		s.log.Log("error", "读取定时维护任务失败: %v", err)
+		return
+	}
+	minuteKey := now.Format("2006-01-02 15:04")
+	for _, task := range tasks {
+		if !task.Enabled || !task.Schedule.Enabled || !subscription.CronMatches(task.Schedule.Cron, now) {
+			continue
+		}
+		key := task.ID
+		if key == "" {
+			key = task.Name
+		}
+		s.scheduleMu.Lock()
+		already := s.scheduleRuns[key] == minuteKey
+		if !already {
+			s.scheduleRuns[key] = minuteKey
+		}
+		s.scheduleMu.Unlock()
+		if already {
+			continue
+		}
+		taskID := "auto:" + task.Name
+		ctx, ok := s.tryStartTask(taskID)
+		if !ok {
+			s.log.Log("warn", "定时维护 %s 已到期，但当前有其他任务运行，本次跳过", task.Name)
+			continue
+		}
+		opts := s.autoRunOptions(nil)
+		s.log.Log("info", "Cron 定时触发维护任务: %s (%s)", task.Name, task.Schedule.Cron)
+		go s.runAutoTask(ctx, taskID, task, opts)
+		break
+	}
+}
 
 // writeJSON 以 JSON 响应；失败时写 500。
 func writeJSON(w http.ResponseWriter, status int, v any) {

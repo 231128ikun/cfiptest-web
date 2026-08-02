@@ -62,17 +62,28 @@
             </div>
 
             <div id="source-proxy" class="source-panel" role="tabpanel" aria-labelledby="tab-proxy">
-                <div class="source-toolbar compact-toolbar proxy-source-toolbar">
-                    <select id="import-source" aria-label="导入来源">
-                        <option value="file">导入来源：本地文件</option>
-                        <option value="remote">导入来源：远程链接</option>
-                        <option value="library">导入来源：本地库</option>
-                        <option value="paste">导入来源：直接粘贴</option>
-                    </select>
-                    <input type="text" id="import-remote-url" placeholder="远程 TXT / CSV 链接，如 https://example.com/list.txt" hidden>
-                    <select id="import-library-select" hidden aria-label="选择本地库"><option value="">选择库…</option></select>
-                    <input type="file" id="file-input" accept=".txt,.csv,.text" hidden>
-                    <button id="btn-import-remote" class="primary">导入</button>
+                <div class="import-station" aria-label="快速载入候选">
+                    <div class="import-station-title">
+                        <strong>快速载入</strong>
+                        <span>也可以直接在下方原始列表中粘贴或编辑内容</span>
+                    </div>
+                    <div class="source-toolbar compact-toolbar proxy-source-toolbar">
+                        <label class="import-source-select">
+                            <span>来源</span>
+                            <select id="import-source" aria-label="导入来源">
+                                <option value="file">本地文件</option>
+                                <option value="remote">远程链接</option>
+                                <option value="library">IP 库</option>
+                            </select>
+                        </label>
+                        <div class="proxy-source-field" aria-live="polite">
+                            <span class="proxy-source-hint" id="import-hint">支持 .txt、.csv 文件；选择后内容会载入原始列表</span>
+                            <input type="text" id="import-remote-url" placeholder="远程 TXT / CSV 链接，如 https://example.com/list.txt" aria-label="远程 TXT 或 CSV 链接" hidden>
+                            <select id="import-library-select" hidden aria-label="选择 IP 库"><option value="">选择要导入的 IP 库…</option></select>
+                        </div>
+                        <input type="file" id="file-input" accept=".txt,.csv,.text,text/plain,text/csv" hidden>
+                        <button type="button" id="btn-import-remote" class="primary import-action">选择文件</button>
+                    </div>
                 </div>
                 <div class="input-candidate-grid">
                     <div class="input-pane">
@@ -239,14 +250,13 @@
                 <button id="btn-start-speed" disabled>对勾选结果测速</button>
                 <span class="result-actions-divider" aria-hidden="true"></span>
                 <button id="btn-export-open" class="primary">导出</button>
-                <button id="btn-import-open">导入本地库</button>
             </div>
             <div id="result-table-container"></div>
 
-            <div id="export-modal" class="export-drawer" hidden>
-    <div class="export-drawer-panel">
+            <div id="export-modal" class="help-overlay" hidden role="dialog" aria-modal="true" aria-label="导出 / 导入到 IP 库">
+    <div class="help-panel export-modal-panel">
         <div class="help-panel-head"><strong>导出 / 导入到 IP 库</strong><button type="button" id="btn-export-close" class="side-toggle" aria-label="关闭">×</button></div>
-        <div class="help-panel-body export-modal-body">
+        <div class="help-panel-body export-modal-body"><div class="export-layout">
             <div class="export-config">
                 <div class="export-config-section">
                     <div class="export-config-label">导出范围</div>
@@ -261,8 +271,13 @@
                         <option value="txt">TXT</option>
                         <option value="csv">CSV</option>
                     </select></label>
-                    <label class="export-field">导出模板<select id="format-presets"></select></label>
-                    <button type="button" id="btn-template-toggle" class="small" title="模板设置（自定义/保存/删除）">＋ 模板设置</button>
+                    <div class="export-template-field" id="export-template-field">
+                        <span class="export-field-label">导出模板</span>
+                        <div class="export-template-control">
+                            <select id="format-presets" aria-label="TXT 导出模板"></select>
+                            <button type="button" id="btn-template-toggle" class="template-add-button" aria-label="添加 TXT 模板" aria-expanded="false" title="添加 TXT 模板">＋</button>
+                        </div>
+                    </div>
                 </div>
                 <div class="template-editor" id="txt-template-editor" hidden>
                     <div class="template-main">
@@ -291,7 +306,6 @@
                     </details>
                 </div>
                 <div class="export-actions export-actions-right">
-                    <label class="export-field export-lib-field">导入到<select id="lib-target-select" aria-label="导入目标 IP 库"><option value="">默认库</option></select></label>
                     <button id="btn-import-lib">导入到 IP 库</button>
                     <span class="result-actions-divider" aria-hidden="true"></span>
                     <button id="btn-copy" class="primary">复制到粘贴板</button>
@@ -309,12 +323,26 @@
                     <div id="csv-preview-empty" class="csv-preview-empty">暂无可预览的结果</div>
                 </div>
             </div>
-        </div>
+        </div></div>
     </div>
 </div>
 </section>
         
             </section>
+<div id="import-target-modal" class="help-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="import-target-title">
+    <div class="help-panel import-target-panel">
+        <div class="help-panel-head"><strong id="import-target-title">选择导入目标库</strong><button type="button" id="btn-import-target-close" class="side-toggle" aria-label="关闭">×</button></div>
+        <div class="help-panel-body import-target-body">
+            <div class="import-target-intro">
+                <span class="import-target-icon" aria-hidden="true">↳</span>
+                <div><p class="import-target-summary">将当前导出范围内的 <strong id="import-target-count">0</strong> 条结果导入到：</p><p class="import-target-hint">已有 IP 会更新信息，不会产生重复条目。</p></div>
+            </div>
+            <label class="import-target-field">目标 IP 库<select id="lib-target-select" aria-label="导入目标 IP 库"><option value="">默认库</option></select></label>
+            <div class="import-target-actions"><button type="button" id="btn-import-target-cancel">取消</button><button type="button" id="btn-import-target-confirm" class="primary">确认导入</button></div>
+        </div>
+    </div>
+</div>
+
 
         <section id="page-tasks" class="page">
             <div class="page-head">
@@ -333,10 +361,31 @@
                     <div class="help-panel-head"><strong>编辑任务</strong><button type="button" id="btn-task-editor-close" class="side-toggle" aria-label="关闭">×</button></div>
                     <div class="help-panel-body">
                         <div id="task-form">
-                            <div class="task-form-row">
+                            <div class="task-form-row task-primary-row">
                                 <label>任务名称<input type="text" id="task-name" placeholder="如：日本专线"></label>
                                 <label class="toggle task-enabled-toggle"><input type="checkbox" id="task-enabled" checked><span class="toggle-track"></span><span class="toggle-label">启用维护</span></label>
                             </div>
+                            <section class="task-schedule-section" aria-labelledby="task-schedule-title">
+                                <div class="task-schedule-head">
+                                    <div>
+                                        <strong id="task-schedule-title">定时维护</strong>
+                                        <span>程序运行期间按 Cron 计划自动执行；任务停用时不会触发。</span>
+                                    </div>
+                                    <label class="toggle"><input type="checkbox" id="task-schedule-enabled"><span class="toggle-track"></span><span class="toggle-label">开启定时</span></label>
+                                </div>
+                                <div id="task-schedule-settings" class="task-schedule-settings" hidden>
+                                    <label class="task-cron-field">Cron 表达式
+                                        <input type="text" id="task-schedule-cron" value="0 3 * * *" placeholder="分 时 日 月 周，如 0 3 * * *" spellcheck="false" autocomplete="off">
+                                        <span id="task-schedule-description" class="task-cron-description" aria-live="polite">每天 03:00 执行</span>
+                                    </label>
+                                    <div class="task-cron-presets" aria-label="常用 Cron 表达式">
+                                        <button type="button" class="small task-cron-preset" data-cron="0 */6 * * *">每 6 小时</button>
+                                        <button type="button" class="small task-cron-preset" data-cron="0 3 * * *">每天 03:00</button>
+                                        <button type="button" class="small task-cron-preset" data-cron="0 3 * * 1">每周一 03:00</button>
+                                    </div>
+                                    <p class="task-cron-help">标准 5 段格式：分 时 日 月 周。支持 <code>*</code>、数字、范围、列表和步长，例如 <code>*/15 * * * *</code>。</p>
+                                </div>
+                            </section>
                             <div class="task-form-row">
                                 <label>使用 IP 库<select id="task-library"></select></label>
                                 <label>输入文件<input type="text" id="task-input" placeholder="out/原订阅.txt（相对 data，可选）"></label>
@@ -390,26 +439,29 @@
                 </div>
                 <div class="lib-main">
                     <div class="lib-toolbar">
-                        <input type="text" id="lib-q" placeholder="搜索 IP / 国家 / 城市 / 数据中心 / ASN">
-                        <select id="lib-status" aria-label="按状态筛选">
-                            <option value="">全部状态</option>
-                            <option value="active">有效</option>
-                            <option value="new">未测</option>
-                        </select>
-                        <select id="lib-field" aria-label="筛选字段">
-                            <option value="">筛选字段：不筛选</option>
-                            <option value="country">国家</option>
-                            <option value="city">城市</option>
-                            <option value="dc">数据中心</option>
-                            <option value="asn">ASN</option>
-                            <option value="port">端口</option>
-                        </select>
-                        <select id="lib-field-value" aria-label="字段取值（含统计）" disabled><option value="">选择取值…</option></select>
-
-                        <button type="button" id="lib-remove-selected" class="small danger">移除勾选</button>
-                        <button type="button" id="lib-clear" class="small danger">清空库</button>
-                        <button type="button" id="lib-rename" class="small">重命名</button>
-                        <button type="button" id="lib-delete" class="small danger">删除库</button>
+                        <div class="lib-filter-controls">
+                            <input type="text" id="lib-q" placeholder="搜索 IP / 国家 / 城市 / 数据中心 / ASN">
+                            <select id="lib-status" aria-label="按状态筛选">
+                                <option value="">全部状态</option>
+                                <option value="active">有效</option>
+                                <option value="new">未测</option>
+                            </select>
+                            <select id="lib-field" aria-label="筛选字段">
+                                <option value="">筛选字段：不筛选</option>
+                                <option value="country">国家</option>
+                                <option value="city">城市</option>
+                                <option value="dc">数据中心</option>
+                                <option value="asn">ASN</option>
+                                <option value="port">端口</option>
+                            </select>
+                            <select id="lib-field-value" aria-label="字段取值（含统计）" disabled><option value="">选择取值…</option></select>
+                        </div>
+                        <div class="lib-manage-actions" aria-label="当前库操作">
+                            <button type="button" id="lib-rename">重命名</button>
+                            <button type="button" id="lib-remove-selected" class="danger">移除勾选</button>
+                            <button type="button" id="lib-clear" class="danger">清空当前库</button>
+                            <button type="button" id="lib-delete" class="danger">删除当前库</button>
+                        </div>
                     </div>
                     <div id="lib-stats" class="lib-stats"></div>
                     <div class="lib-table-wrap">

@@ -11,6 +11,7 @@ import { readFileSync } from 'node:fs';
 
 const html = readFileSync(new URL('../web/index.html', import.meta.url), 'utf8');
 const appJs = readFileSync(new URL('../web/js/app.js', import.meta.url), 'utf8');
+const tasksJs = readFileSync(new URL('../web/js/tasks.js', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../web/css/style.css', import.meta.url), 'utf8');
 
 let pass = 0;
@@ -34,6 +35,41 @@ check('app.js 引用的每个 id 都在 index.html 里存在', () => {
 });
 check('引用面不是空的（正则失效时这条会先炸）', () => {
     assert.ok(referencedIds.length > 60, `只解析出 ${referencedIds.length} 个引用，正则可能已失配`);
+});
+check('TXT 导出模板为稳定单列布局，CSV 时完整隐藏', () => {
+    assert.ok(/id="export-template-field"/.test(html), '缺少可整体隐藏的导出模板区域');
+    assert.ok(/id="btn-template-toggle"[^>]*aria-label="添加 TXT 模板"[^>]*>＋<\/button>/.test(html), '模板入口不是独立的小加号按钮');
+    assert.ok(/templateField\.hidden = true/.test(appJs), 'CSV 格式没有隐藏导出模板区域');
+    assert.ok(/templateField\.hidden = false/.test(appJs), 'TXT 格式没有恢复导出模板区域');
+});
+check('维护任务开关位于卡片状态区并即时重绘状态', () => {
+    assert.ok(/class="task-card-state"/.test(tasksJs), '任务卡片缺少右侧状态区域');
+    assert.ok(/addEventListener\('change'[\s\S]*?updateTaskEnabled/.test(tasksJs), '任务启动开关没有 change 事件接线');
+    assert.ok(/task\.enabled = enabled;[\s\S]*?renderTaskGrid\(\);[\s\S]*?await api\.saveTasks/.test(tasksJs), '任务状态没有先即时更新再持久化');
+});
+check('导入先弹窗选择目标库，不再直接在导出面板选择', () => {
+    assert.ok(/id="import-target-modal"/.test(html), '缺少导入目标弹窗');
+    assert.ok(/id="btn-import-target-confirm"/.test(html), '缺少确认导入按钮');
+    const exportBlock = html.slice(html.indexOf('export-actions-right'), html.indexOf('export-actions-right') + 600);
+    assert.equal(exportBlock.includes('lib-target-select'), false, '导出面板不应再内嵌目标库下拉');
+    const modalBlock = html.slice(html.indexOf('import-target-modal'), html.indexOf('import-target-modal') + 1500);
+    assert.ok(/id="lib-target-select"/.test(modalBlock), '目标库下拉应位于导入弹窗内');
+    assert.ok(/openImportTargetModal/.test(appJs), 'app.js 缺少打开弹窗函数');
+    assert.ok(/closeImportTargetModal/.test(appJs), 'app.js 缺少关闭弹窗函数');
+    assert.ok(/btn-import-target-confirm/.test(appJs), '确认导入未接线');
+});
+check('自动维护支持 Cron 定时，并实时解释表达式含义', () => {
+    assert.ok(/id="task-schedule-cron"/.test(html), '缺少 Cron 表达式输入框');
+    assert.ok(/id="task-schedule-description"/.test(html), '缺少 Cron 释义小字');
+    assert.ok(/id="task-schedule-enabled"/.test(html), '缺少定时开关');
+    assert.ok(/function describeCron/.test(tasksJs), 'tasks.js 缺少 Cron 解析');
+    assert.ok(/function updateScheduleUI/.test(tasksJs), 'tasks.js 缺少释义刷新逻辑');
+    assert.ok(/task-schedule-cron/.test(tasksJs), 'Cron 输入未接入表单');
+    assert.ok(/task\.schedule = \{/.test(tasksJs), '保存时未收集定时配置');
+});
+check('任务卡片展示定时摘要', () => {
+    assert.ok(/scheduleLabel\(task\.schedule\)/.test(tasksJs), '卡片缺少定时摘要');
+    assert.ok(/is-scheduled/.test(tasksJs), '卡片缺少定时状态样式标记');
 });
 check('index.html 没有重复 id（重复的话 getElementById 只取第一个）', () => {
     const dup = declaredIds.filter((id, i) => declaredIds.indexOf(id) !== i);

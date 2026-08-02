@@ -14,6 +14,38 @@ const FIELD_OPTIONS = [
     { value: 'region', label: '区域' },
 ];
 const FIELD_LABEL = Object.fromEntries(FIELD_OPTIONS.map(f => [f.value, f.label]));
+const WEEKDAY_LABELS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+
+function describeCron(expression) {
+    const fields = expression.trim().split(/\s+/);
+    if (fields.length !== 5) return { valid: false, text: '需要 5 段：分 时 日 月 周' };
+    const [minute, hour, day, month, weekday] = fields;
+    const number = value => /^\d+$/.test(value) ? Number(value) : null;
+    const mm = number(minute);
+    const hh = number(hour);
+    if (mm !== null && (mm < 0 || mm > 59)) return { valid: false, text: '分钟应在 0–59 之间' };
+    if (hh !== null && (hh < 0 || hh > 23)) return { valid: false, text: '小时应在 0–23 之间' };
+    const pad = value => String(value).padStart(2, '0');
+    if (minute === '*' && hour === '*' && day === '*' && month === '*' && weekday === '*') return { valid: true, text: '每分钟执行' };
+    const minuteStep = minute.match(/^\*\/(\d+)$/);
+    if (minuteStep && hour === '*' && day === '*' && month === '*' && weekday === '*') return { valid: true, text: `每 ${Number(minuteStep[1])} 分钟执行` };
+    const hourStep = hour.match(/^\*\/(\d+)$/);
+    if (mm !== null && hourStep && day === '*' && month === '*' && weekday === '*') return { valid: true, text: `每 ${Number(hourStep[1])} 小时的 ${pad(mm)} 分执行` };
+    if (mm !== null && hh !== null && day === '*' && month === '*' && weekday === '*') return { valid: true, text: `每天 ${pad(hh)}:${pad(mm)} 执行` };
+    const week = number(weekday);
+    if (mm !== null && hh !== null && day === '*' && month === '*' && week !== null && week >= 0 && week <= 7) return { valid: true, text: `每${WEEKDAY_LABELS[week]} ${pad(hh)}:${pad(mm)} 执行` };
+    const monthDay = number(day);
+    if (mm !== null && hh !== null && monthDay !== null && monthDay >= 1 && monthDay <= 31 && month === '*' && weekday === '*') return { valid: true, text: `每月 ${monthDay} 日 ${pad(hh)}:${pad(mm)} 执行` };
+    const token = /^(\*|\d+)(?:-\d+)?(?:\/\d+)?(?:,(?:\*|\d+)(?:-\d+)?(?:\/\d+)?)*$/;
+    if (!fields.every(field => token.test(field))) return { valid: false, text: '格式无效，仅支持 *、数字、范围、列表和步长' };
+    return { valid: true, text: '按此 Cron 计划执行（保存时会进一步校验范围）' };
+}
+
+function scheduleLabel(schedule) {
+    if (!schedule?.enabled) return '未设置定时';
+    return describeCron(schedule.cron || '').text;
+}
+
 
 export function initTasks({ toast }) {
     const state = {
@@ -25,6 +57,7 @@ export function initTasks({ toast }) {
         running: false,
         runQueue: [],
         lastRuns: new Map(),
+        pendingEnabled: new Set(),
     };
 
     function currentTask() {
@@ -74,27 +107,42 @@ export function initTasks({ toast }) {
                 }).join(' ∩ ');
                 return conds || '任意';
             }).join('；');
-            const limit = task.limit ? ` · 总数≤${task.limit}` : '';
-            const speed = task.speedEnabled ? ' · 测速开' : '';
-            return `<div class="task-card" data-i="${i}">
+            const limit = task.limit ? `总数 ≤ ${task.limit}` : '不限总数';
+            const speed = task.speedEnabled ? '启用测速' : '仅延迟筛选';
+            const libraryName = state.libNames[task.libraryId] || task.libraryId || '默认库';
+            const outputPath = task.output?.path || '未设置';
+            const schedule = scheduleLabel(task.schedule);
+            const pendingKey = task.id || String(i);
+            const isPending = state.pendingEnabled.has(pendingKey);
+            return `<article class="task-card ${task.enabled ? 'is-enabled' : 'is-disabled'}" data-i="${i}">
                 <div class="task-card-head">
-                    <span class="task-card-name">${escapeHTML(task.name || '未命名')}</span>
-                    <span class="task-badge ${task.enabled ? 'ok' : 'none'}">${task.enabled ? '启用' : '停用'}</span>
+                    <div class="task-card-title">
+                        <span class="task-card-kicker">维护任务 ${i + 1}</span>
+                        <span class="task-card-name">${escapeHTML(task.name || '未命名')}</span>
+                    </div>
+                    <div class="task-card-state">
+                        <span class="task-badge ${task.enabled ? 'ok' : 'none'}">${task.enabled ? '已启用' : '已停用'}</span>
+                        <label class="toggle task-card-toggle" title="控制此任务是否参与一键维护">
+                            <span class="toggle-label">启动</span>
+                            <input type="checkbox" class="task-enable" data-i="${i}" aria-label="${task.enabled ? '停用' : '启用'}任务 ${escapeHTML(task.name || '未命名')}" ${task.enabled ? 'checked' : ''} ${isPending ? 'disabled' : ''}>
+                            <span class="toggle-track"></span>
+                        </label>
+                    </div>
                 </div>
                 <div class="task-card-summary">
-                    规则：${escapeHTML(ruleSummary)}<br>
-                    库：${escapeHTML(state.libNames[task.libraryId] || task.libraryId || '默认库')} · 输出：${escapeHTML(task.output?.path || '未设置')}${limit}${speed}
+                    <div class="task-meta-row"><span class="task-meta-label">规则</span><span class="task-meta-value">${escapeHTML(ruleSummary || '任意')}</span></div>
+                    <div class="task-meta-row"><span class="task-meta-label">IP 库</span><span class="task-meta-value">${escapeHTML(libraryName)}</span></div>
+                    <div class="task-meta-row"><span class="task-meta-label">输出</span><span class="task-meta-value task-output-path">${escapeHTML(outputPath)}</span></div>
+                    <div class="task-card-flags"><span>${limit}</span><span>${speed}</span><span class="${task.schedule?.enabled ? 'is-scheduled' : ''}">${escapeHTML(schedule)}</span></div>
                 </div>
                 <div class="task-card-actions">
-                    <label class="toggle" title="一键维护时是否执行"><input type="checkbox" class="task-enable" data-i="${i}" ${task.enabled ? 'checked' : ''}><span class="toggle-track"></span></label>
-                    <button type="button" class="small task-edit" data-i="${i}">编辑</button>
-                    <button type="button" class="small primary task-run-one" data-i="${i}">维护</button>
+                    <button type="button" class="small task-edit" data-i="${i}">编辑配置</button>
+                    <button type="button" class="small primary task-run-one" data-i="${i}">立即维护</button>
                     <button type="button" class="small danger task-del" data-i="${i}">删除</button>
                 </div>
-            </div>`;
+            </article>`;
         }).join('');
     }
-
     function renderLibraryOptions() {
         const sel = $('task-library');
         sel.innerHTML = (state.libraries || []).map(l => `<option value="${escapeHTML(l.id)}">${escapeHTML(l.name)}</option>`).join('');
@@ -185,6 +233,9 @@ export function initTasks({ toast }) {
         $('task-format').value = task.output?.format === 'csv' ? 'csv' : 'txt';
         $('task-limit').value = task.limit || 0;
         $('task-speed').checked = Boolean(task.speedEnabled);
+        $('task-schedule-enabled').checked = Boolean(task.schedule?.enabled);
+        $('task-schedule-cron').value = task.schedule?.cron || '0 3 * * *';
+        updateScheduleUI();
         const tpl = task.output?.template || '{ip}:{port}#{emoji}{country}';
         $('task-tpl-custom').value = tpl;
         renderTplSelect(tplOptionFor(tpl));
@@ -236,6 +287,10 @@ export function initTasks({ toast }) {
         };
         task.limit = Number($('task-limit').value) > 0 ? Number($('task-limit').value) : 0;
         task.speedEnabled = $('task-speed').checked;
+        task.schedule = {
+            enabled: $('task-schedule-enabled').checked,
+            cron: $('task-schedule-cron').value.trim() || '0 3 * * *',
+        };
         const rules = [...document.querySelectorAll('#task-rules .task-rule')].map((row, ri) => {
             const conditions = [...row.querySelectorAll('.task-condition')].map(cRow => ({
                 field: cRow.querySelector('.c-field').value,
@@ -349,15 +404,32 @@ export function initTasks({ toast }) {
         }
     }
 
-    // ---- 事件 ----
-    $('task-grid').addEventListener('click', e => {
-        const enable = e.target.closest('.task-enable');
-        if (enable) {
-            const i = Number(enable.dataset.i);
-            state.tasks[i].enabled = enable.checked;
-            api.saveTasks(state.tasks).catch(() => {});
-            return;
+    async function updateTaskEnabled(index, enabled) {
+        const task = state.tasks[index];
+        if (!task) return;
+        const previous = task.enabled;
+        const pendingKey = task.id || String(index);
+        task.enabled = enabled;
+        state.pendingEnabled.add(pendingKey);
+        renderTaskGrid();
+        try {
+            await api.saveTasks(state.tasks);
+        } catch (error) {
+            task.enabled = previous;
+            toast(`更新任务状态失败：${error.message}`);
+        } finally {
+            state.pendingEnabled.delete(pendingKey);
+            renderTaskGrid();
         }
+    }
+
+    // ---- 事件 ----
+    $('task-grid').addEventListener('change', e => {
+        const enable = e.target.closest('.task-enable');
+        if (!enable) return;
+        updateTaskEnabled(Number(enable.dataset.i), enable.checked);
+    });
+    $('task-grid').addEventListener('click', e => {
         const edit = e.target.closest('.task-edit');
         if (edit) { openEditor(state.tasks[Number(edit.dataset.i)]); return; }
         const runOne = e.target.closest('.task-run-one');
@@ -378,7 +450,7 @@ export function initTasks({ toast }) {
             name: '新任务', enabled: true, libraryId: state.libraries[0]?.id || 'default',
             input: { mode: 'file' },
             output: { format: 'txt', template: '{ip}:{port}#{emoji}{country}' },
-            limit: 0, speedEnabled: false,
+            limit: 0, speedEnabled: false, schedule: { enabled: false, cron: '0 3 * * *' },
             rules: [{ name: '规则 1', conditions: [{ field: 'country', values: [] }], limit: 0 }],
         };
         state.tasks.push(task);
@@ -390,7 +462,23 @@ export function initTasks({ toast }) {
     $('task-run').addEventListener('click', runSelected);
     $('task-delete').addEventListener('click', deleteTask);
     $('btn-run-all').addEventListener('click', runAll);
+    function updateScheduleUI() {
+        const enabled = $('task-schedule-enabled').checked;
+        $('task-schedule-settings').hidden = !enabled;
+        const described = describeCron($('task-schedule-cron').value);
+        const description = $('task-schedule-description');
+        description.textContent = described.text;
+        description.classList.toggle('error', !described.valid);
+        $('task-schedule-cron').setAttribute('aria-invalid', String(!described.valid));
+    }
     $('task-speed').addEventListener('change', () => { const t = currentTask(); if (t) renderRules(t.rules || []); });
+    $('task-schedule-enabled').addEventListener('change', updateScheduleUI);
+    $('task-schedule-cron').addEventListener('input', updateScheduleUI);
+    document.querySelectorAll('.task-cron-preset').forEach(button => button.addEventListener('click', () => {
+        $('task-schedule-cron').value = button.dataset.cron || '0 3 * * *';
+        updateScheduleUI();
+        $('task-schedule-cron').focus();
+    }));
     $('task-tpl-select').addEventListener('change', e => { const tpl = tplFor(e.target.value); if (tpl) $('task-tpl-custom').value = tpl; });
     $('task-tpl-save').addEventListener('click', saveCurrentTemplate);
     $('task-rule-add').addEventListener('click', () => {

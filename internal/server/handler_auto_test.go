@@ -43,6 +43,7 @@ func TestTasksSaveGetRoundTrip(t *testing.T) {
 	s := autoServer(t)
 	task := subscription.Task{
 		ID: "t-1", Name: "综合维护", Enabled: true,
+		Schedule: subscription.TaskSchedule{Enabled: true, Cron: "0 3 * * *"},
 		Rules: []subscription.TaskRule{{Name: "美国", Limit: 10, Conditions: []subscription.Condition{{Field: "country", Values: []string{"US"}}}}},
 		Output: subscription.TaskOutput{Path: "out/sub.txt", Template: "{ip}:{port}#{country}"},
 	}
@@ -62,6 +63,14 @@ func TestTasksSaveGetRoundTrip(t *testing.T) {
 	}
 	if len(got.Tasks) != 1 || got.Tasks[0].Name != "综合维护" || got.Tasks[0].LibraryID != library.DefaultID {
 		t.Fatalf("往返不一致: %+v", got.Tasks)
+	}
+	if !got.Tasks[0].Schedule.Enabled || got.Tasks[0].Schedule.Cron != "0 3 * * *" {
+		t.Fatalf("定时配置未往返保留: %+v", got.Tasks[0].Schedule)
+	}
+	// 非法 Cron 的任务应被拒绝
+	badSchedule := subscription.Task{Name: "x", Schedule: subscription.TaskSchedule{Enabled: true, Cron: "not cron"}, Rules: []subscription.TaskRule{{Name: "r", Limit: 1}}}
+	if rec := doJSON(t, s.handleTasksSave, http.MethodPut, "/api/auto/tasks", map[string]any{"tasks": []subscription.Task{badSchedule}}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("非法定时应 400: %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := doJSON(t, s.handleTasksSave, http.MethodPut, "/api/auto/tasks", map[string]any{"tasks": []subscription.Task{{Name: ""}}}); rec.Code != http.StatusBadRequest {
 		t.Fatalf("非法任务应 400: %d %s", rec.Code, rec.Body.String())

@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"iptest-web/internal/library"
 )
@@ -45,6 +48,12 @@ type TaskOutput struct {
 	Template string `json:"template,omitempty"` // 占位符模板
 }
 
+// TaskSchedule 描述程序运行期间的自动维护计划。Cron 使用标准 5 段格式：分 时 日 月 周。
+type TaskSchedule struct {
+	Enabled bool   `json:"enabled"`
+	Cron    string `json:"cron,omitempty"`
+}
+
 // Task 是维护任务（替代旧「订阅器」概念）。
 type Task struct {
 	ID           string     `json:"id,omitempty"`
@@ -54,8 +63,9 @@ type Task struct {
 	Input        TaskInput  `json:"input"`
 	Output       TaskOutput `json:"output"`
 	Limit        int        `json:"limit"`        // 总数限制（合并去重后取前 N）；0=不限
-	SpeedEnabled bool       `json:"speedEnabled"` // 顶部测速总开关；关 = 规则速度字段无效
-	Rules        []TaskRule `json:"rules"`
+	SpeedEnabled bool         `json:"speedEnabled"` // 顶部测速总开关；关 = 规则速度字段无效
+	Schedule     TaskSchedule `json:"schedule,omitempty"`
+	Rules        []TaskRule   `json:"rules"`
 }
 
 // Validate 校验并规范化任务。
@@ -116,6 +126,15 @@ func (t *Task) Validate() error {
 	if t.Limit < 0 {
 		return fmt.Errorf("任务 %q 总数限制不能为负", t.Name)
 	}
+	t.Schedule.Cron = strings.TrimSpace(t.Schedule.Cron)
+	if t.Schedule.Enabled {
+		if t.Schedule.Cron == "" {
+			t.Schedule.Cron = "0 3 * * *"
+		}
+		if err := ValidateCron(t.Schedule.Cron); err != nil {
+			return fmt.Errorf("任务 %q 定时表达式无效: %w", t.Name, err)
+		}
+	}
 	if t.Output.Path == "" {
 		if strings.TrimSpace(t.Input.File) != "" {
 			t.Output.Path = filepath.Clean(strings.TrimSpace(t.Input.File))
@@ -136,6 +155,112 @@ func (t *Task) Validate() error {
 	return nil
 }
 
+var cronNumberPattern = regexp.MustCompile(`^\d+$`)
+
+// ValidateCron 校验标准 5 段 Cron 表达式。支持 *、列表、范围和步长。
+func ValidateCron(expr string) error {
+	fields := strings.Fields(expr)
+	if len(fields) != 5 {
+		return fmt.Errorf("需要 5 段：分 时 日 月 周")
+	}
+	limits := [][2]int{{0, 59}, {0, 23}, {1, 31}, {1, 12}, {0, 7}}
+	for i, field := range fields {
+		if err := validateCronField(field, limits[i][0], limits[i][1]); err != nil {
+			return fmt.Errorf("第 %d 段错误: %w", i+1, err)
+		}
+	}
+	return nil
+}
+
+func validateCronField(field string, min, max int) error {
+	for _, part := range strings.Split(field, ",") {
+		base, stepText, hasStep := strings.Cut(part, "/")
+		if hasStep {
+			step, err := strconv.Atoi(stepText)
+			if err != nil || step < 1 || strings.Contains(stepText, "/") {
+				return fmt.Errorf("步长必须是正整数")
+			}
+		}
+		if base == "*" {
+			continue
+		}
+		if strings.Contains(base, "-") {
+			pair := strings.Split(base, "-")
+			if len(pair) != 2 {
+				return fmt.Errorf("范围格式错误")
+			}
+			start, err1 := cronValue(pair[0], min, max)
+			end, err2 := cronValue(pair[1], min, max)
+			if err1 != nil || err2 != nil || start > end {
+				return fmt.Errorf("范围超出 %d-%d 或起止颠倒", min, max)
+			}
+			continue
+		}
+		if hasStep {
+			return fmt.Errorf("步长只能用于 * 或范围")
+		}
+		if _, err := cronValue(base, min, max); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func cronValue(raw string, min, max int) (int, error) {
+	if !cronNumberPattern.MatchString(raw) {
+		return 0, fmt.Errorf("只支持数字和 Cron 符号")
+	}
+	value, _ := strconv.Atoi(raw)
+	if value < min || value > max {
+		return 0, fmt.Errorf("数值 %d 超出 %d-%d", value, min, max)
+	}
+	return value, nil
+}
+
+// CronMatches 判断本地时间是否命中表达式。
+func CronMatches(expr string, now time.Time) bool {
+	fields := strings.Fields(expr)
+	if len(fields) != 5 {
+		return false
+	}
+	values := []int{now.Minute(), now.Hour(), now.Day(), int(now.Month()), int(now.Weekday())}
+	limits := [][2]int{{0, 59}, {0, 23}, {1, 31}, {1, 12}, {0, 7}}
+	for i := range fields {
+		if !cronFieldMatches(fields[i], values[i], limits[i][0], limits[i][1], i == 4) {
+			return false
+		}
+	}
+	return true
+}
+
+func cronFieldMatches(field string, value, min, max int, sundayAlias bool) bool {
+	for _, part := range strings.Split(field, ",") {
+		base, stepText, hasStep := strings.Cut(part, "/")
+		step := 1
+		if hasStep {
+			step, _ = strconv.Atoi(stepText)
+		}
+		start, end := min, max
+		if base != "*" {
+			if strings.Contains(base, "-") {
+				pair := strings.SplitN(base, "-", 2)
+				start, _ = strconv.Atoi(pair[0])
+				end, _ = strconv.Atoi(pair[1])
+			} else {
+				start, _ = strconv.Atoi(base)
+				end = start
+			}
+		}
+		check := value
+		if sundayAlias && check == 0 && start == 7 && end == 7 {
+			check = 7
+		}
+		if check >= start && check <= end && (check-start)%step == 0 {
+			return true
+		}
+	}
+	return false
+}
 // LoadTasks 读取 data/tasks.json；不存在时尝试迁移旧 subscriptions.json。
 func LoadTasks(dataDir string) ([]Task, error) {
 	body, err := os.ReadFile(filepath.Join(dataDir, TasksFile))

@@ -44,7 +44,7 @@ const SELECTABLE_COLUMN_KEYS = ALL_COLUMNS
     .filter(column => column.key !== '_sel' && column.key !== 'enableTLS' && column.inCSV)
     .map(column => column.key);
 let visibleColumnKeys = [...DEFAULT_COLUMN_KEYS];
-let templateEditorOpen = false; // 导出弹窗里「＋模板设置」的展开状态
+let templateEditorOpen = false; // 导出弹窗里“＋”新增 TXT 模板面板的展开状态
 
 let toastTimer = null;
 let tasksPage = null;
@@ -202,32 +202,51 @@ function bindProxyInput() {
         event.target.value = '';
     });
 
-    $('import-source').addEventListener('change', () => {
+    function updateProxySourceUI({ focus = false } = {}) {
         const source = $('import-source').value;
-        $('import-remote-url').hidden = source !== 'remote';
-        $('import-library-select').hidden = source !== 'library';
-        if (source === 'file') $('file-input').click();
-        if (source === 'paste') $('ip-input').focus();
+        const urlInput = $('import-remote-url');
+        const librarySelect = $('import-library-select');
+        const hint = $('import-hint');
+        const action = $('btn-import-remote');
+
+        urlInput.hidden = source !== 'remote';
+        librarySelect.hidden = source !== 'library';
+        hint.hidden = source !== 'file';
+        action.textContent = source === 'file' ? '选择文件' : source === 'remote' ? '载入链接' : '导入候选';
+        action.disabled = source === 'library' && !librarySelect.value;
+
+        if (!focus) return;
+        if (source === 'remote') urlInput.focus();
+        if (source === 'library') librarySelect.focus();
+    }
+    updateProxySourceUI();
+    $('import-source').addEventListener('change', () => updateProxySourceUI({ focus: true }));
+    $('import-remote-url').addEventListener('keydown', event => {
+        if (event.key === 'Enter') $('btn-import-remote').click();
+    });
+    $('import-library-select').addEventListener('change', () => {
+        $('btn-import-remote').disabled = !$('import-library-select').value;
     });
     $('btn-import-remote').addEventListener('click', async () => {
         const source = $('import-source').value;
         if (source === 'file') { $('file-input').click(); return; }
         if (source === 'library') { await importFromLibrary(); return; }
         const url = $('import-remote-url').value.trim();
-        if (!url) { toast('请填写远程 TXT / CSV 地址'); return; }
+        if (!url) { toast('请填写远程 TXT / CSV 地址'); $('import-remote-url').focus(); return; }
         const button = $('btn-import-remote');
+        const idleText = '载入链接';
         button.disabled = true;
-        button.textContent = '加载中…';
+        button.textContent = '载入中…';
         try {
             const resp = await api.importRemote(url, { sampleMode: 'one', sampleN: 1 });
             const imported = resp.format === 'csv' ? importCSVText(resp.text || '') : (resp.text || '');
             appendRawText(imported || resp.targets.map(targetToLine).join('\n'));
-            toast(`远程 ${resp.format === 'csv' ? 'CSV' : 'TXT'} 已加载到输入框`);
+            toast(`远程 ${resp.format === 'csv' ? 'CSV' : 'TXT'} 已载入原始列表`);
         } catch (error) {
             toast(error.message);
         } finally {
             button.disabled = false;
-            button.textContent = '导入';
+            button.textContent = idleText;
         }
     });
 }
@@ -531,6 +550,17 @@ async function startSupplementalSpeed(useVisible) {
     } catch (error) {
         toast(error.message);
     }
+}
+
+function openImportTargetModal() {
+    const results = exportResults();
+    if (!results.length) { toast('当前导出范围没有结果'); return; }
+    $('import-target-count').textContent = String(results.length);
+    $('import-target-modal').hidden = false;
+}
+
+function closeImportTargetModal() {
+    $('import-target-modal').hidden = true;
 }
 
 // 导入到 IP 库：与复制/下载平级，按当前导出范围（全部/当前规则/自定义）取结果
@@ -1198,6 +1228,8 @@ async function persistSavedTemplates() {
 
 function renderTemplateOptions(selected = '') {
     const format = exportFormat();
+    const templateField = $('export-template-field');
+    const templateToggle = $('btn-template-toggle');
     const txtEditor = $('txt-template-editor');
     const csvHint = $('csv-template-hint');
     if (format === 'csv') {
@@ -1206,6 +1238,9 @@ function renderTemplateOptions(selected = '') {
         const scopeLabel = { direct: '全部字段', rules: '当前展示字段', custom: '自定义字段' }[scope] || '全部字段';
         $('format-presets').innerHTML = `<option value="csv:${scope}">${scopeLabel}（${columns.length} 列）</option>`;
         $('format-presets').value = `csv:${scope}`;
+        templateEditorOpen = false;
+        templateField.hidden = true;
+        templateToggle.setAttribute('aria-expanded', 'false');
         txtEditor.hidden = true;
         csvHint.hidden = false;
         $('csv-column-label').textContent = columns.map(c => c.label).join('、') || '未选择字段';
@@ -1213,6 +1248,8 @@ function renderTemplateOptions(selected = '') {
         $('custom-field-picker').hidden = scope !== 'custom';
         return;
     }
+    templateField.hidden = false;
+    templateToggle.setAttribute('aria-expanded', String(templateEditorOpen));
     txtEditor.hidden = !templateEditorOpen;
     csvHint.hidden = true;
     const presetOptions = PRESETS.map((item, index) =>
@@ -1332,7 +1369,14 @@ function bindExport() {
             toast(error.message);
         }
     });
-    $('btn-import-lib').addEventListener('click', importResultsToLib);
+    $('btn-import-lib').addEventListener('click', openImportTargetModal);
+    $('btn-import-target-close').addEventListener('click', closeImportTargetModal);
+    $('btn-import-target-cancel').addEventListener('click', closeImportTargetModal);
+    $('import-target-modal').addEventListener('click', e => { if (e.target === $('import-target-modal')) closeImportTargetModal(); });
+    $('btn-import-target-confirm').addEventListener('click', async () => {
+        await importResultsToLib();
+        closeImportTargetModal();
+    });
     $('btn-download').addEventListener('click', () => {
         regenerateOutput();
         const text = $('output-box').value;
@@ -1451,10 +1495,24 @@ function bindExportPopovers() {
     $('btn-export-open').addEventListener('click', () => open('export-modal'));
     $('btn-export-close').addEventListener('click', () => close('export-modal'));
     $('export-modal').addEventListener('click', e => { if (e.target === $('export-modal')) close('export-modal'); });
+    document.addEventListener('keydown', e => {
+        if (e.key !== 'Escape') return;
+        if (!$('import-target-modal').hidden) { closeImportTargetModal(); return; }
+        if (!$('export-modal').hidden) close('export-modal');
+    });
 
     $('btn-template-toggle').addEventListener('click', () => {
+        if (exportFormat() !== 'txt') return;
         templateEditorOpen = !templateEditorOpen;
+        const toggle = $('btn-template-toggle');
+        toggle.setAttribute('aria-expanded', String(templateEditorOpen));
         $('txt-template-editor').hidden = !templateEditorOpen;
+        if (!templateEditorOpen) return;
+
+        // “＋”始终进入新增状态；保留当前模板内容，便于基于现有模板创建变体。
+        $('template-name').value = '';
+        $('btn-delete-template').disabled = true;
+        $('template-name').focus();
     });
 }
 
@@ -1470,8 +1528,11 @@ async function refreshLibraryCandidateOptions() {
     try {
         const data = await api.fetchLibraries();
         const sel = $('import-library-select');
-        sel.innerHTML = '<option value="">选择库…</option>'
-            + (data.libraries || []).map(l => `<option value="${escapeHTML(l.id)}">${escapeHTML(l.name)}</option>`).join('');
+        const libraries = data.libraries || [];
+        const stats = data.stats || {};
+        sel.innerHTML = '<option value="">选择要导入的 IP 库…</option>'
+            + libraries.map(l => `<option value="${escapeHTML(l.id)}">${escapeHTML(l.name)}（${Number(stats[l.id]?.total || 0)} 条）</option>`).join('');
+        if ($('import-source').value === 'library') $('btn-import-remote').disabled = !sel.value;
     } catch { /* 忽略 */ }
 }
 

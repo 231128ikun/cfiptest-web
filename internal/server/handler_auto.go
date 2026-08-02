@@ -458,6 +458,12 @@ func (s *Server) handleAutoRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "已有任务在运行")
 		return
 	}
+	opts := s.autoRunOptions(req.Options)
+	go s.runAutoTask(ctx, taskID, *task, opts)
+	writeJSON(w, http.StatusOK, taskResponse{TaskID: taskID, Status: "running", TotalTargets: 0})
+}
+
+func (s *Server) autoRunOptions(overrides *subscription.RunOptions) subscription.RunOptions {
 	s.configMu.RLock()
 	latencyDefaults := s.latencyDefaults
 	speedDefaults := s.speedDefaults
@@ -468,24 +474,15 @@ func (s *Server) handleAutoRun(w http.ResponseWriter, r *http.Request) {
 		SpeedConcurrency: speedDefaults.MaxConcurrency,
 		DownloadURL:      speedDefaults.DownloadURL,
 	}
-	if req.Options != nil {
-		merged := *req.Options
-		if merged.LatencyTimeoutMs == 0 {
-			merged.LatencyTimeoutMs = opts.LatencyTimeoutMs
-		}
-		if merged.SpeedDurationSec == 0 {
-			merged.SpeedDurationSec = opts.SpeedDurationSec
-		}
-		if merged.SpeedConcurrency == 0 {
-			merged.SpeedConcurrency = opts.SpeedConcurrency
-		}
-		if merged.DownloadURL == "" {
-			merged.DownloadURL = opts.DownloadURL
-		}
-		opts = merged
+	if overrides == nil {
+		return opts
 	}
-	go s.runAutoTask(ctx, taskID, *task, opts)
-	writeJSON(w, http.StatusOK, taskResponse{TaskID: taskID, Status: "running", TotalTargets: 0})
+	merged := *overrides
+	if merged.LatencyTimeoutMs == 0 { merged.LatencyTimeoutMs = opts.LatencyTimeoutMs }
+	if merged.SpeedDurationSec == 0 { merged.SpeedDurationSec = opts.SpeedDurationSec }
+	if merged.SpeedConcurrency == 0 { merged.SpeedConcurrency = opts.SpeedConcurrency }
+	if merged.DownloadURL == "" { merged.DownloadURL = opts.DownloadURL }
+	return merged
 }
 
 func (s *Server) runAutoTask(ctx context.Context, taskID string, task subscription.Task, opts subscription.RunOptions) {
