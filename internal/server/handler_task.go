@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 
@@ -147,10 +146,8 @@ func isTaskFailure(err error) bool {
 func (s *Server) broadcastTaskEvent(taskID string, ev engine.Event) {
 	switch ev.Type {
 	case engine.EventDone:
-		log.Printf("任务 %s 结束: reason=%s message=%s", taskID, ev.Reason, ev.Message)
 		s.log.Log("info", "任务 %s 结束: reason=%s message=%s", taskID, ev.Reason, ev.Message)
 	case engine.EventError:
-		log.Printf("任务 %s 错误: %s", taskID, ev.Message)
 		s.log.Log("error", "任务 %s 错误: %s", taskID, ev.Message)
 	}
 	s.broadcast(ev)
@@ -186,7 +183,7 @@ func (s *Server) handleStartLatency(w http.ResponseWriter, r *http.Request) {
 	s.configMu.RUnlock()
 	opts := req.Options.apply(latencyDefaults)
 	targets = engine.ResolveDefaultPorts(targets, opts.EnableTLS)
-	log.Printf("任务 %s 开始: targets=%d tls=%v continueSpeed=%v", taskID, len(targets), opts.EnableTLS, req.EnableSpeed)
+	s.log.Log("info", "任务 %s 开始: targets=%d tls=%v continueSpeed=%v", taskID, len(targets), opts.EnableTLS, req.EnableSpeed)
 	go func() {
 		defer s.finishTask(taskID)
 		if !req.EnableSpeed {
@@ -234,7 +231,7 @@ func (s *Server) handleStartSpeed(w http.ResponseWriter, r *http.Request) {
 	s.configMu.RUnlock()
 	opts := req.Options.apply(speedDefaults)
 	req.Targets = engine.ResolveDefaultPorts(req.Targets, opts.EnableTLS)
-	log.Printf("任务 %s 开始: targets=%d supplementalSpeed=true tls=%v", taskID, len(req.Targets), opts.EnableTLS)
+	s.log.Log("info", "任务 %s 开始: targets=%d supplementalSpeed=true tls=%v", taskID, len(req.Targets), opts.EnableTLS)
 	go func() {
 		defer s.finishTask(taskID)
 		if err := s.runner.RunSpeedTest(ctx, req.Targets, opts, func(ev engine.Event) {
@@ -252,7 +249,7 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&req) // 允许空 body = 停止当前任务
 	stopped := s.stopTask(req.TaskID)
 	if stopped {
-		log.Printf("任务 %s 收到停止指令", req.TaskID)
+		s.log.Log("info", "任务 %s 收到停止指令", req.TaskID)
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"stopped": stopped})
 }

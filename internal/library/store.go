@@ -102,6 +102,10 @@ func (s *Store) Upsert(e Entry) bool {
 	if e.FirstSeenAt.IsZero() {
 		e.FirstSeenAt = time.Now()
 	}
+	if e.DownloadSpeedKBs == 0 && e.SpeedKBs != 0 {
+		e.DownloadSpeedKBs = e.SpeedKBs
+	}
+	e.SpeedKBs = e.DownloadSpeedKBs
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	key := e.Key()
@@ -278,5 +282,3 @@ func (s *Store) Save() error {
 	}
 	return os.Rename(tmpPath, s.path)
 }
-
-

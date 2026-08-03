@@ -948,6 +948,7 @@ function applySavedSettings(settings = {}) {
         $('export-format').value = settings.exportFormat;
     }
     $('log-enable').checked = settings.debugLog === true;
+    debugLogStatus($('log-enable').checked);
     if (Array.isArray(settings.savedTemplates)) {
         savedTemplates = settings.savedTemplates
             .filter(item => item && typeof item.name === 'string' && typeof item.template === 'string');
@@ -1445,8 +1446,22 @@ async function bindLibraryCandidateImport() {
 }
 
 // 侧边栏日志：所有日志集中在这里（运行进度 / 错误 / 调试记录）
+function debugLogStatus(enabled, message = '') {
+    const status = $('log-status');
+    if (!status) return;
+    status.classList.toggle('is-enabled', enabled);
+    status.classList.toggle('is-error', Boolean(message));
+    status.textContent = message || (enabled
+        ? '调试日志已开启：新的请求、任务阶段和错误会写入 data/logs/app.log。'
+        : '调试日志已关闭：不记录也不显示新的调试日志。');
+}
+
 function sideLog(line, kind = '') {
+    const checkbox = $('log-enable');
+    if (checkbox && !checkbox.checked) return;
     const body = $('log-viewer');
+    if (!body) return;
+    body.classList.remove('is-disabled');
     const div = document.createElement('div');
     div.className = `log-line ${kind}`;
     div.textContent = `[${new Date().toLocaleTimeString('zh-CN', { hour12: false })}] ${line}`;
@@ -1457,35 +1472,54 @@ function sideLog(line, kind = '') {
 
 function bindDebugLog() {
     const checkbox = $('log-enable');
+    const body = $('log-viewer');
     checkbox.addEventListener('change', async () => {
+        const enabled = checkbox.checked;
+        if (!enabled) {
+            body.innerHTML = '';
+            body.classList.add('is-disabled');
+        }
+        debugLogStatus(enabled);
         try {
             const config = await api.fetchConfig();
-            await api.saveSettings({ ...(config.settings || {}), debugLog: checkbox.checked });
-            toast(checkbox.checked ? '调试日志已开启（写入 data/logs/app.log）' : '调试日志已关闭');
+            await api.saveSettings({ ...(config.settings || {}), debugLog: enabled });
+            toast(enabled ? '调试日志已开启（写入 data/logs/app.log）' : '调试日志已关闭');
         } catch (error) {
-            toast(`保存失败：${error.message}`);
+            checkbox.checked = !enabled;
+            debugLogStatus(checkbox.checked, '保存日志设置失败：' + error.message);
+            toast('保存失败：' + error.message);
         }
     });
     $('log-refresh').addEventListener('click', async () => {
+        if (!checkbox.checked) {
+            body.innerHTML = '';
+            body.classList.add('is-disabled');
+            debugLogStatus(false);
+            return;
+        }
         try {
             const data = await api.fetchLog(300);
-            const body = $('log-viewer');
+            body.classList.remove('is-disabled');
             body.innerHTML = (data.lines || []).map(l => `<div class="log-line file">${escapeHTML(l)}</div>`).join('');
             body.scrollTop = body.scrollHeight;
+            debugLogStatus(data.enabled === true, data.writeError ? '日志写入异常：' + data.writeError : '');
         } catch (error) {
-            toast(`读取日志失败：${error.message}`);
+            debugLogStatus(true, '读取日志失败：' + error.message);
+            toast('读取日志失败：' + error.message);
         }
     });
     $('log-clear').addEventListener('click', async () => {
         if (!confirm('确认清空日志文件？')) return;
         try {
             await api.clearLog();
-            $('log-viewer').innerHTML = '';
+            body.innerHTML = '';
+            body.classList.toggle('is-disabled', !checkbox.checked);
             toast('日志已清空');
         } catch (error) {
-            toast(`清空失败：${error.message}`);
+            toast('清空失败：' + error.message);
         }
     });
+    debugLogStatus(checkbox.checked);
 }
 
 // 导出 / 导入 本地库 弹窗 + 模板"＋"

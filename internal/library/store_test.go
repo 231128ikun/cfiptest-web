@@ -1,8 +1,10 @@
 package library
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -114,17 +116,36 @@ func TestSkipsCorruptLines(t *testing.T) {
 	}
 }
 
+func TestEntryLegacySpeedCompatibility(t *testing.T) {
+	var e Entry
+	if err := json.Unmarshal([]byte(`{"ip":"1.2.3.4","port":443,"status":"active","speedKBs":4321,"speedValid":true}`), &e); err != nil {
+		t.Fatal(err)
+	}
+	if e.DownloadSpeedKBs != 4321 || e.SpeedKBs != 4321 || !e.SpeedValid {
+		t.Fatalf("旧速度字段兼容失败: %+v", e)
+	}
+	body, err := json.Marshal(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "speedKBs") || !strings.Contains(string(body), "downloadSpeedKBs") {
+		t.Fatalf("新格式字段不规范: %s", body)
+	}
+}
+
 func TestEntryFromResult(t *testing.T) {
 	now := time.Now()
 	e := EntryFromResult(engine.Result{
 		IP: "1.2.3.4", Port: 443, CountryCode: "US", Country: "美国", CityZh: "洛杉矶",
-		Emoji: "🇺🇸", DataCenter: "LAX", ASN: 13335, ASNOrg: "Cloudflare, Inc.",
-		TCPLatencyMs: 88, DownloadSpeedKBs: 5200,
+		Emoji: "🇺🇸", DataCenter: "LAX", LocCode: "SG", Region: "California", City: "Los Angeles", RegionZh: "加利福尼亚",
+		OutboundIP: "203.0.113.1", IPType: "IPv4", VisitScheme: "https", TLSVersion: "TLSv1.3", SNI: "plaintext",
+		HTTPVersion: "HTTP/2", WARP: "off", Gateway: "off", RBI: "off", KEX: "X25519", Timestamp: "1",
+		ASN: 13335, ASNOrg: "Cloudflare, Inc.", IPSType: "hosting", TCPLatencyMs: 88, DownloadSpeedKBs: 5200,
 	}, now)
 	if e.Status != StatusActive || e.CountryCode != "US" || !e.SpeedValid || e.SpeedKBs != 5200 {
 		t.Fatalf("结果转条目错误: %+v", e)
 	}
-	if e.TCPLatencyMs != 88 || e.Checks != 1 || e.FirstSeenAt.IsZero() {
+	if e.TCPLatencyMs != 88 || e.LocCode != "SG" || e.Region != "California" || e.OutboundIP != "203.0.113.1" || e.TLSVersion != "TLSv1.3" || e.IPSType != "hosting" || e.Checks != 1 || e.FirstSeenAt.IsZero() {
 		t.Fatalf("字段错误: %+v", e)
 	}
 	// 未测速时 SpeedValid 应为 false
@@ -140,9 +161,9 @@ func TestEntryFromResultUsesEdgeCountryNotTraceLoc(t *testing.T) {
 	// 模拟：本机在中国（loc=CN），边缘节点是洛杉矶（colo=LAX, cca2=US）
 	e := EntryFromResult(engine.Result{
 		IP: "104.16.0.1", Port: 443,
-		LocCode: "CN",            // 访客/本机国家（不得用作 IP 国家）
-		CountryCode: "US",        // 边缘节点国家码
-		Country: "美国", CityZh: "洛杉矶",
+		LocCode:     "CN", // 访客/本机国家（不得用作 IP 国家）
+		CountryCode: "US", // 边缘节点国家码
+		Country:     "美国", CityZh: "洛杉矶",
 	}, now)
 	if e.CountryCode != "US" {
 		t.Fatalf("入库国家码应来自边缘节点 cca2(US)，实际 %q（trace 的 loc=CN 是本机国家，不应作为 IP 国家）", e.CountryCode)

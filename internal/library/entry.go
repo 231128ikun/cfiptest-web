@@ -5,6 +5,7 @@
 package library
 
 import (
+	"encoding/json"
 	"strconv"
 	"time"
 
@@ -35,26 +36,60 @@ type Entry struct {
 	IP   string `json:"ip"`
 	Port int    `json:"port"`
 
-	// 上次检测得到的元数据。
-	CountryCode string `json:"countryCode"` // ISO 3166-1 alpha-2（trace loc / locations cca2）
-	Country     string `json:"country"`     // 中文名
-	CityZh      string `json:"cityZh"`
-	Emoji       string `json:"emoji"`
-	DataCenter  string `json:"dataCenter"`
-	RegionZh    string `json:"regionZh"`
-	ASN         uint   `json:"asn"`
-	ASNOrg      string `json:"asnOrg"`
+	// engine.Result 的全量检测字段。IP 库持久化完整结果，避免后续筛选、导出或排障时信息丢失。
+	TCPLatencyMs int64  `json:"tcpLatencyMs"`
+	DataCenter   string `json:"dataCenter"`
+	LocCode      string `json:"locCode"`
+	Region       string `json:"region"`
+	City         string `json:"city"`
+	RegionZh     string `json:"regionZh"`
+	Country      string `json:"country"`
+	CountryCode  string `json:"countryCode"`
+	CityZh       string `json:"cityZh"`
+	Emoji        string `json:"emoji"`
+	OutboundIP   string `json:"outboundIP"`
+	IPType       string `json:"ipType"`
+	VisitScheme  string `json:"visitScheme"`
+	TLSVersion   string `json:"tlsVersion"`
+	SNI          string `json:"sni"`
+	HTTPVersion  string `json:"httpVersion"`
+	WARP         string `json:"warp"`
+	Gateway      string `json:"gateway"`
+	RBI          string `json:"rbi"`
+	KEX          string `json:"kex"`
+	Timestamp    string `json:"timestamp"`
+	ASN          uint   `json:"asn"`
+	ASNOrg       string `json:"asnOrg"`
+	IPSType      string `json:"ipsType"`
 
-	// 测量值。
-	TCPLatencyMs int64   `json:"tcpLatencyMs"` // 0 = 尚未通过延迟检测
-	SpeedKBs     float64 `json:"speedKBs"`     // 最近一次有效测速值
-	SpeedValid   bool    `json:"speedValid"`   // 最近一次测速是否有效（false=链路不稳/未测）
+	DownloadSpeedKBs float64 `json:"downloadSpeedKBs"`
+	// SpeedKBs 保留为源码兼容别名，不参与新库文件序列化。
+	SpeedKBs   float64 `json:"-"`
+	SpeedValid bool    `json:"speedValid"`
 
-	Source        string    `json:"source"` // manual | import | official | topup
-	Status        string    `json:"status"` // new | active
+	Source        string    `json:"source"`
+	Status        string    `json:"status"`
 	FirstSeenAt   time.Time `json:"firstSeenAt"`
 	LastCheckedAt time.Time `json:"lastCheckedAt"`
-	Checks        int       `json:"checks"` // 累计检测次数
+	Checks        int       `json:"checks"`
+}
+
+// UnmarshalJSON 兼容旧版库中的 speedKBs 字段；保存时统一写为 downloadSpeedKBs。
+func (e *Entry) UnmarshalJSON(data []byte) error {
+	type entryAlias Entry
+	var raw struct {
+		entryAlias
+		LegacySpeedKBs *float64 `json:"speedKBs"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*e = Entry(raw.entryAlias)
+	if e.DownloadSpeedKBs == 0 && raw.LegacySpeedKBs != nil {
+		e.DownloadSpeedKBs = *raw.LegacySpeedKBs
+	}
+	e.SpeedKBs = e.DownloadSpeedKBs
+	return nil
 }
 
 // Key 返回 ip|port 形式的稳定键。
@@ -72,23 +107,15 @@ func (e *Entry) IsActive() bool { return e.Status == StatusActive }
 // 用于把「手动三步检测」通过的结果一键导入 IP 库。
 func EntryFromResult(res engine.Result, now time.Time) Entry {
 	return Entry{
-		IP:           res.IP,
-		Port:         res.Port,
-		CountryCode:  res.CountryCode,
-		Country:      res.Country,
-		CityZh:       res.CityZh,
-		Emoji:        res.Emoji,
-		DataCenter:   res.DataCenter,
-		RegionZh:     res.RegionZh,
-		ASN:          res.ASN,
-		ASNOrg:       res.ASNOrg,
-		TCPLatencyMs: res.TCPLatencyMs,
-		SpeedKBs:     res.DownloadSpeedKBs,
-		SpeedValid:   res.DownloadSpeedKBs > 0,
-		Source:       SourceImport,
-		Status:       StatusActive,
-		FirstSeenAt:  now,
-		LastCheckedAt: now,
-		Checks:       1,
+		IP: res.IP, Port: res.Port,
+		TCPLatencyMs: res.TCPLatencyMs, DataCenter: res.DataCenter, LocCode: res.LocCode,
+		Region: res.Region, City: res.City, RegionZh: res.RegionZh,
+		Country: res.Country, CountryCode: res.CountryCode, CityZh: res.CityZh, Emoji: res.Emoji,
+		OutboundIP: res.OutboundIP, IPType: res.IPType,
+		VisitScheme: res.VisitScheme, TLSVersion: res.TLSVersion, SNI: res.SNI,
+		HTTPVersion: res.HTTPVersion, WARP: res.WARP, Gateway: res.Gateway, RBI: res.RBI,
+		KEX: res.KEX, Timestamp: res.Timestamp, ASN: res.ASN, ASNOrg: res.ASNOrg, IPSType: res.IPSType,
+		DownloadSpeedKBs: res.DownloadSpeedKBs, SpeedKBs: res.DownloadSpeedKBs, SpeedValid: res.DownloadSpeedKBs > 0,
+		Source: SourceImport, Status: StatusActive, FirstSeenAt: now, LastCheckedAt: now, Checks: 1,
 	}
 }

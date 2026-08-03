@@ -4,7 +4,11 @@ import * as api from './api.js';
 
 const $ = id => document.getElementById(id);
 const STATUS_LABEL = { active: '有效', new: '未测' };
-
+const fmtNumber = value => Number.isFinite(Number(value)) && Number(value) > 0
+    ? Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 0 })
+    : '—';
+const fmtValue = value => value == null || value === '' ? '—' : String(value);
+const fmtTimestamp = value => value ? String(value) : '—';
 const fmtTime = ts => {
     if (!ts) return '—';
     const d = new Date(ts);
@@ -121,30 +125,56 @@ export function initLibrary({ toast }) {
 
     function renderTable() {
         const tbody = $('lib-tbody');
+        const columnCount = 33;
         if (!state.entries.length) {
-            tbody.innerHTML = `<tr class="pad"><td colspan="9" class="auto-lib-empty">${state.current ? '库为空：粘贴 IP 到上方导入，或在检测结果页一键导入' : '请先选择 IP 库'}</td></tr>`;
+            tbody.innerHTML = `<tr class="pad"><td colspan="${columnCount}" class="auto-lib-empty">${state.current ? '库为空：粘贴 IP 到上方导入，或在检测结果页一键导入' : '请先选择 IP 库'}</td></tr>`;
             $('lib-count').textContent = state.current ? `共 ${state.total} 条` : '';
             return;
         }
         tbody.innerHTML = state.entries.map(e => {
             const key = `${e.ip}|${e.port || 0}`;
             const checked = state.selected.has(key) ? 'checked' : '';
+            const speed = Number(e.downloadSpeedKBs ?? e.speedKBs);
+            const speedText = e.speedValid && speed > 0 ? `${fmtNumber(speed)} kB/s` : '—';
+            const cell = value => escapeHTML(fmtValue(value));
             return `<tr>
                 <td><input type="checkbox" class="lib-check" data-key="${escapeHTML(key)}" ${checked} aria-label="选择 ${escapeHTML(e.ip)}"></td>
-                <td class="mono">${escapeHTML(e.ip)}</td>
-                <td>${e.port || '—'}</td>
-                <td>${escapeHTML(e.emoji || '')}${escapeHTML(e.country || e.countryCode || '—')}</td>
-                <td>${escapeHTML(e.cityZh || '—')}</td>
-
-                <td>${escapeHTML(e.dataCenter || '—')}</td>
-
-                <td>${STATUS_LABEL[e.status] || escapeHTML(e.status || '—')}</td>
-                <td>${fmtTime(e.lastCheckedAt)}</td>
+                <td class="mono">${cell(e.ip)}</td>
+                <td class="num">${e.port || '—'}</td>
+                <td>${cell(e.dataCenter)}</td>
+                <td>${cell(e.locCode)}</td>
+                <td>${cell(e.region)}</td>
+                <td>${cell(e.city)}</td>
+                <td>${cell(e.regionZh)}</td>
+                <td>${cell(e.country)}</td>
+                <td>${cell(e.countryCode)}</td>
+                <td>${cell(e.cityZh)}</td>
+                <td>${cell(e.emoji)}</td>
+                <td class="num">${e.tcpLatencyMs > 0 ? `${e.tcpLatencyMs} ms` : '—'}</td>
+                <td class="num">${speedText}</td>
+                <td>${cell(e.outboundIP)}</td>
+                <td>${cell(e.ipType)}</td>
+                <td>${cell(e.ipsType)}</td>
+                <td class="num">${e.asn || '—'}</td>
+                <td>${cell(e.asnOrg)}</td>
+                <td>${cell(e.visitScheme)}</td>
+                <td>${cell(e.tlsVersion)}</td>
+                <td>${cell(e.sni)}</td>
+                <td>${cell(e.httpVersion)}</td>
+                <td>${cell(e.warp)}</td>
+                <td>${cell(e.gateway)}</td>
+                <td>${cell(e.rbi)}</td>
+                <td>${cell(e.kex)}</td>
+                <td>${cell(e.timestamp)}</td>
+                <td>${STATUS_LABEL[e.status] || cell(e.status)}</td>
+                <td>${fmtTimestamp(e.firstSeenAt)}</td>
+                <td>${fmtTimestamp(e.lastCheckedAt)}</td>
+                <td class="num">${e.checks || 0}</td>
+                <td>${cell(e.source)}</td>
             </tr>`;
         }).join('');
         $('lib-count').textContent = `共 ${state.total} 条，当前显示 ${state.entries.length} 条`;
     }
-
     async function removeSelected() {
         const keys = [...state.selected];
         if (!keys.length) { toast('请先勾选要移除的条目'); return; }

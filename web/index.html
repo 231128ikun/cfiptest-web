@@ -465,11 +465,11 @@
                     </div>
                     <div id="lib-stats" class="lib-stats"></div>
                     <div class="lib-table-wrap">
-                        <table class="results">
+                        <table class="results library-results">
                             <thead>
                                 <tr>
                                     <th class="no-sort"><input type="checkbox" id="lib-checkall" aria-label="全选"></th>
-                                    <th>IP</th><th>端口</th><th>国家</th><th>城市</th><th>数据中心</th><th>延迟</th><th>速度</th><th>状态</th><th>上次检测</th>
+                                    <th>IP 地址</th><th>端口</th><th>数据中心</th><th>IP位置</th><th>地区</th><th>城市</th><th>地区(中文)</th><th>国家</th><th>国家代码</th><th>城市(中文)</th><th>国旗</th><th>延迟</th><th>速度</th><th>出站IP</th><th>出站类型</th><th>IPS 类型</th><th>ASN 号码</th><th>ASN 组织</th><th>访问协议</th><th>TLS版本</th><th>SNI</th><th>HTTP版本</th><th>WARP</th><th>Gateway</th><th>RBI</th><th>密钥交换</th><th>时间戳</th><th>状态</th><th>首次发现</th><th>上次检测</th><th>检测次数</th><th>来源</th>
                                 </tr>
                             </thead>
                             <tbody id="lib-tbody"></tbody>
@@ -484,15 +484,15 @@
             <div class="page-head">
                 <div>
                     <h2>日志</h2>
-                    <p class="page-desc">调试日志集中在这里：默认关闭，出问题时打开「记录」复现，日志写入 data/logs/app.log。</p>
+                    <p class="page-desc">调试日志默认关闭；开启后才会记录请求、任务阶段、错误与耗时，并写入 data/logs/app.log。</p>
                 </div>
                 <div class="page-actions">
-                    <label class="toggle" title="开启后写入 data/logs/app.log"><input type="checkbox" id="log-enable"><span class="toggle-track"></span><span class="toggle-label">记录</span></label>
+                    <label class="toggle" title="开启后写入 data/logs/app.log"><input type="checkbox" id="log-enable"><span class="toggle-track"></span><span class="toggle-label">记录调试日志</span></label>
                     <button type="button" id="log-refresh" class="secondary-button">刷新</button>
                     <button type="button" id="log-clear" class="danger">清空日志</button>
                 </div>
             </div>
-            <div class="auto-hint">日志自动按大小轮转（单文件约 1MB，保留最近 3 份）。关闭「记录」后不再写入。</div>
+            <div id="log-status" class="auto-hint" aria-live="polite">调试日志已关闭，不记录也不显示新的日志。</div>
             <div id="log-viewer" class="log-viewer" aria-live="polite"></div>
         </section>
 

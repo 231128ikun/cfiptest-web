@@ -89,17 +89,16 @@ func New(runner *engine.Runner, assets fs.FS, version string, cfg config.Config,
 
 // Handler 返回根 http.Handler。
 func (s *Server) Handler() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return s.observeHTTP(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !isLocalHost(r.Host) {
+			s.log.Log("warn", "reject non-local Host: method=%s host=%q remote=%q", r.Method, r.Host, r.RemoteAddr)
 			writeError(w, http.StatusForbidden, "仅允许通过本机地址访问")
 			return
 		}
-		// 本地单机应用：静态资源不缓存，避免升级后浏览器继续用旧版页面。
 		w.Header().Set("Cache-Control", "no-store")
 		s.mux.ServeHTTP(w, r)
-	})
+	}))
 }
-
 func isLocalHost(hostport string) bool {
 	host := hostport
 	if parsedHost, _, err := net.SplitHostPort(hostport); err == nil {

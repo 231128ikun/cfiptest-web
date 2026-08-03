@@ -195,12 +195,12 @@ func (s *Server) libraryFor(w http.ResponseWriter, r *http.Request) (*library.St
 }
 
 type autoLibraryResponse struct {
-	Lib     string         `json:"lib"`
-	Stats   library.Stats  `json:"stats"`
+	Lib     string          `json:"lib"`
+	Stats   library.Stats   `json:"stats"`
 	Entries []library.Entry `json:"entries"`
-	Offset  int            `json:"offset"`
-	Limit   int            `json:"limit"`
-	Total   int            `json:"total"`
+	Offset  int             `json:"offset"`
+	Limit   int             `json:"limit"`
+	Total   int             `json:"total"`
 }
 
 func (s *Server) handleLibraryGet(w http.ResponseWriter, r *http.Request) {
@@ -478,10 +478,18 @@ func (s *Server) autoRunOptions(overrides *subscription.RunOptions) subscription
 		return opts
 	}
 	merged := *overrides
-	if merged.LatencyTimeoutMs == 0 { merged.LatencyTimeoutMs = opts.LatencyTimeoutMs }
-	if merged.SpeedDurationSec == 0 { merged.SpeedDurationSec = opts.SpeedDurationSec }
-	if merged.SpeedConcurrency == 0 { merged.SpeedConcurrency = opts.SpeedConcurrency }
-	if merged.DownloadURL == "" { merged.DownloadURL = opts.DownloadURL }
+	if merged.LatencyTimeoutMs == 0 {
+		merged.LatencyTimeoutMs = opts.LatencyTimeoutMs
+	}
+	if merged.SpeedDurationSec == 0 {
+		merged.SpeedDurationSec = opts.SpeedDurationSec
+	}
+	if merged.SpeedConcurrency == 0 {
+		merged.SpeedConcurrency = opts.SpeedConcurrency
+	}
+	if merged.DownloadURL == "" {
+		merged.DownloadURL = opts.DownloadURL
+	}
 	return merged
 }
 
@@ -527,7 +535,6 @@ func (s *Server) runAutoTask(ctx context.Context, taskID string, task subscripti
 	s.log.Log("info", "维护任务 %s 完成: %s", task.Name, summary)
 }
 
-
 // ---- 调试日志 ----
 
 func (s *Server) handleLogGet(w http.ResponseWriter, r *http.Request) {
@@ -536,9 +543,10 @@ func (s *Server) handleLogGet(w http.ResponseWriter, r *http.Request) {
 		fmt.Sscanf(v, "%d", &lines)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"enabled": s.log.Enabled(),
-		"path":    filepath.Join(LogDir, LogFileName),
-		"lines":   s.log.Tail(lines),
+		"enabled":    s.log.Enabled(),
+		"path":       filepath.Join(LogDir, LogFileName),
+		"lines":      s.log.Tail(lines),
+		"writeError": s.log.LastError(),
 	})
 }
 

@@ -1,4 +1,4 @@
-﻿package subscription
+package subscription
 
 import (
 	"fmt"
@@ -10,30 +10,37 @@ import (
 
 // 模板占位符 -> 取值（与前端 web/js/composer.js 保持一致；库字段能提供的都在这里）。
 var placeholders = map[string]func(e library.Entry) string{
-	"{ip}":       func(e library.Entry) string { return e.IP },
-	"{port}":     func(e library.Entry) string { return strconv.Itoa(e.Port) },
-	"{country}":  func(e library.Entry) string { return e.Country },
+	"{ip}":          func(e library.Entry) string { return e.IP },
+	"{port}":        func(e library.Entry) string { return strconv.Itoa(e.Port) },
+	"{country}":     func(e library.Entry) string { return e.Country },
 	"{countryCode}": func(e library.Entry) string { return e.CountryCode },
-	"{emoji}":    func(e library.Entry) string { return e.Emoji },
-	"{city}":     func(e library.Entry) string { return e.CityZh },
-	"{region}":   func(e library.Entry) string { return e.RegionZh },
-	"{latency}":  func(e library.Entry) string { return strconv.FormatInt(e.TCPLatencyMs, 10) },
-	"{speed}":    func(e library.Entry) string {
+	"{emoji}":       func(e library.Entry) string { return e.Emoji },
+	"{city}":        func(e library.Entry) string { return e.CityZh },
+	"{region}":      func(e library.Entry) string { return e.RegionZh },
+	"{latency}":     func(e library.Entry) string { return strconv.FormatInt(e.TCPLatencyMs, 10) },
+	"{speed}": func(e library.Entry) string {
 		if !e.SpeedValid {
 			return ""
 		}
-		return strconv.FormatFloat(e.SpeedKBs, 'f', 0, 64)
+		return strconv.FormatFloat(speedValue(e), 'f', 0, 64)
 	},
-	"{dc}":        func(e library.Entry) string { return e.DataCenter },
+	"{dc}":         func(e library.Entry) string { return e.DataCenter },
 	"{dataCenter}": func(e library.Entry) string { return e.DataCenter },
-	"{locCode}":   func(e library.Entry) string { return e.CountryCode },
-	"{asn}":       func(e library.Entry) string {
+	"{locCode}":    func(e library.Entry) string { return e.CountryCode },
+	"{asn}": func(e library.Entry) string {
 		if e.ASN == 0 {
 			return ""
 		}
 		return strconv.FormatUint(uint64(e.ASN), 10)
 	},
 	"{asnOrg}": func(e library.Entry) string { return e.ASNOrg },
+}
+
+func speedValue(e library.Entry) float64 {
+	if e.DownloadSpeedKBs != 0 {
+		return e.DownloadSpeedKBs
+	}
+	return e.SpeedKBs
 }
 
 // RenderLine 把一条库记录按模板渲染成一行订阅文本。
@@ -61,7 +68,7 @@ func RenderCSV(entries []library.Entry) []string {
 	for _, e := range entries {
 		speed := ""
 		if e.SpeedValid {
-			speed = strconv.FormatFloat(e.SpeedKBs, 'f', 0, 64)
+			speed = strconv.FormatFloat(speedValue(e), 'f', 0, 64)
 		}
 		lines = append(lines, fmt.Sprintf("%s,%d,%s,%s,%s,%d,%s",
 			e.IP, e.Port, e.Country, e.CountryCode, e.CityZh, e.TCPLatencyMs, speed))

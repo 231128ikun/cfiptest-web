@@ -347,6 +347,7 @@ func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, 
 			spd, ok := speedMap[key]
 			updated := e
 			if ok && spd > 0 {
+				updated.DownloadSpeedKBs = spd
 				updated.SpeedKBs = spd
 				updated.SpeedValid = true
 			} else {
@@ -388,7 +389,7 @@ func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, 
 				if g.Count > 0 && filled >= g.Count {
 					break
 				}
-				if !g.SpeedOK(e.SpeedKBs, e.SpeedValid) {
+				if !g.SpeedOK(effectiveSpeed(e), e.SpeedValid) {
 					continue
 				}
 				if !seenOut[e.Key()] {
@@ -473,14 +474,14 @@ func expandTaskRules(task Task) ([]Group, error) {
 		}
 		for _, combo := range combos {
 			g := Group{
-				Name:          rule.Name,
-				CountryCode:   strings.ToUpper(strings.TrimSpace(combo["country"])),
-				LatencyMinMs:  rule.LatencyMin,
-				MaxLatencyMs:  rule.LatencyMax,
-				MinSpeedKBs:   rule.SpeedMin,
-				MaxSpeedKBs:   rule.SpeedMax,
-				RequireSpeed:  task.SpeedEnabled && (rule.SpeedMin > 0 || rule.SpeedMax > 0),
-				Count:         rule.Limit,
+				Name:         rule.Name,
+				CountryCode:  strings.ToUpper(strings.TrimSpace(combo["country"])),
+				LatencyMinMs: rule.LatencyMin,
+				MaxLatencyMs: rule.LatencyMax,
+				MinSpeedKBs:  rule.SpeedMin,
+				MaxSpeedKBs:  rule.SpeedMax,
+				RequireSpeed: task.SpeedEnabled && (rule.SpeedMin > 0 || rule.SpeedMax > 0),
+				Count:        rule.Limit,
 			}
 			if city := strings.TrimSpace(combo["city"]); city != "" {
 				g.Cities = []string{city}
@@ -541,6 +542,7 @@ func expandCombinations(conds []Condition) []map[string]string {
 	}
 	return combos
 }
+
 // freshForGroup 从本次延迟通过的条目中，按分组实测约束筛选并排序。
 func freshForGroup(fresh map[string]library.Entry, g Group) []library.Entry {
 	pool := make([]library.Entry, 0)
@@ -577,31 +579,84 @@ func freshForGroup(fresh map[string]library.Entry, g Group) []library.Entry {
 // applyResult 把一次延迟检测结果回写到条目，返回（更新后的条目，是否有数据变化）。
 // 国家/城市/ASN/延迟等以最新检测为准整体覆盖。
 func applyResult(e library.Entry, res engine.Result, now time.Time) (library.Entry, bool) {
-	changed := false
-	mark := func(a, b string) string {
-		if a != "" && a != b {
-			changed = true
-			return a
-		}
-		return b
-	}
-	e.CountryCode = mark(res.CountryCode, e.CountryCode)
-	e.Country = mark(res.Country, e.Country)
-	e.CityZh = mark(res.CityZh, e.CityZh)
-	e.Emoji = mark(res.Emoji, e.Emoji)
-	e.DataCenter = mark(res.DataCenter, e.DataCenter)
-	e.RegionZh = mark(res.RegionZh, e.RegionZh)
-	if res.ASN != 0 && res.ASN != e.ASN {
-		e.ASN = res.ASN
-		changed = true
-	}
-	if res.ASNOrg != "" && res.ASNOrg != e.ASNOrg {
-		e.ASNOrg = res.ASNOrg
-		changed = true
-	}
-	if res.TCPLatencyMs > 0 && res.TCPLatencyMs != e.TCPLatencyMs {
+	before := e
+	// 延迟阶段返回的是完整 Result；非空/非零字段以最新检测结果为准，保留库元数据。
+	if res.TCPLatencyMs > 0 {
 		e.TCPLatencyMs = res.TCPLatencyMs
-		changed = true
+	}
+	if res.DataCenter != "" {
+		e.DataCenter = res.DataCenter
+	}
+	if res.LocCode != "" {
+		e.LocCode = res.LocCode
+	}
+	if res.Region != "" {
+		e.Region = res.Region
+	}
+	if res.City != "" {
+		e.City = res.City
+	}
+	if res.RegionZh != "" {
+		e.RegionZh = res.RegionZh
+	}
+	if res.Country != "" {
+		e.Country = res.Country
+	}
+	if res.CountryCode != "" {
+		e.CountryCode = res.CountryCode
+	}
+	if res.CityZh != "" {
+		e.CityZh = res.CityZh
+	}
+	if res.Emoji != "" {
+		e.Emoji = res.Emoji
+	}
+	if res.OutboundIP != "" {
+		e.OutboundIP = res.OutboundIP
+	}
+	if res.IPType != "" {
+		e.IPType = res.IPType
+	}
+	if res.VisitScheme != "" {
+		e.VisitScheme = res.VisitScheme
+	}
+	if res.TLSVersion != "" {
+		e.TLSVersion = res.TLSVersion
+	}
+	if res.SNI != "" {
+		e.SNI = res.SNI
+	}
+	if res.HTTPVersion != "" {
+		e.HTTPVersion = res.HTTPVersion
+	}
+	if res.WARP != "" {
+		e.WARP = res.WARP
+	}
+	if res.Gateway != "" {
+		e.Gateway = res.Gateway
+	}
+	if res.RBI != "" {
+		e.RBI = res.RBI
+	}
+	if res.KEX != "" {
+		e.KEX = res.KEX
+	}
+	if res.Timestamp != "" {
+		e.Timestamp = res.Timestamp
+	}
+	if res.ASN != 0 {
+		e.ASN = res.ASN
+	}
+	if res.ASNOrg != "" {
+		e.ASNOrg = res.ASNOrg
+	}
+	if res.IPSType != "" {
+		e.IPSType = res.IPSType
+	}
+	if res.DownloadSpeedKBs != 0 {
+		e.DownloadSpeedKBs = res.DownloadSpeedKBs
+		e.SpeedKBs = res.DownloadSpeedKBs
+		e.SpeedValid = res.DownloadSpeedKBs > 0
 	}
 	e.Status = library.StatusActive
 	e.LastCheckedAt = now
@@ -609,7 +664,14 @@ func applyResult(e library.Entry, res engine.Result, now time.Time) (library.Ent
 	if e.Source == "" {
 		e.Source = library.SourceTopup
 	}
-	return e, changed
+	return e, e != before
+}
+
+func effectiveSpeed(e library.Entry) float64 {
+	if e.DownloadSpeedKBs != 0 {
+		return e.DownloadSpeedKBs
+	}
+	return e.SpeedKBs
 }
 
 // importInputFile 读取原订阅文件（相对库目录），解析出 IP 并导入 IP 库（状态 new）。
