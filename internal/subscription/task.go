@@ -56,16 +56,18 @@ type TaskSchedule struct {
 
 // Task 是维护任务（替代旧「订阅器」概念）。
 type Task struct {
-	ID           string     `json:"id,omitempty"`
-	Name         string     `json:"name"`
-	Enabled      bool       `json:"enabled"`      // 单独维护开关；false = 一键维护跳过
-	LibraryID    string     `json:"libraryId"`    // 绑定的 IP 库 ID；空 = 默认库
-	Input        TaskInput  `json:"input"`
-	Output       TaskOutput `json:"output"`
-	Limit        int        `json:"limit"`        // 总数限制（合并去重后取前 N）；0=不限
-	SpeedEnabled bool         `json:"speedEnabled"` // 顶部测速总开关；关 = 规则速度字段无效
-	Schedule     TaskSchedule `json:"schedule,omitempty"`
-	Rules        []TaskRule   `json:"rules"`
+	ID                 string       `json:"id,omitempty"`
+	Name               string       `json:"name"`
+	Enabled            bool         `json:"enabled"`   // 单独维护开关；false = 一键维护跳过
+	LibraryID          string       `json:"libraryId"` // 绑定的 IP 库 ID；空 = 默认库
+	Input              TaskInput    `json:"input"`
+	Output             TaskOutput   `json:"output"`
+	Limit              int          `json:"limit"`                        // 总数限制（合并去重后取前 N）；0=不限
+	SpeedEnabled       bool         `json:"speedEnabled"`                 // 顶部测速总开关；关 = 规则速度字段无效
+	LatencyConcurrency int          `json:"latencyConcurrency,omitempty"` // 延迟并发；0 = 用设置页全局默认
+	SpeedConcurrency   int          `json:"speedConcurrency,omitempty"`   // 测速并发；0 = 用设置页全局默认
+	Schedule           TaskSchedule `json:"schedule,omitempty"`
+	Rules              []TaskRule   `json:"rules"`
 }
 
 // Validate 校验并规范化任务。
@@ -82,6 +84,13 @@ func (t *Task) Validate() error {
 	}
 	if t.Input.Mode == "" {
 		t.Input.Mode = "file"
+	}
+
+	if t.LatencyConcurrency < 0 {
+		return fmt.Errorf("任务 %q 延迟并发不能为负", t.Name)
+	}
+	if t.SpeedConcurrency < 0 {
+		return fmt.Errorf("任务 %q 测速并发不能为负", t.Name)
 	}
 	seenNames := map[string]bool{}
 	for i := range t.Rules {
@@ -261,6 +270,7 @@ func cronFieldMatches(field string, value, min, max int, sundayAlias bool) bool 
 	}
 	return false
 }
+
 // LoadTasks 读取 data/tasks.json；不存在时尝试迁移旧 subscriptions.json。
 func LoadTasks(dataDir string) ([]Task, error) {
 	body, err := os.ReadFile(filepath.Join(dataDir, TasksFile))

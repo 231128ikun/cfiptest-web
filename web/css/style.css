@@ -163,6 +163,7 @@ details > summary { color: var(--text-secondary); font-weight: 580; cursor: poin
 .advanced-config-grid textarea { min-height: 72px; }
 .advanced-group { grid-column: 1 / -1; margin-top: 8px; padding: 10px 12px; border: 1px solid var(--border-light); border-radius: var(--radius); background: var(--surface-soft); }
 .advanced-group-title { margin-bottom: 8px; font-size: 13px; font-weight: 650; }
+.advanced-inline-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .threshold-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .threshold-card { min-width: 0; padding: 12px; border: 1px solid var(--border-light); border-radius: var(--radius-sm); background: var(--surface); }
 .threshold-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }

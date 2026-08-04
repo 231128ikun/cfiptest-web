@@ -263,7 +263,7 @@ func (s *Server) checkScheduledTasks(now time.Time) {
 			s.log.Log("warn", "定时维护 %s 已到期，但当前有其他任务运行，本次跳过", task.Name)
 			continue
 		}
-		opts := s.autoRunOptions(nil)
+		opts := s.autoRunOptions(&task, nil)
 		s.log.Log("info", "Cron 定时触发维护任务: %s (%s)", task.Name, task.Schedule.Cron)
 		go s.runAutoTask(ctx, taskID, task, opts)
 		break

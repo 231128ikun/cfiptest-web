@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"iptest-web/internal/config"
 	"iptest-web/internal/engine"
 	"iptest-web/internal/library"
 	"iptest-web/internal/subscription"
@@ -44,8 +45,8 @@ func TestTasksSaveGetRoundTrip(t *testing.T) {
 	task := subscription.Task{
 		ID: "t-1", Name: "综合维护", Enabled: true,
 		Schedule: subscription.TaskSchedule{Enabled: true, Cron: "0 3 * * *"},
-		Rules: []subscription.TaskRule{{Name: "美国", Limit: 10, Conditions: []subscription.Condition{{Field: "country", Values: []string{"US"}}}}},
-		Output: subscription.TaskOutput{Path: "out/sub.txt", Template: "{ip}:{port}#{country}"},
+		Rules:    []subscription.TaskRule{{Name: "美国", Limit: 10, Conditions: []subscription.Condition{{Field: "country", Values: []string{"US"}}}}},
+		Output:   subscription.TaskOutput{Path: "out/sub.txt", Template: "{ip}:{port}#{country}"},
 	}
 	rec := doJSON(t, s.handleTasksSave, http.MethodPut, "/api/auto/tasks", map[string]any{"tasks": []subscription.Task{task}})
 	if rec.Code != http.StatusOK {
@@ -97,7 +98,7 @@ func TestLibrariesCRUD(t *testing.T) {
 		t.Fatalf("库列表失败: %d %s", rec.Code, rec.Body.String())
 	}
 	var got struct {
-		Libraries []library.Info        `json:"libraries"`
+		Libraries []library.Info           `json:"libraries"`
 		Stats     map[string]library.Stats `json:"stats"`
 	}
 	_ = json.Unmarshal(rec.Body.Bytes(), &got)
@@ -260,5 +261,41 @@ func TestAutoOutputSecurity(t *testing.T) {
 	rec = doJSON(t, s.handleAutoOutput, http.MethodGet, "/api/auto/output?path=out%2Ft.txt", nil)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "9.9.9.9:443") {
 		t.Fatalf("输出下载失败: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAutoRunOptionsPriority(t *testing.T) {
+	s := autoServer(t)
+	if err := config.SaveSettings(s.dataDir, map[string]any{"autoLatencyConcurrency": 30, "autoSpeedConcurrency": 6}); err != nil {
+		t.Fatal(err)
+	}
+	task := &subscription.Task{Name: "x", LatencyConcurrency: 20, SpeedConcurrency: 4}
+
+	// 仅全局默认
+	opts := s.autoRunOptions(nil, nil)
+	if opts.LatencyConcurrency != 30 || opts.SpeedConcurrency != 6 {
+		t.Fatalf("全局默认应 30/6，实际 %d/%d", opts.LatencyConcurrency, opts.SpeedConcurrency)
+	}
+	// 任务级覆盖全局
+	opts = s.autoRunOptions(task, nil)
+	if opts.LatencyConcurrency != 20 || opts.SpeedConcurrency != 4 {
+		t.Fatalf("任务级应 20/4，实际 %d/%d", opts.LatencyConcurrency, opts.SpeedConcurrency)
+	}
+	// 请求覆盖优先
+	opts = s.autoRunOptions(task, &subscription.RunOptions{LatencyConcurrency: 10, SpeedConcurrency: 2})
+	if opts.LatencyConcurrency != 10 || opts.SpeedConcurrency != 2 {
+		t.Fatalf("请求覆盖应 10/2，实际 %d/%d", opts.LatencyConcurrency, opts.SpeedConcurrency)
+	}
+	// 请求覆盖为 0 时回退任务级
+	opts = s.autoRunOptions(task, &subscription.RunOptions{})
+	if opts.LatencyConcurrency != 20 || opts.SpeedConcurrency != 4 {
+		t.Fatalf("请求为空应回退任务级 20/4，实际 %d/%d", opts.LatencyConcurrency, opts.SpeedConcurrency)
+	}
+	// 无任何配置时返回 0/0，表示回退引擎内置默认（50/5 兜底在 runCore 中生效，
+	// 由 subscription.TestRunTaskConcurrencyOptions 覆盖验证）
+	s2 := autoServer(t)
+	opts = s2.autoRunOptions(nil, nil)
+	if opts.LatencyConcurrency != 0 || opts.SpeedConcurrency != 0 {
+		t.Fatalf("无配置应返回 0/0，实际 %d/%d", opts.LatencyConcurrency, opts.SpeedConcurrency)
 	}
 }

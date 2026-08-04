@@ -395,6 +395,8 @@
                                 <label>输出格式<select id="task-format"><option value="txt">txt</option><option value="csv">csv</option></select></label>
                                 <label>总数限制<input type="number" id="task-limit" min="0" placeholder="0 = 不限"> 条</label>
                                 <label class="checkbox"><input type="checkbox" id="task-speed" title="开启后各规则可选择速度范围"> 开启测速</label>
+                                <label>延迟并发<input type="number" id="task-lat-concurrency" min="0" step="1" placeholder="留空 = 全局默认"></label>
+                                <label>测速并发<input type="number" id="task-spd-concurrency" min="0" step="1" placeholder="留空 = 全局默认"></label>
                             </div>
                             <div class="task-form-row">
                                 <label class="task-template-label">输出模板
@@ -510,6 +512,14 @@
                     <label>Trace 地址 <input type="text" id="advanced-trace-url"></label>
                     <label>地理位置数据源 <textarea id="advanced-location-sources" rows="3" placeholder="每行一个地址"></textarea></label>
                     <label>ASN 数据源 <textarea id="advanced-asn-sources" rows="3" placeholder="每行一个地址"></textarea></label>
+                    <div class="advanced-group">
+                        <div class="advanced-group-title">自动维护并发（全局默认）</div>
+                        <div class="advanced-inline-grid">
+                            <label>延迟并发 <input type="number" id="auto-lat-concurrency" min="1" step="1" placeholder="默认 50"></label>
+                            <label>测速并发 <input type="number" id="auto-spd-concurrency" min="1" step="1" placeholder="默认 5"></label>
+                        </div>
+                        <div class="threshold-note">留空 = 内置默认（延迟 50、测速 5）；并发过高易导致漏测/测错，建议根据机器与网络调低。任务编辑里可单独覆盖。</div>
+                    </div>
                     <label>官方 IP 段源 <textarea id="advanced-official-sources" rows="2" placeholder="每行一个地址"></textarea></label>
                     <div class="advanced-group">
                         <div class="advanced-group-title">结果颜色阈值</div>

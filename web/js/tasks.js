@@ -232,6 +232,8 @@ export function initTasks({ toast }) {
         $('task-output').value = task.output?.path || '';
         $('task-format').value = task.output?.format === 'csv' ? 'csv' : 'txt';
         $('task-limit').value = task.limit || 0;
+        $('task-lat-concurrency').value = task.latencyConcurrency > 0 ? task.latencyConcurrency : '';
+        $('task-spd-concurrency').value = task.speedConcurrency > 0 ? task.speedConcurrency : '';
         $('task-speed').checked = Boolean(task.speedEnabled);
         $('task-schedule-enabled').checked = Boolean(task.schedule?.enabled);
         $('task-schedule-cron').value = task.schedule?.cron || '0 3 * * *';
@@ -287,6 +289,9 @@ export function initTasks({ toast }) {
         };
         task.limit = Number($('task-limit').value) > 0 ? Number($('task-limit').value) : 0;
         task.speedEnabled = $('task-speed').checked;
+        const taskConcurrency = id => { const v = Number($(id).value); return Number.isFinite(v) && v > 0 ? v : undefined; };
+        task.latencyConcurrency = taskConcurrency('task-lat-concurrency');
+        task.speedConcurrency = taskConcurrency('task-spd-concurrency');
         task.schedule = {
             enabled: $('task-schedule-enabled').checked,
             cron: $('task-schedule-cron').value.trim() || '0 3 * * *',

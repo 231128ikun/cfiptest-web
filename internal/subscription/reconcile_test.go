@@ -16,12 +16,14 @@ import (
 
 // fakeTester 用脚本数据模拟检测，不联网。
 type fakeTester struct {
-	mu        sync.Mutex
-	latencyOK map[string]bool     // key -> 延迟是否通过
-	countries map[string]string   // key -> 国家码
-	speeds    map[string]float64  // key -> 速度（缺省或<=0 表示测速失败）
-	latencyCalled []string
-	speedCalled   []string
+	mu                    sync.Mutex
+	latencyOK             map[string]bool    // key -> 延迟是否通过
+	countries             map[string]string  // key -> 国家码
+	speeds                map[string]float64 // key -> 速度（缺省或<=0 表示测速失败）
+	latencyCalled         []string
+	speedCalled           []string
+	latencyMaxConcurrency int
+	speedMaxConcurrency   int
 }
 
 func newFake() *fakeTester {
@@ -41,9 +43,10 @@ func (f *fakeTester) add(ip string, port int, country string, latencyOK bool, sp
 	}
 }
 
-func (f *fakeTester) RunLatencyTest(_ context.Context, targets []engine.Target, _ engine.LatencyOptions, cb engine.EventCallback) ([]engine.Result, error) {
+func (f *fakeTester) RunLatencyTest(_ context.Context, targets []engine.Target, opts engine.LatencyOptions, cb engine.EventCallback) ([]engine.Result, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.latencyMaxConcurrency = opts.MaxConcurrency
 	var out []engine.Result
 	for _, t := range targets {
 		key := library.Key(t.IP, t.Port)
@@ -57,9 +60,10 @@ func (f *fakeTester) RunLatencyTest(_ context.Context, targets []engine.Target, 
 	return out, nil
 }
 
-func (f *fakeTester) RunSpeedTest(_ context.Context, targets []engine.Target, _ engine.SpeedOptions, cb engine.EventCallback) error {
+func (f *fakeTester) RunSpeedTest(_ context.Context, targets []engine.Target, opts engine.SpeedOptions, cb engine.EventCallback) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.speedMaxConcurrency = opts.MaxConcurrency
 	for _, t := range targets {
 		key := library.Key(t.IP, t.Port)
 		f.speedCalled = append(f.speedCalled, key)
@@ -84,7 +88,6 @@ func countryName(code string) string {
 		return code
 	}
 }
-
 
 // latencyOf 按 IP 末段生成稳定延迟，方便断言排序。
 func latencyOf(ip string) int64 {
@@ -376,4 +379,41 @@ func TestRunCancelSavesPartial(t *testing.T) {
 		t.Fatal("取消时应返回错误")
 	}
 	_ = fmt.Sprint(err)
+}
+
+// TestRunTaskConcurrencyOptions 验证并发配置透传到检测引擎（默认 50/5，显式覆盖生效）。
+func TestRunTaskConcurrencyOptions(t *testing.T) {
+	dir := t.TempDir()
+	fake := newFake()
+	lib, _ := library.Open(filepath.Join(dir, library.FileName))
+	lib.Upsert(library.Entry{IP: "1.0.0.1", Port: 443, CountryCode: "US", Status: library.StatusActive, TCPLatencyMs: 50})
+	fake.add("1.0.0.1", 443, "US", true, 100)
+
+	task := Task{
+		Name:         "x",
+		Enabled:      true,
+		SpeedEnabled: true,
+		Rules: []TaskRule{
+			{Name: "美国", Limit: 1, SpeedMin: 1, Conditions: []Condition{{Field: "country", Values: []string{"US"}}}},
+		},
+		Output: TaskOutput{Path: "out/t.txt", Template: "{ip}:{port}"},
+	}
+
+	// 默认：延迟 50、测速 5
+	if _, err := RunTask(context.Background(), fake, lib, task, RunOptions{}, nil); err != nil {
+		t.Fatalf("RunTask 失败: %v", err)
+	}
+	if fake.latencyMaxConcurrency != 50 || fake.speedMaxConcurrency != 5 {
+		t.Fatalf("默认并发应 50/5，实际 %d/%d", fake.latencyMaxConcurrency, fake.speedMaxConcurrency)
+	}
+
+	// 显式覆盖
+	fake2 := newFake()
+	fake2.add("1.0.0.1", 443, "US", true, 100)
+	if _, err := RunTask(context.Background(), fake2, lib, task, RunOptions{LatencyConcurrency: 12, SpeedConcurrency: 3}, nil); err != nil {
+		t.Fatalf("RunTask 失败: %v", err)
+	}
+	if fake2.latencyMaxConcurrency != 12 || fake2.speedMaxConcurrency != 3 {
+		t.Fatalf("覆盖并发应 12/3，实际 %d/%d", fake2.latencyMaxConcurrency, fake2.speedMaxConcurrency)
+	}
 }

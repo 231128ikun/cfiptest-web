@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"iptest-web/internal/config"
 	"iptest-web/internal/engine"
 	"iptest-web/internal/library"
 	"iptest-web/internal/subscription"
@@ -458,21 +459,35 @@ func (s *Server) handleAutoRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "已有任务在运行")
 		return
 	}
-	opts := s.autoRunOptions(req.Options)
+	opts := s.autoRunOptions(task, req.Options)
 	go s.runAutoTask(ctx, taskID, *task, opts)
 	writeJSON(w, http.StatusOK, taskResponse{TaskID: taskID, Status: "running", TotalTargets: 0})
 }
 
-func (s *Server) autoRunOptions(overrides *subscription.RunOptions) subscription.RunOptions {
+// autoRunOptions 按 请求覆盖 > 任务级配置 > 设置页全局默认 > 引擎默认 合并维护运行参数。
+// 全局默认放在 settings.json（设置页「自动维护默认并发」）：
+//
+//	autoLatencyConcurrency / autoSpeedConcurrency；0/缺失 = 用 subscription 内置默认。
+func (s *Server) autoRunOptions(task *subscription.Task, overrides *subscription.RunOptions) subscription.RunOptions {
 	s.configMu.RLock()
 	latencyDefaults := s.latencyDefaults
 	speedDefaults := s.speedDefaults
 	s.configMu.RUnlock()
+	settings := config.LoadSettings(s.dataDir)
 	opts := subscription.RunOptions{
-		LatencyTimeoutMs: latencyDefaults.TimeoutMs,
-		SpeedDurationSec: speedDefaults.DurationSec,
-		SpeedConcurrency: speedDefaults.MaxConcurrency,
-		DownloadURL:      speedDefaults.DownloadURL,
+		LatencyTimeoutMs:   latencyDefaults.TimeoutMs,
+		LatencyConcurrency: settingsInt(settings, "autoLatencyConcurrency"),
+		SpeedDurationSec:   speedDefaults.DurationSec,
+		SpeedConcurrency:   settingsInt(settings, "autoSpeedConcurrency"),
+		DownloadURL:        speedDefaults.DownloadURL,
+	}
+	if task != nil {
+		if task.LatencyConcurrency > 0 {
+			opts.LatencyConcurrency = task.LatencyConcurrency
+		}
+		if task.SpeedConcurrency > 0 {
+			opts.SpeedConcurrency = task.SpeedConcurrency
+		}
 	}
 	if overrides == nil {
 		return opts
@@ -480,6 +495,9 @@ func (s *Server) autoRunOptions(overrides *subscription.RunOptions) subscription
 	merged := *overrides
 	if merged.LatencyTimeoutMs == 0 {
 		merged.LatencyTimeoutMs = opts.LatencyTimeoutMs
+	}
+	if merged.LatencyConcurrency == 0 {
+		merged.LatencyConcurrency = opts.LatencyConcurrency
 	}
 	if merged.SpeedDurationSec == 0 {
 		merged.SpeedDurationSec = opts.SpeedDurationSec
@@ -491,6 +509,22 @@ func (s *Server) autoRunOptions(overrides *subscription.RunOptions) subscription
 		merged.DownloadURL = opts.DownloadURL
 	}
 	return merged
+}
+
+// settingsInt 从 settings.json 读取整数键；缺失或非法返回 0（表示使用默认值）。
+func settingsInt(settings map[string]any, key string) int {
+	switch v := settings[key].(type) {
+	case float64:
+		return int(v)
+	case int:
+		return v
+	case string:
+		n, err := strconv.Atoi(strings.TrimSpace(v))
+		if err == nil {
+			return n
+		}
+	}
+	return 0
 }
 
 func (s *Server) runAutoTask(ctx context.Context, taskID string, task subscription.Task, opts subscription.RunOptions) {

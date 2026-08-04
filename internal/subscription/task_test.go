@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"iptest-web/internal/library"
 )
@@ -207,9 +207,9 @@ func TestRunTaskTotalLimit(t *testing.T) {
 		fake.add(ip, 443, "US", true, 0)
 	}
 	task := Task{
-		Name:  "限3条",
-		Limit: 3,
-		Rules: []TaskRule{{Name: "美国", Limit: 0, Conditions: []Condition{{Field: "country", Values: []string{"US"}}}}},
+		Name:   "限3条",
+		Limit:  3,
+		Rules:  []TaskRule{{Name: "美国", Limit: 0, Conditions: []Condition{{Field: "country", Values: []string{"US"}}}}},
 		Output: TaskOutput{Path: "out/t.txt", Template: "{ip}:{port}"},
 	}
 	report, err := RunTask(context.Background(), fake, lib, task, RunOptions{}, nil)
@@ -295,4 +295,42 @@ func TestLoadTasksMigratesSubscriptions(t *testing.T) {
 	}
 }
 
+func TestTaskConcurrencyJSON(t *testing.T) {
+	task := Task{Name: "x", LatencyConcurrency: 20, SpeedConcurrency: 6, Rules: []TaskRule{{Name: "r", Limit: 1}}}
+	data, err := json.Marshal(task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back Task
+	if err := json.Unmarshal(data, &back); err != nil {
+		t.Fatal(err)
+	}
+	if back.LatencyConcurrency != 20 || back.SpeedConcurrency != 6 {
+		t.Fatalf("并发配置未往返保留: %+v", back)
+	}
+	// 0 应被 omitempty 省略
+	zero, _ := json.Marshal(Task{Name: "y", Rules: []TaskRule{{Name: "r", Limit: 1}}})
+	if strings.Contains(string(zero), "latencyConcurrency") || strings.Contains(string(zero), "speedConcurrency") {
+		t.Fatalf("0 并发不应序列化: %s", zero)
+	}
+}
 
+func TestTaskValidateConcurrency(t *testing.T) {
+	base := Task{Name: "x", Rules: []TaskRule{{Name: "r", Limit: 1}}}
+	negLat := base
+	negLat.LatencyConcurrency = -1
+	if err := negLat.Validate(); err == nil {
+		t.Fatal("负延迟并发应校验失败")
+	}
+	negSpd := base
+	negSpd.SpeedConcurrency = -1
+	if err := negSpd.Validate(); err == nil {
+		t.Fatal("负测速并发应校验失败")
+	}
+	ok := base
+	ok.LatencyConcurrency = 30
+	ok.SpeedConcurrency = 4
+	if err := ok.Validate(); err != nil {
+		t.Fatalf("正并发应通过: %v", err)
+	}
+}

@@ -844,7 +844,14 @@ function currentSettings() {
         exportScope: exportScope(),
         customColumns: [...customColumnKeys],
         ui: { badgeThresholds: readBadgeThresholds() },
+        autoLatencyConcurrency: positiveInt('auto-lat-concurrency'),
+        autoSpeedConcurrency: positiveInt('auto-spd-concurrency'),
     };
+}
+
+function positiveInt(id) {
+    const v = Number($(id).value);
+    return Number.isFinite(v) && v > 0 ? v : 0;
 }
 
 function readBadgeThresholds() {
@@ -953,6 +960,8 @@ function applySavedSettings(settings = {}) {
         savedTemplates = settings.savedTemplates
             .filter(item => item && typeof item.name === 'string' && typeof item.template === 'string');
     }
+    if (Number(settings.autoLatencyConcurrency) > 0) $('auto-lat-concurrency').value = settings.autoLatencyConcurrency;
+    if (Number(settings.autoSpeedConcurrency) > 0) $('auto-spd-concurrency').value = settings.autoSpeedConcurrency;
     fillBadgeThresholdFields(settings);
     const legacyScope = { all: 'direct', visible: 'rules', selected: 'custom' }[settings.exportScope] || settings.exportScope;
     if (['direct', 'rules', 'custom'].includes(legacyScope)) {

@@ -40,18 +40,22 @@ type ProgressFunc func(p Progress) error
 
 // RunOptions 控制编排运行的行为；零值使用默认值。
 type RunOptions struct {
-	LatencyTimeoutMs int    // 单连接延迟超时（ms），默认 1000
-	SpeedDurationSec int    // 单 IP 测速时长（秒），默认 5
-	SpeedConcurrency int    // 测速并发，默认 5
-	DownloadURL      string // 测速文件地址（不含协议头），默认 engine 默认值
-	SlackFactor      int    // 每组候选倍数：count*SlackFactor + SlackExtra，默认 3
-	SlackExtra       int    // 默认 10
-	MaxPerGroup      int    // 每组候选硬上限，默认 200
+	LatencyTimeoutMs   int    // 单连接延迟超时（ms），默认 1000
+	LatencyConcurrency int    // 延迟检测并发，默认 50；维护场景过高并发易漏测/误判
+	SpeedDurationSec   int    // 单 IP 测速时长（秒），默认 5
+	SpeedConcurrency   int    // 测速并发，默认 5
+	DownloadURL        string // 测速文件地址（不含协议头），默认 engine 默认值
+	SlackFactor        int    // 每组候选倍数：count*SlackFactor + SlackExtra，默认 3
+	SlackExtra         int    // 默认 10
+	MaxPerGroup        int    // 每组候选硬上限，默认 200
 }
 
 func (o RunOptions) withDefaults() RunOptions {
 	if o.LatencyTimeoutMs <= 0 {
 		o.LatencyTimeoutMs = 1000
+	}
+	if o.LatencyConcurrency <= 0 {
+		o.LatencyConcurrency = 50
 	}
 	if o.SpeedDurationSec <= 0 {
 		o.SpeedDurationSec = 5
@@ -254,7 +258,7 @@ func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, 
 		targets = append(targets, engine.Target{IP: e.IP, Port: e.Port})
 	}
 	latOpts := engine.LatencyOptions{
-		MaxConcurrency: 100,
+		MaxConcurrency: opts.LatencyConcurrency,
 		TimeoutMs:      opts.LatencyTimeoutMs,
 		EnableTLS:      true,
 	}

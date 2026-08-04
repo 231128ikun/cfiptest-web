@@ -33,6 +33,18 @@ check('app.js 引用的每个 id 都在 index.html 里存在', () => {
     const missing = referencedIds.filter(id => !idSet.has(id));
     assert.deepEqual(missing, [], `这些 id 会取到 null：${missing.join(', ')}`);
 });
+check('tasks.js 引用的每个 id 都在 index.html 里存在', () => {
+    const missing = [...new Set([...tasksJs.matchAll(/\$\('([^']+)'\)/g)].map(m => m[1]))].filter(id => !idSet.has(id));
+    assert.deepEqual(missing, [], `这些 id 会取到 null：${missing.join(', ')}`);
+});
+check('自动维护并发配置已接线（设置页全局默认 + 任务级覆盖）', () => {
+    assert.ok(/id="auto-lat-concurrency"/.test(html) && /id="auto-spd-concurrency"/.test(html), '设置页缺少自动维护并发输入');
+    assert.ok(/autoLatencyConcurrency: positiveInt\('auto-lat-concurrency'\)/.test(appJs), '设置页并发未写入保存对象');
+    assert.ok(/\$\(\'auto-lat-concurrency\'\)\.value = settings\.autoLatencyConcurrency/.test(appJs), '设置页并发未回填');
+    assert.ok(/id="task-lat-concurrency"/.test(html) && /id="task-spd-concurrency"/.test(html), '任务弹窗缺少并发输入');
+    assert.ok(/task\.latencyConcurrency = taskConcurrency\('task-lat-concurrency'\)/.test(tasksJs), '任务并发未收集');
+    assert.ok(/task\.latencyConcurrency > 0 \? task\.latencyConcurrency : ''/.test(tasksJs), '任务并发未回填表单');
+});
 check('引用面不是空的（正则失效时这条会先炸）', () => {
     assert.ok(referencedIds.length > 60, `只解析出 ${referencedIds.length} 个引用，正则可能已失配`);
 });
