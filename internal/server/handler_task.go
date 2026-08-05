@@ -16,6 +16,7 @@ import (
 type latencyOptionsDTO struct {
 	MaxConcurrency *int  `json:"maxConcurrency"`
 	ProbeCount     *int  `json:"probeCount"`
+	HTTPProbeCount *int  `json:"httpProbeCount"`
 	TimeoutMs      *int  `json:"timeoutMs"`
 	MaxLatencyMs   *int  `json:"maxLatencyMs"`
 	MaxResults     *int  `json:"maxResults"`
@@ -34,6 +35,9 @@ func (d *latencyOptionsDTO) apply(def engine.LatencyOptions) engine.LatencyOptio
 	}
 	if d.ProbeCount != nil {
 		opts.ProbeCount = *d.ProbeCount
+	}
+	if d.HTTPProbeCount != nil {
+		opts.HTTPProbeCount = *d.HTTPProbeCount
 	}
 	if d.TimeoutMs != nil {
 		opts.TimeoutMs = *d.TimeoutMs

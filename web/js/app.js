@@ -442,6 +442,7 @@ function normalizeRuleFields({ notify = false } = {}) {
     const rules = [
         ['lat-concurrency', { min: 1, max: 1000, integer: true }],
         ['lat-probes', { min: 1, max: 10, integer: true }],
+        ['lat-http-probes', { min: 1, max: 10, integer: true }],
         ['lat-timeout', { min: 200, max: 10000, integer: true }],
         ['lat-maxlatency', { min: 0, max: 10000, integer: true, optional: true }],
         ['spd-concurrency', { min: 1, max: 100, integer: true }],
@@ -466,6 +467,7 @@ function latencyOptions() {
     return {
         maxConcurrency: readNumberField('lat-concurrency', { min: 1, max: 1000, integer: true, optional: true }),
         probeCount: readNumberField('lat-probes', { min: 1, max: 10, integer: true, optional: true }),
+        httpProbeCount: readNumberField('lat-http-probes', { min: 1, max: 10, integer: true, optional: true }),
         timeoutMs: readNumberField('lat-timeout', { min: 200, max: 10000, integer: true, optional: true }),
         maxLatencyMs: readNumberField('lat-maxlatency', { min: 0, max: 10000, integer: true, optional: true }) || 0,
         // 启用速度规则时，统一数量限制只在最终测速阶段生效。
@@ -508,7 +510,8 @@ function resetRules() {
     const lat = defaults?.latency || { maxConcurrency: 100, timeoutMs: 1000, maxLatencyMs: 0, enableTLS: true, enableIPAPI: false };
     const spd = defaults?.speed || { maxConcurrency: 5, durationSec: 5, minSpeedKBs: 0, downloadURL: 'speed.cloudflare.com/__down?bytes=500000000' };
     $('lat-concurrency').value = lat.maxConcurrency;
-    $('lat-probes').value = lat.probeCount || 3;
+    $('lat-probes').value = lat.probeCount || 4;
+    $('lat-http-probes').value = lat.httpProbeCount || 1;
     $('lat-timeout').value = lat.timeoutMs;
     $('lat-maxlatency').value = lat.maxLatencyMs > 0 ? lat.maxLatencyMs : '';
     $('lat-tls').checked = lat.enableTLS;
@@ -623,7 +626,7 @@ function bindRulesAndRun() {
         $(id).addEventListener('input', previewBadgeThresholdsFromUI);
         $(id).addEventListener('change', applyBadgeThresholdsFromUI);
     });
-    ['lat-concurrency', 'lat-probes', 'lat-timeout', 'lat-maxlatency', 'spd-concurrency', 'spd-duration', 'spd-minspeed', 'rule-maxresults']
+    ['lat-concurrency', 'lat-probes', 'lat-http-probes', 'lat-timeout', 'lat-maxlatency', 'spd-concurrency', 'spd-duration', 'spd-minspeed', 'rule-maxresults']
         .forEach(id => $(id).addEventListener('change', () => normalizeRuleFields({ notify: true })));
     $('lat-tls').addEventListener('change', () => {
         $('spd-tls').checked = $('lat-tls').checked;
@@ -877,6 +880,7 @@ function currentSettings() {
         autoLatencyConcurrency: positiveInt('auto-lat-concurrency'),
         autoLatencyTimeoutMs: positiveInt('auto-lat-timeout'),
         autoLatencyProbes: positiveInt('auto-lat-probes'),
+        autoLatencyHTTPProbes: positiveInt('auto-lat-http-probes'),
         autoSpeedConcurrency: positiveInt('auto-spd-concurrency'),
         autoSpeedDurationSec: positiveInt('auto-spd-duration'),
     };
@@ -965,6 +969,7 @@ function applySavedSettings(settings = {}) {
     const spd = rules.speed || {};
     if (lat.maxConcurrency) $('lat-concurrency').value = lat.maxConcurrency;
     if (lat.probeCount) $('lat-probes').value = lat.probeCount;
+    if (lat.httpProbeCount) $('lat-http-probes').value = lat.httpProbeCount;
     if (lat.timeoutMs) $('lat-timeout').value = lat.timeoutMs;
     $('lat-maxlatency').value = Number(lat.maxLatencyMs) > 0 ? lat.maxLatencyMs : '';
     if (lat.enableTLS != null) $('lat-tls').checked = lat.enableTLS;
@@ -997,6 +1002,7 @@ function applySavedSettings(settings = {}) {
     if (Number(settings.autoLatencyConcurrency) > 0) $('auto-lat-concurrency').value = settings.autoLatencyConcurrency;
     if (Number(settings.autoLatencyTimeoutMs) > 0) $('auto-lat-timeout').value = settings.autoLatencyTimeoutMs;
     if (Number(settings.autoLatencyProbes) > 0) $('auto-lat-probes').value = settings.autoLatencyProbes;
+    if (Number(settings.autoLatencyHTTPProbes) > 0) $('auto-lat-http-probes').value = settings.autoLatencyHTTPProbes;
     if (Number(settings.autoSpeedConcurrency) > 0) $('auto-spd-concurrency').value = settings.autoSpeedConcurrency;
     if (Number(settings.autoSpeedDurationSec) > 0) $('auto-spd-duration').value = settings.autoSpeedDurationSec;
     fillBadgeThresholdFields(settings);

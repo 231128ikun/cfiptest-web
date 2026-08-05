@@ -26,7 +26,7 @@ func (r *Runner) testSingleIP(ctx context.Context, target Target, opts LatencyOp
 	timeout := time.Duration(opts.TimeoutMs) * time.Millisecond
 	probeCount := opts.ProbeCount
 	if probeCount < 1 {
-		probeCount = 3
+		probeCount = DefaultLatencyOptions().ProbeCount
 	}
 
 	// 多次独立 TCP 探测：单次抖动或偶发失败不直接淘汰，全部失败才判定不可用。
@@ -52,37 +52,23 @@ func (r *Runner) testSingleIP(ctx context.Context, target Target, opts LatencyOp
 	}
 
 	// 独立连接执行 trace 校验，避免把 HTTP/TLS 开销计入 TCP 平均延迟。
-	dialer := &net.Dialer{Timeout: timeout}
-	conn, err := dialer.DialContext(ctx, "tcp", target.String())
-	if err != nil {
-		return nil
-	}
-	defer conn.Close()
-	client := &http.Client{
-		Transport: &http.Transport{DialContext: func(context.Context, string, string) (net.Conn, error) { return conn, nil }},
-		Timeout:   timeout,
-	}
+	// HTTP 校验次数可配（HTTPProbeCount），任一次校验成功即判定为有效节点。
 	scheme := "https://"
 	if !opts.EnableTLS {
 		scheme = "http://"
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, scheme+r.traceURL, nil)
-	if err != nil {
-		return nil
+	httpProbeCount := opts.HTTPProbeCount
+	if httpProbeCount < 1 {
+		httpProbeCount = DefaultLatencyOptions().HTTPProbeCount
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0")
-	req.Close = true
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil
+	bodyStr := ""
+	for i := 0; i < httpProbeCount; i++ {
+		if body, ok := fetchTrace(ctx, target, scheme, r.traceURL, timeout); ok {
+			bodyStr = body
+			break
+		}
 	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil
-	}
-	bodyStr := string(body)
-	if !strings.Contains(bodyStr, "uag=Mozilla/5.0") {
+	if bodyStr == "" {
 		return nil
 	}
 	matches := reColoLoc.FindStringSubmatch(bodyStr)
@@ -108,6 +94,41 @@ func (r *Runner) testSingleIP(ctx context.Context, target Target, opts LatencyOp
 		res.IPSType = queryIPAPI(ctx, r.ipsTypeURL, target.IP)
 	}
 	return res
+}
+
+// fetchTrace 对单个目标执行一次 HTTP trace 校验请求；
+// 响应体含 uag 回显才视为成功，返回完整响应文本。
+func fetchTrace(ctx context.Context, target Target, scheme, traceURL string, timeout time.Duration) (string, bool) {
+	dialer := &net.Dialer{Timeout: timeout}
+	conn, err := dialer.DialContext(ctx, "tcp", target.String())
+	if err != nil {
+		return "", false
+	}
+	defer conn.Close()
+	client := &http.Client{
+		Transport: &http.Transport{DialContext: func(context.Context, string, string) (net.Conn, error) { return conn, nil }},
+		Timeout:   timeout,
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, scheme+traceURL, nil)
+	if err != nil {
+		return "", false
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+	req.Close = true
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", false
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", false
+	}
+	bodyStr := string(body)
+	if !strings.Contains(bodyStr, "uag=Mozilla/5.0") {
+		return "", false
+	}
+	return bodyStr, true
 }
 
 // parseTraceResponse 解析 "key=value\n" 格式的 trace 响应体。

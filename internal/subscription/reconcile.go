@@ -41,7 +41,8 @@ type ProgressFunc func(p Progress) error
 // RunOptions 控制编排运行的行为；零值使用默认值。
 type RunOptions struct {
 	LatencyTimeoutMs   int             // 单连接延迟超时（ms），默认 1000
-	LatencyProbes      int             // 延迟探测次数，默认 3；成功探测取平均
+	LatencyProbes      int             // TCP 探测次数，默认 4；成功探测取平均
+	LatencyHTTPProbes  int             // HTTP(trace) 校验次数，默认 1
 	LatencyConcurrency int             // 延迟检测并发，默认 50；维护场景过高并发易漏测/误判
 	SpeedDurationSec   int             // 单 IP 测速时长（秒），默认 5
 	SpeedConcurrency   int             // 测速并发，默认 5
@@ -59,7 +60,10 @@ func (o RunOptions) withDefaults() RunOptions {
 		o.LatencyTimeoutMs = 1000
 	}
 	if o.LatencyProbes <= 0 {
-		o.LatencyProbes = 3
+		o.LatencyProbes = 4
+	}
+	if o.LatencyHTTPProbes <= 0 {
+		o.LatencyHTTPProbes = 1
 	}
 	if o.LatencyConcurrency <= 0 {
 		o.LatencyConcurrency = 50
@@ -289,6 +293,7 @@ func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, 
 		MaxConcurrency: opts.LatencyConcurrency,
 		TimeoutMs:      opts.LatencyTimeoutMs,
 		ProbeCount:     opts.LatencyProbes,
+		HTTPProbeCount: opts.LatencyHTTPProbes,
 		EnableTLS:      enableTLS,
 	}
 	results, err := t.RunLatencyTest(ctx, targets, latOpts, func(engine.Event) {})

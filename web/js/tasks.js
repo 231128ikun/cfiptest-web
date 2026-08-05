@@ -269,6 +269,7 @@ export function initTasks({ toast }) {
         $('task-lat-concurrency').value = task.latencyConcurrency > 0 ? task.latencyConcurrency : '';
         $('task-lat-timeout').value = task.latencyTimeoutMs > 0 ? task.latencyTimeoutMs : '';
         $('task-lat-probes').value = task.latencyProbes > 0 ? task.latencyProbes : '';
+        $('task-lat-http-probes').value = task.latencyHTTPProbes > 0 ? task.latencyHTTPProbes : '';
         $('task-spd-concurrency').value = task.speedConcurrency > 0 ? task.speedConcurrency : '';
         $('task-spd-duration').value = task.speedDurationSec > 0 ? task.speedDurationSec : '';
         $('task-speed').checked = Boolean(task.speedEnabled);
@@ -346,6 +347,7 @@ export function initTasks({ toast }) {
         task.latencyConcurrency = taskConcurrency('task-lat-concurrency');
         task.latencyTimeoutMs = taskConcurrency('task-lat-timeout');
         task.latencyProbes = taskConcurrency('task-lat-probes');
+        task.latencyHTTPProbes = taskConcurrency('task-lat-http-probes');
         task.speedConcurrency = taskConcurrency('task-spd-concurrency');
         task.speedDurationSec = taskConcurrency('task-spd-duration');
         task.schedule = {

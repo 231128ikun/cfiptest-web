@@ -72,7 +72,8 @@ type Task struct {
 	LatencyConcurrency int          `json:"latencyConcurrency,omitempty"` // 延迟并发；0 = 用设置页全局默认
 	SpeedConcurrency   int          `json:"speedConcurrency,omitempty"`   // 测速并发；0 = 用设置页全局默认
 	LatencyTimeoutMs   int          `json:"latencyTimeoutMs,omitempty"`   // 延迟超时；0 = 用设置页全局默认
-	LatencyProbes      int          `json:"latencyProbes,omitempty"`      // 延迟探测次数；0 = 用设置页全局默认
+	LatencyProbes      int          `json:"latencyProbes,omitempty"`      // TCP 探测次数；0 = 用设置页全局默认
+	LatencyHTTPProbes  int          `json:"latencyHTTPProbes,omitempty"`  // HTTP(trace) 校验次数；0 = 用设置页全局默认
 	SpeedDurationSec   int          `json:"speedDurationSec,omitempty"`   // 测速时长；0 = 用设置页全局默认
 	Schedule           TaskSchedule `json:"schedule,omitempty"`
 	Rules              []TaskRule   `json:"rules"`
@@ -158,7 +159,10 @@ func (t *Task) Validate() error {
 		return fmt.Errorf("任务 %q 延迟超时必须在 1-60000ms 之间，0 表示全局默认", t.Name)
 	}
 	if t.LatencyProbes < 0 || t.LatencyProbes > 10 {
-		return fmt.Errorf("任务 %q 延迟探测次数必须在 1-10 之间，0 表示全局默认", t.Name)
+		return fmt.Errorf("任务 %q TCP 探测次数必须在 1-10 之间，0 表示全局默认", t.Name)
+	}
+	if t.LatencyHTTPProbes < 0 || t.LatencyHTTPProbes > 10 {
+		return fmt.Errorf("任务 %q HTTP 校验次数必须在 1-10 之间，0 表示全局默认", t.Name)
 	}
 	if t.SpeedDurationSec < 0 || t.SpeedDurationSec > 120 {
 		return fmt.Errorf("任务 %q 测速时长必须在 1-120 秒之间，0 表示全局默认", t.Name)

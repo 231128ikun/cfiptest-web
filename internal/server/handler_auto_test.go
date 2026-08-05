@@ -281,24 +281,24 @@ func TestResolveTaskInputNone(t *testing.T) {
 
 func TestAutoRunOptionsPriority(t *testing.T) {
 	s := autoServer(t)
-	if err := config.SaveSettings(s.dataDir, map[string]any{"autoLatencyConcurrency": 30, "autoLatencyTimeoutMs": 1400, "autoLatencyProbes": 4, "autoSpeedConcurrency": 6, "autoSpeedDurationSec": 9}); err != nil {
+	if err := config.SaveSettings(s.dataDir, map[string]any{"autoLatencyConcurrency": 30, "autoLatencyTimeoutMs": 1400, "autoLatencyProbes": 4, "autoLatencyHTTPProbes": 3, "autoSpeedConcurrency": 6, "autoSpeedDurationSec": 9}); err != nil {
 		t.Fatal(err)
 	}
 	task := &subscription.Task{Name: "x", LatencyConcurrency: 20, SpeedConcurrency: 4}
 
 	// 仅全局默认
 	opts := s.autoRunOptions(nil, nil)
-	if opts.LatencyConcurrency != 30 || opts.SpeedConcurrency != 6 || opts.LatencyTimeoutMs != 1400 || opts.LatencyProbes != 4 || opts.SpeedDurationSec != 9 {
+	if opts.LatencyConcurrency != 30 || opts.SpeedConcurrency != 6 || opts.LatencyTimeoutMs != 1400 || opts.LatencyProbes != 4 || opts.LatencyHTTPProbes != 3 || opts.SpeedDurationSec != 9 {
 		t.Fatalf("全局默认未完整读取: %+v", opts)
 	}
 	// 任务级覆盖全局
 	opts = s.autoRunOptions(task, nil)
-	if opts.LatencyConcurrency != 20 || opts.SpeedConcurrency != 4 || opts.LatencyTimeoutMs != 1400 || opts.LatencyProbes != 4 || opts.SpeedDurationSec != 9 {
+	if opts.LatencyConcurrency != 20 || opts.SpeedConcurrency != 4 || opts.LatencyTimeoutMs != 1400 || opts.LatencyProbes != 4 || opts.LatencyHTTPProbes != 3 || opts.SpeedDurationSec != 9 {
 		t.Fatalf("任务级未保留其它全局参数: %+v", opts)
 	}
 	// 请求覆盖优先
-	opts = s.autoRunOptions(task, &subscription.RunOptions{LatencyConcurrency: 10, SpeedConcurrency: 2, LatencyTimeoutMs: 700, LatencyProbes: 2, SpeedDurationSec: 3})
-	if opts.LatencyConcurrency != 10 || opts.SpeedConcurrency != 2 || opts.LatencyTimeoutMs != 700 || opts.LatencyProbes != 2 || opts.SpeedDurationSec != 3 {
+	opts = s.autoRunOptions(task, &subscription.RunOptions{LatencyConcurrency: 10, SpeedConcurrency: 2, LatencyTimeoutMs: 700, LatencyProbes: 2, LatencyHTTPProbes: 2, SpeedDurationSec: 3})
+	if opts.LatencyConcurrency != 10 || opts.SpeedConcurrency != 2 || opts.LatencyTimeoutMs != 700 || opts.LatencyProbes != 2 || opts.LatencyHTTPProbes != 2 || opts.SpeedDurationSec != 3 {
 		t.Fatalf("请求覆盖未完整生效: %+v", opts)
 	}
 	// 请求覆盖为 0 时回退任务级

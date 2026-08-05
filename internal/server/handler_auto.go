@@ -477,6 +477,7 @@ func (s *Server) autoRunOptions(task *subscription.Task, overrides *subscription
 	opts := subscription.RunOptions{
 		LatencyTimeoutMs:   settingsIntOr(settings, "autoLatencyTimeoutMs", latencyDefaults.TimeoutMs),
 		LatencyProbes:      settingsInt(settings, "autoLatencyProbes"),
+		LatencyHTTPProbes:  settingsInt(settings, "autoLatencyHTTPProbes"),
 		LatencyConcurrency: settingsInt(settings, "autoLatencyConcurrency"),
 		SpeedDurationSec:   settingsIntOr(settings, "autoSpeedDurationSec", speedDefaults.DurationSec),
 		SpeedConcurrency:   settingsInt(settings, "autoSpeedConcurrency"),
@@ -488,6 +489,9 @@ func (s *Server) autoRunOptions(task *subscription.Task, overrides *subscription
 		}
 		if task.LatencyProbes > 0 {
 			opts.LatencyProbes = task.LatencyProbes
+		}
+		if task.LatencyHTTPProbes > 0 {
+			opts.LatencyHTTPProbes = task.LatencyHTTPProbes
 		}
 		if task.SpeedDurationSec > 0 {
 			opts.SpeedDurationSec = task.SpeedDurationSec
@@ -508,6 +512,9 @@ func (s *Server) autoRunOptions(task *subscription.Task, overrides *subscription
 	}
 	if merged.LatencyProbes == 0 {
 		merged.LatencyProbes = opts.LatencyProbes
+	}
+	if merged.LatencyHTTPProbes == 0 {
+		merged.LatencyHTTPProbes = opts.LatencyHTTPProbes
 	}
 	if merged.LatencyConcurrency == 0 {
 		merged.LatencyConcurrency = opts.LatencyConcurrency
