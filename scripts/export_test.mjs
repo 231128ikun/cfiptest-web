@@ -5,7 +5,7 @@
 // 用最小桩件覆盖），所以能直接在 node 里跑。
 import assert from 'node:assert/strict';
 
-const { ALL_COLUMNS, TABLE_COLUMNS, CSV_COLUMNS, GROUP_COLUMNS, csvValue, columnByKey, escapeHTML, normalizeBadgeThresholds, setBadgeThresholds } =
+const { ALL_COLUMNS, TABLE_COLUMNS, CSV_COLUMNS, GROUP_COLUMNS, LIBRARY_COLUMNS, csvValue, columnByKey, escapeHTML, normalizeBadgeThresholds, setBadgeThresholds } =
     await import('../web/js/columns.js');
 
 let pass = 0;
@@ -36,9 +36,10 @@ check('key 唯一', () => {
     const keys = ALL_COLUMNS.map(c => c.key);
     assert.equal(new Set(keys).size, keys.length);
 });
-check('每列至少出现在一处（inTable 或 inCSV）', () => {
-    const orphan = ALL_COLUMNS.filter(c => !c.inTable && !c.inCSV);
-    assert.deepEqual(orphan, [], '既不在表格也不在 CSV 的列是死代码');
+check('每列至少出现在一处（表格/CSV/库页）', () => {
+    const libKeys = new Set(LIBRARY_COLUMNS.map(c => c.key));
+    const orphan = ALL_COLUMNS.filter(c => !c.inTable && !c.inCSV && !libKeys.has(c.key));
+    assert.deepEqual(orphan, [], '既不在表格、CSV 也不在库页的列是死代码');
 });
 check('CSV 列数为 27（index.html 的「共 N 列」由它算出）', () => {
     assert.equal(CSV_COLUMNS.length, 27);

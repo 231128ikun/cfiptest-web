@@ -40,20 +40,23 @@ type ProgressFunc func(p Progress) error
 
 // RunOptions 控制编排运行的行为；零值使用默认值。
 type RunOptions struct {
-	LatencyTimeoutMs   int             // 单连接延迟超时（ms），默认 1000
-	LatencyProbes      int             // TCP 探测次数，默认 4；成功探测取平均
-	LatencyHTTPProbes  int             // HTTP(trace) 校验次数，默认 1
-	LatencyConcurrency int             // 延迟检测并发，默认 50；维护场景过高并发易漏测/误判
-	SpeedDurationSec   int             // 单 IP 测速时长（秒），默认 5
-	SpeedConcurrency   int             // 测速并发，默认 5
-	DownloadURL        string          // 测速文件地址（不含协议头），默认 engine 默认值
-	SlackFactor        int             // 每组候选倍数：count*SlackFactor + SlackExtra，默认 3
-	SlackExtra         int             // 默认 10
-	MaxPerGroup        int             // 每组候选硬上限，默认 200
-	InputTargets       []engine.Target `json:"-"` // 服务端已解析的初始化来源目标（远程 URL），不参与 JSON
-	InputSource        string          `json:"-"` // 初始化来源标签，用于进度日志
-	RemoteLibrary      bool            `json:"-"` // 维护来源为远程库（官方/URL）：失效不删本地库、结果不落盘
-	Protocol           string          `json:"protocol,omitempty"` // https（默认）| http
+	LatencyTimeoutMs     int             // 单连接延迟超时（ms），默认 1000
+	LatencyProbes        int             // TCP 探测次数，默认 4；成功探测取平均
+	LatencyHTTPProbes    int             // HTTP(trace) 校验次数，默认 1
+	LatencyHTTPTimeoutMs int             // HTTP(trace) 校验单请求超时（ms），默认 3000；0 = 用 LatencyTimeoutMs
+	RemoveAfterFailures  int             // 延迟失败保留阈值：连续失败达该次数才从库移除，默认 3
+	LatencyConcurrency   int             // 延迟检测并发，默认 50；维护场景过高并发易漏测/误判
+	SpeedDurationSec     int             // 单 IP 测速时长（秒），默认 5
+	SpeedConcurrency     int             // 测速并发，默认 5
+	DownloadURL          string          // 测速文件地址（不含协议头），默认 engine 默认值
+	SlackFactor          int             // 每组候选倍数：count*SlackFactor + SlackExtra，默认 3
+	SlackExtra           int             // 默认 10
+	MaxPerGroup          int             // 每组候选硬上限，默认 200
+	MaxCandidates        int             // 单次运行延迟检测候选总数上限（跨分组去重后），默认 200；0 = 默认
+	InputTargets         []engine.Target `json:"-"`                  // 服务端已解析的初始化来源目标（远程 URL），不参与 JSON
+	InputSource          string          `json:"-"`                  // 初始化来源标签，用于进度日志
+	RemoteLibrary        bool            `json:"-"`                  // 维护来源为远程库（官方/URL）：失效不删本地库、结果不落盘
+	Protocol             string          `json:"protocol,omitempty"` // https（默认）| http
 }
 
 func (o RunOptions) withDefaults() RunOptions {
@@ -65,6 +68,12 @@ func (o RunOptions) withDefaults() RunOptions {
 	}
 	if o.LatencyHTTPProbes <= 0 {
 		o.LatencyHTTPProbes = 1
+	}
+	if o.LatencyHTTPTimeoutMs <= 0 {
+		o.LatencyHTTPTimeoutMs = 3000
+	}
+	if o.RemoveAfterFailures <= 0 {
+		o.RemoveAfterFailures = 3
 	}
 	if o.LatencyConcurrency <= 0 {
 		o.LatencyConcurrency = 50
@@ -90,6 +99,9 @@ func (o RunOptions) withDefaults() RunOptions {
 	if o.MaxPerGroup <= 0 {
 		o.MaxPerGroup = 200
 	}
+	if o.MaxCandidates <= 0 {
+		o.MaxCandidates = 200
+	}
 	return o
 }
 
@@ -114,7 +126,7 @@ type GroupReport struct {
 	Filled      int    `json:"filled"`
 	Shortage    int    `json:"shortage"`
 	Tested      int    `json:"tested"`      // 延迟测试数
-	Failed      int    `json:"failed"`      // 延迟失败（已从库移除）
+	Failed      int    `json:"failed"`      // 本轮延迟失败数（含移除与标记保留）
 	SpeedTested int    `json:"speedTested"` // 测速数
 	SpeedFailed int    `json:"speedFailed"` // 测速失败（保留条目）
 	Updated     int    `json:"updated"`     // 结果与库不一致回写数
@@ -133,6 +145,7 @@ type Report struct {
 	TotalLines   int           `json:"totalLines"`
 	Shortages    []string      `json:"shortages"`
 	RemovedDead  int           `json:"removedDead"`
+	MarkedFailed int           `json:"markedFailed"` // 延迟失败但未达阈值，保留并累计连续失败
 	InputAdded   int           `json:"inputAdded"`   // 从初始化来源新导入的 IP 数
 	InputUpdated int           `json:"inputUpdated"` // 初始化来源与库重叠更新的条数
 }
@@ -169,6 +182,10 @@ func RunTask(ctx context.Context, t Tester, lib *library.Store, task Task, opts 
 			opts.Protocol = "https"
 		}
 	}
+	// 任务级「单次检测上限」：请求/全局覆盖优先，task 值兜底（0 = 引擎默认 200）。
+	if opts.MaxCandidates <= 0 && task.MaxCandidates > 0 {
+		opts.MaxCandidates = task.MaxCandidates
+	}
 	output := Output{Path: task.Output.Path, Format: task.Output.Format, Template: task.Output.Template}
 	report, err := runCore(ctx, t, lib, groups, inputPath, output, task.SpeedEnabled, task.Limit, opts, prog)
 	if err != nil {
@@ -182,6 +199,7 @@ func RunTask(ctx context.Context, t Tester, lib *library.Store, task Task, opts 
 // runCore 执行核心编排流程：
 //
 //	0.（可选）初始化来源先导入 IP 库（官方 IP 只作为库）；候选始终只从库内收集。
+//	1.5 候选按单次检测上限截断（未检测条目保留，不判失效）；
 //	2. 批量延迟检测：失败者从库移除，通过者回写元数据/延迟/状态；
 //	3. 需要测速的分组对短名单批量测速：失败不判死，只标记 SpeedValid=false；
 //	4. 按分组配额取最新结果，合并去重；若设了总数限制则按延迟升序截断；
@@ -259,7 +277,13 @@ func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, 
 			c.groups[gi] = g
 		}
 	}
-	_ = prog(Progress{Stage: "gather", Tested: len(order), Log: fmt.Sprintf("收集候选 %d 条", len(order))})
+	// 单次检测上限（跨分组去重后）：超出部分本轮不检测、不从库删除，留待后续轮次。
+	capNote := ""
+	if len(order) > opts.MaxCandidates {
+		capNote = fmt.Sprintf("，超上限 %d 条留待下次", len(order)-opts.MaxCandidates)
+		order = order[:opts.MaxCandidates]
+	}
+	_ = prog(Progress{Stage: "gather", Tested: len(order), Log: fmt.Sprintf("收集候选 %d 条（单次上限 %d%s）", len(order), opts.MaxCandidates, capNote)})
 
 	// 解析未指定端口（HTTPS 默认 443，HTTP 默认 80），并让候选键跟随端口修正，
 	// 否则按旧键（端口 0）找不到检测结果会被误判为失效。
@@ -298,6 +322,7 @@ func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, 
 		TimeoutMs:      opts.LatencyTimeoutMs,
 		ProbeCount:     opts.LatencyProbes,
 		HTTPProbeCount: opts.LatencyHTTPProbes,
+		HTTPTimeoutMs:  opts.LatencyHTTPTimeoutMs,
 		EnableTLS:      enableTLS,
 	}
 	results, err := t.RunLatencyTest(ctx, targets, latOpts, func(engine.Event) {})
@@ -315,8 +340,17 @@ func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, 
 		c := candidates[key]
 		res, ok := resultByKey[key]
 		if !ok {
-			lib.RemoveKey(key) // 延迟失败：失效即移除
-			report.RemovedDead++
+			// 软失败：保留条目并累计连续失败，达到阈值才移除，避免单次抖动误删刚验活的 IP。
+			e := c.entry
+			e.ConsecutiveFailures++
+			e.LastCheckedAt = now
+			if e.ConsecutiveFailures >= opts.RemoveAfterFailures {
+				lib.RemoveKey(key) // 连续失败达阈值：移除
+				report.RemovedDead++
+			} else {
+				lib.Upsert(e)
+				report.MarkedFailed++
+			}
 			for gi := range c.groups {
 				report.Groups[gi].Tested++
 				report.Groups[gi].Failed++
@@ -336,11 +370,11 @@ func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, 
 			}
 		}
 	}
-	deadNote := "（已从库移除）"
+	deadNote := fmt.Sprintf("（连续失败 %d 次后移除；本轮移除 %d、标记保留 %d）", opts.RemoveAfterFailures, report.RemovedDead, report.MarkedFailed)
 	if opts.RemoteLibrary {
 		deadNote = "（远程库不删除）"
 	}
-	_ = prog(Progress{Stage: "latency", Tested: len(order), Passed: len(fresh), Failed: report.RemovedDead,
+	_ = prog(Progress{Stage: "latency", Tested: len(order), Passed: len(fresh), Failed: report.RemovedDead + report.MarkedFailed,
 		Log: fmt.Sprintf("延迟检测完成：通过 %d，失败 %d%s", len(fresh), report.RemovedDead, deadNote)})
 	if ctx.Err() != nil {
 		_ = lib.Save()
@@ -711,6 +745,7 @@ func applyResult(e library.Entry, res engine.Result, now time.Time) (library.Ent
 	e.Status = library.StatusActive
 	e.LastCheckedAt = now
 	e.Checks++
+	e.ConsecutiveFailures = 0 // 检测通过，重置连续失败计数
 	if e.Source == "" {
 		e.Source = library.SourceTopup
 	}

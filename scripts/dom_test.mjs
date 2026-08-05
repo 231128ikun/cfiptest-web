@@ -229,7 +229,8 @@ check('.quota-condition 由自定义展示规则编辑器生成', () => {
 console.log('初次检测是否继续测速:');
 check('spd-enable 位于速度条件标题行', () => {
     const panelStart = html.indexOf('<div class="rule-group" id="spd-panel">');
-    const panelEnd = html.indexOf('</div>\n\n                <div class="rule-group">', panelStart);
+    const panelEndMatch = /<\/div>\r?\n\r?\n\s*<div class="rule-group">/.exec(html.slice(panelStart));
+    const panelEnd = panelEndMatch ? panelStart + panelEndMatch.index : -1;
     assert.notEqual(panelStart, -1, 'spd-panel 不存在');
     assert.notEqual(panelEnd, -1, 'spd-panel 结束位置无法识别');
     const panelHtml = html.slice(panelStart, panelEnd);
@@ -243,6 +244,11 @@ const bodyOf = anchor => {
     assert.notEqual(at, -1, `锚点 "${anchor}" 在 app.js 里找不到了（函数被改名或删了？）`);
     return appJs.slice(at);
 };
+const fnBody = anchor => {
+    const body = bodyOf(anchor);
+    const next = body.indexOf('\nfunction ', 1);
+    return next > 0 ? body.slice(0, next) : body;
+};
 
 check('速度条件始终可编辑，复选框只控制是否自动继续测速', () => {
     const body = bodyOf('function applySpeedEnabled').split('\n}')[0];
@@ -250,8 +256,8 @@ check('速度条件始终可编辑，复选框只控制是否自动继续测速'
     assert.equal(body.includes("classList.toggle('disabled'"), false);
 });
 check('统一最大数量按速度规则状态分配到最终阶段', () => {
-    const latency = bodyOf('function latencyOptions').slice(0, 700);
-    const speed = bodyOf('function speedOptions').slice(0, 700);
+    const latency = fnBody('function latencyOptions');
+    const speed = fnBody('function speedOptions');
     assert.ok(/speedEnabled\(\) \? 0 : ruleMaxResults\(\)/.test(latency), '组合检测的数量限制应只统计最终达标结果');
     assert.ok(/maxResults: ruleMaxResults\(\)/.test(speed), '统一最大数量没有作用到最终测速阶段');
 });

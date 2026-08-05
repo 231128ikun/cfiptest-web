@@ -99,6 +99,7 @@ type LatencyOptions struct {
 	MaxConcurrency int  `json:"maxConcurrency"` // 并发数，默认 100
 	ProbeCount     int  `json:"probeCount"`     // TCP 探测次数，默认 4；成功探测取平均
 	HTTPProbeCount int  `json:"httpProbeCount"` // HTTP(trace) 校验次数，默认 1；全部失败才判不可用
+	HTTPTimeoutMs  int  `json:"httpTimeoutMs"`  // HTTP(trace) 校验单请求超时（毫秒），默认 3000；0 = 用 TimeoutMs
 	TimeoutMs      int  `json:"timeoutMs"`      // 单连接超时（毫秒），默认 1000
 	MaxLatencyMs   int  `json:"maxLatencyMs"`   // 延迟过滤阈值，0=不过滤
 	MaxResults     int  `json:"maxResults"`     // 达到该数量的合格结果即停止，0=不限制（全部测完）
@@ -112,6 +113,7 @@ func DefaultLatencyOptions() LatencyOptions {
 		MaxConcurrency: 100,
 		ProbeCount:     4,
 		HTTPProbeCount: 1,
+		HTTPTimeoutMs:  3000,
 		TimeoutMs:      1000,
 		MaxLatencyMs:   0,
 		MaxResults:     0,

@@ -903,15 +903,15 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 .lib-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .lib-item { border: 1px solid var(--border-light); background: var(--surface); border-radius: var(--radius); padding: 14px 16px; cursor: pointer; transition: border-color .15s ease, box-shadow .15s ease; }
 .lib-item:hover { border-color: var(--border); }
-.lib-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 10px 14px; margin-bottom: 10px; }
+.lib-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); align-items: start; gap: 10px 14px; margin-bottom: 10px; }
 .lib-toolbar input[type="text"] { min-width: 220px; flex: 1; }
 .lib-import-text { flex-basis: 100%; }
 .lib-filter-controls { min-width: 0; display: grid; grid-template-columns: minmax(220px, 1fr) auto auto minmax(140px, auto); gap: 8px; }
 .lib-filter-controls input, .lib-filter-controls select { min-width: 0; width: 100%; }
 .lib-manage-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; align-items: center; }
 .lib-stats { padding: 8px 10px; border-radius: var(--radius-sm); background: var(--surface-soft); font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; }
-.lib-table-wrap { max-height: 460px; overflow: auto; border: 1px solid var(--border-light); border-radius: var(--radius-sm); }
-.lib-table-wrap table.results { margin: 0; width: max-content; min-width: 100%; }
+#lib-table-container .table-wrap { max-height: 460px; }
+#lib-table-container table.results { margin: 0; width: max-content; min-width: 100%; }
 .library-results th, .library-results td { white-space: nowrap; min-width: 86px; }
 .library-results th:nth-child(1), .library-results td:nth-child(1) { min-width: 42px; width: 42px; }
 .library-results th:nth-child(2), .library-results td:nth-child(2) { min-width: 150px; }
@@ -1099,3 +1099,13 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 
 /* ---------- 25. 代理源工具栏 ---------- */
 .proxy-source-toolbar select, .proxy-source-toolbar input { min-width: 0; }
+
+/* IP 库手动导入 / 导出弹窗 */
+.lib-import-panel, .lib-export-panel { width: min(560px, 92vw); }
+.import-text-field { display: block; font-weight: 600; }
+.import-text-field textarea { width: 100%; margin-top: 8px; font-family: var(--font-mono); }
+.lib-import-options { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-top: 10px; }
+.lib-import-options label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary); }
+.import-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+#lib-export-template-field { display: block; font-weight: 600; margin-top: 12px; }
+#lib-export-template-field input { width: 100%; margin-top: 8px; font-family: var(--font-mono); }

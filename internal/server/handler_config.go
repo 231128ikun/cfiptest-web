@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"iptest-web/internal/config"
@@ -40,8 +39,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 	var cfg config.Config
-	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		writeError(w, http.StatusBadRequest, "配置不是合法 JSON: "+err.Error())
+	if !decodeJSON(w, r, &cfg) {
 		return
 	}
 	cfg.FillDefaults(config.Default())
@@ -58,8 +56,7 @@ func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	var settings map[string]any
-	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
-		writeError(w, http.StatusBadRequest, "设置不是合法 JSON: "+err.Error())
+	if !decodeJSON(w, r, &settings) {
 		return
 	}
 	if err := config.SaveSettings(s.dataDir, settings); err != nil {
@@ -69,6 +66,9 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	// 调试日志开关即时生效
 	if on, ok := settings["debugLog"].(bool); ok {
 		s.log.SetEnabled(on)
+	}
+	if level, ok := settings["logLevel"].(string); ok {
+		s.log.SetMinLevel(level)
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"saved": true})
 }

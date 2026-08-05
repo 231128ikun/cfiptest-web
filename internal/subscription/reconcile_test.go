@@ -181,7 +181,7 @@ func TestRunRemovesLatencyFailures(t *testing.T) {
 
 	sub := Subscription{Name: "x", Groups: []Group{usGroup(2)},
 		Output: Output{Path: "out/t.txt", Template: "{ip}:{port}"}}
-	report, err := Run(context.Background(), fake, lib, sub, RunOptions{}, nil)
+	report, err := Run(context.Background(), fake, lib, sub, RunOptions{RemoveAfterFailures: 1}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

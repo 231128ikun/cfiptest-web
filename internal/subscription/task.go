@@ -19,7 +19,7 @@ const TasksFile = "tasks.json"
 // 维护来源（Task.LibrarySource）。
 const (
 	LibrarySourceLocal    = "local"    // 本地 IP 库：维护时检测失效的条目从库中删除
-	LibrarySourceOfficial = "official" // 官方 IP 库：远程库，每次维护拉取最新官方段，失效不删除
+	LibrarySourceOfficial = "official" // 官方 IP 段：优先本地缓存/内置兜底，每次维护按抽样展开为内存候选，失效不删除
 	LibrarySourceRemote   = "remote"   // 远程 URL 库：远程库，运行时拉取，失效不删除
 )
 
@@ -72,18 +72,19 @@ type TaskSchedule struct {
 type Task struct {
 	ID                 string       `json:"id,omitempty"`
 	Name               string       `json:"name"`
-	Enabled            bool         `json:"enabled"`   // 单独维护开关；false = 一键维护跳过
-	LibraryID          string       `json:"libraryId"` // 本地库 ID（librarySource=local 时使用）；空 = 默认库
-	LibrarySource      string       `json:"librarySource,omitempty"` // 维护来源：local | official | remote；空 = local（旧任务）
-	LibraryURL         string       `json:"libraryUrl,omitempty"`    // librarySource=remote 时的远程库 URL
-	LibraryFamily      string       `json:"libraryFamily,omitempty"` // librarySource=official：ipv4 | ipv6
+	Enabled            bool         `json:"enabled"`                     // 单独维护开关；false = 一键维护跳过
+	LibraryID          string       `json:"libraryId"`                   // 本地库 ID（librarySource=local 时使用）；空 = 默认库
+	LibrarySource      string       `json:"librarySource,omitempty"`     // 维护来源：local | official | remote；空 = local（旧任务）
+	LibraryURL         string       `json:"libraryUrl,omitempty"`        // librarySource=remote 时的远程库 URL
+	LibraryFamily      string       `json:"libraryFamily,omitempty"`     // librarySource=official：ipv4 | ipv6
 	LibrarySampleMode  string       `json:"librarySampleMode,omitempty"` // librarySource=official：one | n | all
-	LibrarySampleN     int          `json:"librarySampleN,omitempty"` // librarySource=official：每段抽样数
-	LibraryProtocol    string       `json:"libraryProtocol,omitempty"` // librarySource=official：http | https
-	LibraryPort        int          `json:"libraryPort,omitempty"` // librarySource=official：0 = 按协议默认
+	LibrarySampleN     int          `json:"librarySampleN,omitempty"`    // librarySource=official：每段抽样数
+	LibraryProtocol    string       `json:"libraryProtocol,omitempty"`   // librarySource=official：http | https
+	LibraryPort        int          `json:"libraryPort,omitempty"`       // librarySource=official：0 = 按协议默认
 	Input              TaskInput    `json:"input"`
 	Output             TaskOutput   `json:"output"`
 	Limit              int          `json:"limit"`                        // 总数限制（合并去重后取前 N）；0=不限
+	MaxCandidates      int          `json:"maxCandidates,omitempty"`      // 单次运行检测候选数上限（跨分组去重后）；0 = 默认 200
 	SpeedEnabled       bool         `json:"speedEnabled"`                 // 顶部测速总开关；关 = 规则速度字段无效
 	LatencyConcurrency int          `json:"latencyConcurrency,omitempty"` // 延迟并发；0 = 用设置页全局默认
 	SpeedConcurrency   int          `json:"speedConcurrency,omitempty"`   // 测速并发；0 = 用设置页全局默认
@@ -104,7 +105,7 @@ func (t *Task) Validate() error {
 	if len(t.Rules) == 0 {
 		return fmt.Errorf("任务 %q 至少需要一条规则", t.Name)
 	}
-	// ---- 维护来源：local（本地库）/ official（官方远程库）/ remote（远程 URL 库）----
+	// ---- 维护来源：local（本地库）/ official（官方 IP 段）/ remote（远程 URL 库）----
 	t.Input.Mode = strings.ToLower(strings.TrimSpace(t.Input.Mode))
 	if t.Input.Mode == "" {
 		t.Input.Mode = "none"
@@ -155,28 +156,28 @@ func (t *Task) Validate() error {
 			t.LibraryFamily = "ipv4"
 		}
 		if t.LibraryFamily != "ipv4" && t.LibraryFamily != "ipv6" {
-			return fmt.Errorf("任务 %q 官方库地址类型仅支持 ipv4/ipv6", t.Name)
+			return fmt.Errorf("任务 %q 官方 IP 段地址类型仅支持 ipv4/ipv6", t.Name)
 		}
 		if t.LibrarySampleMode == "" {
 			t.LibrarySampleMode = "one"
 		}
 		if t.LibrarySampleMode != "one" && t.LibrarySampleMode != "n" && t.LibrarySampleMode != "all" {
-			return fmt.Errorf("任务 %q 官方库抽样方式仅支持 one/n/all", t.Name)
+			return fmt.Errorf("任务 %q 官方 IP 段抽样方式仅支持 one/n/all", t.Name)
 		}
 		if t.LibrarySampleMode == "n" && (t.LibrarySampleN < 1 || t.LibrarySampleN > 256) {
-			return fmt.Errorf("任务 %q 官方库每段抽样数量必须在 1-256 之间", t.Name)
+			return fmt.Errorf("任务 %q 官方 IP 段每段抽样数量必须在 1-256 之间", t.Name)
 		}
 		if t.LibrarySampleMode != "n" && t.LibrarySampleN < 0 {
-			return fmt.Errorf("任务 %q 官方库抽样数量不能为负", t.Name)
+			return fmt.Errorf("任务 %q 官方 IP 段抽样数量不能为负", t.Name)
 		}
 		if t.LibraryProtocol == "" {
 			t.LibraryProtocol = "https"
 		}
 		if t.LibraryProtocol != "http" && t.LibraryProtocol != "https" {
-			return fmt.Errorf("任务 %q 官方库协议仅支持 http/https", t.Name)
+			return fmt.Errorf("任务 %q 官方 IP 段协议仅支持 http/https", t.Name)
 		}
 		if t.LibraryPort < 0 || t.LibraryPort > 65535 {
-			return fmt.Errorf("任务 %q 官方库端口必须在 1-65535 之间，0 表示按协议默认", t.Name)
+			return fmt.Errorf("任务 %q 官方 IP 段端口必须在 1-65535 之间，0 表示按协议默认", t.Name)
 		}
 	case LibrarySourceRemote:
 		t.LibraryURL = strings.TrimSpace(t.LibraryURL)
@@ -278,6 +279,9 @@ func (t *Task) Validate() error {
 	}
 	if t.Limit < 0 {
 		return fmt.Errorf("任务 %q 总数限制不能为负", t.Name)
+	}
+	if t.MaxCandidates < 0 {
+		return fmt.Errorf("任务 %q 单次检测上限不能为负", t.Name)
 	}
 	t.Schedule.Cron = strings.TrimSpace(t.Schedule.Cron)
 	if t.Schedule.Enabled {

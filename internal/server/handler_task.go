@@ -163,8 +163,7 @@ func (s *Server) broadcastTaskEvent(taskID string, ev engine.Event) {
 
 func (s *Server) handleStartLatency(w http.ResponseWriter, r *http.Request) {
 	var req latencyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON: "+err.Error())
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 
@@ -218,8 +217,7 @@ func (s *Server) handleStartLatency(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleStartSpeed(w http.ResponseWriter, r *http.Request) {
 	var req speedRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON: "+err.Error())
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	if len(req.Targets) == 0 {

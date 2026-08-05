@@ -2,7 +2,7 @@
 
 import { getInputStats, smartFilter, parseFilterExpression, importCSVText } from './input.js';
 import * as api from './api.js';
-import { store, setMode, parseLines, targetToLine } from './store.js';
+import { store, setMode, parseLines, targetToLine, entryKey } from './store.js';
 import { ResultTable, CSV_COLUMNS } from './table.js';
 import { ALL_COLUMNS, TABLE_COLUMNS, GROUP_COLUMNS, DEFAULT_BADGE_THRESHOLDS, csvValue, escapeHTML, normalizeBadgeThresholds, setBadgeThresholds } from './columns.js';
 import { createMultiSelect } from './multiselect.js';
@@ -11,9 +11,9 @@ import { download, copyToClipboard, serialize as serializeExport } from './expor
 import { boundedNumber } from './validation.js';
 import { initTasks } from './tasks.js';
 import { initLibrary } from './library.js';
+import { SAVED_TEMPLATE_KEY, loadSavedTemplates as loadTemplatesFromStorage, templateOptionsHTML } from './templates.js';
 
 const $ = id => document.getElementById(id);
-const keyOf = item => `${item.ip}|${item.port || 0}`;
 
 let currentTaskId = null;
 let currentTaskType = null; // pipeline | speed
@@ -37,8 +37,6 @@ let customResults = []; // 自定义导出列表，默认空，仅手动加入�
 let customColumnKeys = CSV_COLUMNS.map(column => column.key); // 自定义 CSV 字段，默认全部
 let officialRangesLoading = false;
 
-const SAVED_TEMPLATE_KEY = 'iptest.savedTemplates.v1';
-
 const DEFAULT_COLUMN_KEYS = TABLE_COLUMNS.filter(c => c.key !== '_sel').map(c => c.key);
 const SELECTABLE_COLUMN_KEYS = ALL_COLUMNS
     .filter(column => column.key !== '_sel' && column.key !== 'enableTLS' && column.inCSV)
@@ -58,12 +56,12 @@ function toast(message) {
 }
 
 function addUnique(base, incoming) {
-    const seen = new Set(base.map(keyOf));
+    const seen = new Set(base.map(entryKey));
     let added = 0;
     let duplicates = 0;
     for (const target of incoming) {
         if (!target?.ip) continue;
-        const key = keyOf(target);
+        const key = entryKey(target);
         if (seen.has(key)) { duplicates++; continue; }
         seen.add(key);
         base.push({ ip: target.ip, port: Number(target.port) || 0 });
@@ -735,7 +733,7 @@ function sideLogFromAuto(message) {
     if (p.stage === 'report' && p.report) {
         const r = p.report;
         const shortage = (r.shortages || []).length ? `，缺口 ${r.shortages.length} 项` : '';
-        sideLog(`任务「${r.subscription || ''}」完成：输出 ${r.totalLines ?? 0} 行，移除失效 ${r.removedDead ?? 0}，回写 ${(r.groups || []).reduce((s, g) => s + (g.updated || 0), 0)}${shortage}`, 'ok');
+        sideLog(`任务「${r.subscription || ''}」完成：输出 ${r.totalLines ?? 0} 行，移除失效 ${r.removedDead ?? 0}，标记保留 ${r.markedFailed ?? 0}，回写 ${(r.groups || []).reduce((s, g) => s + (g.updated || 0), 0)}${shortage}`, 'ok');
         return;
     }
     if (p.log) sideLog(`[${p.group || '维护'}] ${p.log}`);
@@ -881,6 +879,8 @@ function currentSettings() {
         autoLatencyTimeoutMs: positiveInt('auto-lat-timeout'),
         autoLatencyProbes: positiveInt('auto-lat-probes'),
         autoLatencyHTTPProbes: positiveInt('auto-lat-http-probes'),
+        autoLatencyHTTPTimeoutMs: positiveInt('auto-lat-http-timeout'),
+        autoRemoveAfterFailures: positiveInt('auto-lat-remove-after'),
         autoSpeedConcurrency: positiveInt('auto-spd-concurrency'),
         autoSpeedDurationSec: positiveInt('auto-spd-duration'),
     };
@@ -994,6 +994,8 @@ function applySavedSettings(settings = {}) {
         $('export-format').value = settings.exportFormat;
     }
     $('log-enable').checked = settings.debugLog === true;
+    $('log-level').value = settings.logLevel || 'debug';
+    $('log-level').disabled = !$('log-enable').checked;
     debugLogStatus($('log-enable').checked);
     if (Array.isArray(settings.savedTemplates)) {
         savedTemplates = settings.savedTemplates
@@ -1003,6 +1005,8 @@ function applySavedSettings(settings = {}) {
     if (Number(settings.autoLatencyTimeoutMs) > 0) $('auto-lat-timeout').value = settings.autoLatencyTimeoutMs;
     if (Number(settings.autoLatencyProbes) > 0) $('auto-lat-probes').value = settings.autoLatencyProbes;
     if (Number(settings.autoLatencyHTTPProbes) > 0) $('auto-lat-http-probes').value = settings.autoLatencyHTTPProbes;
+    if (Number(settings.autoLatencyHTTPTimeoutMs) > 0) $('auto-lat-http-timeout').value = settings.autoLatencyHTTPTimeoutMs;
+    if (Number(settings.autoRemoveAfterFailures) > 0) $('auto-lat-remove-after').value = settings.autoRemoveAfterFailures;
     if (Number(settings.autoSpeedConcurrency) > 0) $('auto-spd-concurrency').value = settings.autoSpeedConcurrency;
     if (Number(settings.autoSpeedDurationSec) > 0) $('auto-spd-duration').value = settings.autoSpeedDurationSec;
     fillBadgeThresholdFields(settings);
@@ -1249,11 +1253,11 @@ function appendSelectedToCustom() {
     if (!table) return;
     const selected = table.getSelectedResultsInDisplayOrder();
     if (!selected.length) { toast('请先勾选要追加的结果'); return; }
-    const seen = new Set(customResults.map(keyOf));
+    const seen = new Set(customResults.map(entryKey));
     let added = 0;
     let duplicates = 0;
     for (const result of selected) {
-        const key = keyOf(result);
+        const key = entryKey(result);
         if (seen.has(key)) { duplicates++; continue; }
         seen.add(key);
         customResults.push(result);
@@ -1305,25 +1309,13 @@ function renderTemplateOptions(selected = '') {
     templateToggle.setAttribute('aria-expanded', String(templateEditorOpen));
     txtEditor.hidden = !templateEditorOpen;
     csvHint.hidden = true;
-    const presetOptions = PRESETS.map((item, index) =>
-        `<option value="preset:${index}">${escapeHTML(item.name)}</option>`).join('');
-    const savedOptions = savedTemplates.map((item, index) =>
-        `<option value="saved:${index}">${escapeHTML(item.name)}</option>`).join('');
-    $('format-presets').innerHTML = `<optgroup label="内置模板">${presetOptions}</optgroup>`
-        + (savedOptions ? `<optgroup label="我的模板">${savedOptions}</optgroup>` : '');
+    $('format-presets').innerHTML = templateOptionsHTML(savedTemplates);
     $('format-presets').value = selected || 'preset:0';
     $('btn-delete-template').disabled = !$('format-presets').value.startsWith('saved:');
 }
 
 function loadSavedTemplates() {
-    try {
-        const parsed = JSON.parse(localStorage.getItem(SAVED_TEMPLATE_KEY) || '[]');
-        savedTemplates = Array.isArray(parsed)
-            ? parsed.filter(item => item && typeof item.name === 'string' && typeof item.template === 'string')
-            : [];
-    } catch {
-        savedTemplates = [];
-    }
+    savedTemplates = loadTemplatesFromStorage();
     renderTemplateOptions();
 }
 
@@ -1498,14 +1490,21 @@ async function bindLibraryCandidateImport() {
 }
 
 // 侧边栏日志：所有日志集中在这里（运行进度 / 错误 / 调试记录）
+function clearLogView() {
+    const body = $('log-viewer');
+    body.innerHTML = '';
+    body.classList.add('is-disabled');
+}
+
 function debugLogStatus(enabled, message = '') {
     const status = $('log-status');
     if (!status) return;
     status.classList.toggle('is-enabled', enabled);
     status.classList.toggle('is-error', Boolean(message));
+    const levelLabel = $('log-level').value || 'debug';
     status.textContent = message || (enabled
-        ? '调试日志已开启：新的请求、任务阶段和错误会写入 data/logs/app.log。'
-        : '调试日志已关闭：不记录也不显示新的调试日志。');
+        ? `调试日志已开启：请求、任务与错误写入 data/logs/app.log（级别：${levelLabel}）。`
+        : '调试日志已关闭：不记录不显示，磁盘上也不保留日志文件。');
 }
 
 function sideLog(line, kind = '') {
@@ -1527,14 +1526,11 @@ function bindDebugLog() {
     const body = $('log-viewer');
     checkbox.addEventListener('change', async () => {
         const enabled = checkbox.checked;
-        if (!enabled) {
-            body.innerHTML = '';
-            body.classList.add('is-disabled');
-        }
+        if (!enabled) clearLogView();
         debugLogStatus(enabled);
+        $('log-level').disabled = !enabled;
         try {
-            const config = await api.fetchConfig();
-            await api.saveSettings({ ...(config.settings || {}), debugLog: enabled });
+            await api.saveSettingsPatch({ debugLog: enabled });
             toast(enabled ? '调试日志已开启（写入 data/logs/app.log）' : '调试日志已关闭');
         } catch (error) {
             checkbox.checked = !enabled;
@@ -1544,8 +1540,7 @@ function bindDebugLog() {
     });
     $('log-refresh').addEventListener('click', async () => {
         if (!checkbox.checked) {
-            body.innerHTML = '';
-            body.classList.add('is-disabled');
+            clearLogView();
             debugLogStatus(false);
             return;
         }
@@ -1569,6 +1564,14 @@ function bindDebugLog() {
             toast('日志已清空');
         } catch (error) {
             toast('清空失败：' + error.message);
+        }
+    });
+    $('log-level').addEventListener('change', async () => {
+        try {
+            await api.saveSettingsPatch({ logLevel: $('log-level').value });
+            toast('日志级别已更新');
+        } catch (error) {
+            toast('保存失败：' + error.message);
         }
     });
     debugLogStatus(checkbox.checked);

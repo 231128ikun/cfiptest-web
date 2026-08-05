@@ -62,8 +62,13 @@ func (r *Runner) testSingleIP(ctx context.Context, target Target, opts LatencyOp
 		httpProbeCount = DefaultLatencyOptions().HTTPProbeCount
 	}
 	bodyStr := ""
+	// trace 校验走独立连接，单请求超时独立于 TCP 探测（HTTPTimeoutMs，默认 3s）。
+	traceTimeout := timeout
+	if opts.HTTPTimeoutMs > 0 {
+		traceTimeout = time.Duration(opts.HTTPTimeoutMs) * time.Millisecond
+	}
 	for i := 0; i < httpProbeCount; i++ {
-		if body, ok := fetchTrace(ctx, target, scheme, r.traceURL, timeout); ok {
+		if body, ok := fetchTrace(ctx, target, scheme, r.traceURL, traceTimeout); ok {
 			bodyStr = body
 			break
 		}

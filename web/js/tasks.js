@@ -1,10 +1,9 @@
 // tasks.js —— 自动维护页：任务卡片网格 + 编辑弹窗（规则编辑器）+ 一键维护
-import { PRESETS } from './composer.js';
 import { escapeHTML } from './columns.js';
+import { loadSavedTemplates, fetchSettingsTemplates as fetchSettingsTpls, persistTemplates, templateOptionFor, templateContentFor, renderTemplateSelect } from './templates.js';
 import * as api from './api.js';
 
 const $ = id => document.getElementById(id);
-const SAVED_TEMPLATE_KEY = 'iptest.savedTemplates.v1';
 const FIELD_OPTIONS = [
     { value: 'country', label: '国家' },
     { value: 'city', label: '城市' },
@@ -56,7 +55,6 @@ export function initTasks({ toast }) {
         savedTemplates: [],
         running: false,
         runQueue: [],
-        lastRuns: new Map(),
         pendingEnabled: new Set(),
         officialPorts: { https: [443, 2053, 2083, 2087, 2096, 8443], http: [80, 8080, 8880, 2052, 2082, 2086, 2095] },
     };
@@ -91,11 +89,6 @@ export function initTasks({ toast }) {
         }
     }
 
-    async function loadLastRuns() {
-        // 轻量：从调试日志里不再读取；徽标直接显示"未运行/上次维护信息"由运行日志提供
-        renderTaskGrid();
-    }
-
     // ---- 卡片网格 ----
     function renderTaskGrid() {
         const wrap = $('task-grid');
@@ -112,9 +105,10 @@ export function initTasks({ toast }) {
                 return conds || '任意';
             }).join('；');
             const limit = task.limit ? `总数 ≤ ${task.limit}` : '不限总数';
+            const detectCap = `单次检测 ≤ ${task.maxCandidates > 0 ? task.maxCandidates : 200}`;
             const speed = task.speedEnabled ? '启用测速' : '仅延迟筛选';
             const libraryName = task.librarySource === 'official'
-                ? `官方 IP 库（${task.libraryFamily || 'ipv4'}）`
+                ? `官方 IP 段（${task.libraryFamily || 'ipv4'}）`
                 : task.librarySource === 'remote'
                     ? '远程 URL 库'
                     : (state.libNames[task.libraryId] || task.libraryId || '默认库');
@@ -141,7 +135,7 @@ export function initTasks({ toast }) {
                     <div class="task-meta-row"><span class="task-meta-label">规则</span><span class="task-meta-value">${escapeHTML(ruleSummary || '任意')}</span></div>
                     <div class="task-meta-row"><span class="task-meta-label">维护来源</span><span class="task-meta-value">${escapeHTML(libraryName)}</span></div>
                     <div class="task-meta-row"><span class="task-meta-label">输出</span><span class="task-meta-value task-output-path">${escapeHTML(outputPath)}</span></div>
-                    <div class="task-card-flags"><span>${limit}</span><span>${speed}</span><span class="${task.schedule?.enabled ? 'is-scheduled' : ''}">${escapeHTML(schedule)}</span></div>
+                    <div class="task-card-flags"><span>${limit}</span><span>${detectCap}</span><span>${speed}</span><span class="${task.schedule?.enabled ? 'is-scheduled' : ''}">${escapeHTML(schedule)}</span></div>
                 </div>
                 <div class="task-card-actions">
                     <button type="button" class="small task-edit" data-i="${i}">编辑配置</button>
@@ -156,48 +150,26 @@ export function initTasks({ toast }) {
         sel.innerHTML = (state.libraries || []).map(l => `<option value="${escapeHTML(l.id)}">${escapeHTML(l.name)}</option>`).join('');
     }
 
-    // ---- 模板 ----
+    // ---- 模板（与工作台导出面板共用 templates.js）----
     function loadTemplates() {
-        try {
-            const parsed = JSON.parse(localStorage.getItem(SAVED_TEMPLATE_KEY) || '[]');
-            state.savedTemplates = Array.isArray(parsed)
-                ? parsed.filter(item => item && typeof item.name === 'string' && typeof item.template === 'string')
-                : [];
-        } catch {
-            state.savedTemplates = [];
-        }
+        state.savedTemplates = loadSavedTemplates();
     }
 
     async function fetchSettingsTemplates() {
-        try {
-            const config = await api.fetchConfig();
-            const list = config?.settings?.savedTemplates;
-            if (Array.isArray(list)) state.savedTemplates = list.filter(item => item && typeof item.name === 'string' && typeof item.template === 'string');
-        } catch { /* 忽略 */ }
+        const list = await fetchSettingsTpls();
+        if (list) state.savedTemplates = list;
     }
 
     function tplOptionFor(template) {
-        const p = PRESETS.findIndex(x => x.template === template);
-        if (p >= 0) return `preset:${p}`;
-        const s = state.savedTemplates.findIndex(x => x.template === template);
-        if (s >= 0) return `saved:${s}`;
-        return 'custom';
+        return templateOptionFor(template, state.savedTemplates);
     }
 
     function renderTplSelect(selected = '') {
-        const presetOpts = PRESETS.map((p, i) => `<option value="preset:${i}">${escapeHTML(p.name)}</option>`).join('');
-        const savedOpts = state.savedTemplates.map((p, i) => `<option value="saved:${i}">${escapeHTML(p.name)}</option>`).join('');
-        const sel = $('task-tpl-select');
-        sel.innerHTML = `<optgroup label="内置模板">${presetOpts}</optgroup>`
-            + (savedOpts ? `<optgroup label="我的模板">${savedOpts}</optgroup>` : '')
-            + '<optgroup label="自定义"><option value="custom">自定义…</option></optgroup>';
-        sel.value = selected;
+        renderTemplateSelect($('task-tpl-select'), state.savedTemplates, selected, { includeCustom: true });
     }
 
     function tplFor(optionValue) {
-        if (typeof optionValue === 'string' && optionValue.startsWith('preset:')) return PRESETS[Number(optionValue.slice(7))]?.template ?? '';
-        if (typeof optionValue === 'string' && optionValue.startsWith('saved:')) return state.savedTemplates[Number(optionValue.slice(6))]?.template ?? '';
-        return '';
+        return templateContentFor(optionValue, state.savedTemplates);
     }
 
     async function saveCurrentTemplate() {
@@ -207,9 +179,7 @@ export function initTasks({ toast }) {
         if (!name) return;
         state.savedTemplates = [...state.savedTemplates.filter(t => t.template !== tpl), { name: name.trim(), template: tpl }];
         try {
-            localStorage.setItem(SAVED_TEMPLATE_KEY, JSON.stringify(state.savedTemplates));
-            const config = await api.fetchConfig();
-            await api.saveSettings({ ...(config.settings || {}), savedTemplates: state.savedTemplates });
+            await persistTemplates(state.savedTemplates);
         } catch (error) {
             toast(`保存模板失败：${error.message}`);
             return;
@@ -272,6 +242,7 @@ export function initTasks({ toast }) {
         $('task-output').value = task.output?.path || '';
         $('task-format').value = task.output?.format === 'csv' ? 'csv' : 'txt';
         $('task-limit').value = task.limit || 0;
+        $('task-max-candidates').value = task.maxCandidates > 0 ? task.maxCandidates : '';
         $('task-lat-concurrency').value = task.latencyConcurrency > 0 ? task.latencyConcurrency : '';
         $('task-lat-timeout').value = task.latencyTimeoutMs > 0 ? task.latencyTimeoutMs : '';
         $('task-lat-probes').value = task.latencyProbes > 0 ? task.latencyProbes : '';
@@ -354,6 +325,7 @@ export function initTasks({ toast }) {
             template: $('task-tpl-custom').value.trim(),
         };
         task.limit = Number($('task-limit').value) > 0 ? Number($('task-limit').value) : 0;
+        task.maxCandidates = Number($('task-max-candidates').value) > 0 ? Number($('task-max-candidates').value) : undefined;
         task.speedEnabled = $('task-speed').checked;
         const taskConcurrency = id => { const v = Number($(id).value); return Number.isFinite(v) && v > 0 ? v : undefined; };
         task.latencyConcurrency = taskConcurrency('task-lat-concurrency');
@@ -542,7 +514,7 @@ export function initTasks({ toast }) {
             libraryProtocol: 'https', libraryPort: 443,
             input: { mode: 'none' },
             output: { format: 'txt', template: '{ip}:{port}#{emoji}{country}' },
-            limit: 0, speedEnabled: false, schedule: { enabled: false, cron: '0 3 * * *' },
+            limit: 0, maxCandidates: 200, speedEnabled: false, schedule: { enabled: false, cron: '0 3 * * *' },
             rules: [{ name: '规则 1', conditions: [{ field: 'country', values: [] }], limit: 0 }],
         };
         openEditor(task);

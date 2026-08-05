@@ -126,6 +126,13 @@ export const ALL_COLUMNS = [
     { key: 'rbi', label: 'RBI', inTable: false, inCSV: true },
     { key: 'kex', label: '密钥交换', inTable: false, inCSV: true },
     { key: 'timestamp', label: '时间戳', inTable: false, inCSV: true },
+    // ---- IP 库管理页额外字段：仅在库页表格/导出出现，不参与工作台结果表与 CSV ----
+    { key: 'countryCode', label: '国家代码', inTable: false, inCSV: false, sortable: true },
+    { key: 'status', label: '状态', inTable: false, inCSV: false, sortable: true },
+    { key: 'firstSeenAt', label: '首次入库', inTable: false, inCSV: false, sortable: true },
+    { key: 'lastCheckedAt', label: '上次检测', inTable: false, inCSV: false, sortable: true },
+    { key: 'checks', label: '检测次数', inTable: false, inCSV: false, sortable: true, type: 'number' },
+    { key: 'source', label: '来源', inTable: false, inCSV: false, sortable: true },
 ];
 
 /**
@@ -168,3 +175,48 @@ export function csvValue(col, result, ctx = {}) {
 export function columnByKey(key) {
     return byKey.get(key);
 }
+
+/**
+ * IP 库页表格列：工作台结果表字段全量 + 库管理字段，
+ * 顺序与改造前库页表格一致。复用同一份字段注册表与渲染函数，
+ * 避免库页维护第二套列定义。
+ */
+const LIBRARY_STATUS_LABEL = { active: '有效', new: '未测' };
+const LIBRARY_ORDER = [
+    '_sel', 'ip', 'port', 'dataCenter', 'locCode', 'region', 'city', 'regionZh',
+    'country', 'countryCode', 'cityZh', 'emoji', 'tcpLatencyMs', 'downloadSpeedKBs',
+    'outboundIP', 'ipType', 'ipsType', 'asn', 'asnOrg', 'visitScheme', 'tlsVersion',
+    'sni', 'httpVersion', 'warp', 'gateway', 'rbi', 'kex', 'timestamp',
+    'status', 'firstSeenAt', 'lastCheckedAt', 'checks', 'source',
+];
+
+/** 普通字段单元格：空值显示「—」，与库页既有样式一致。 */
+function libPlainCell(key) {
+    return r => escapeHTML(r[key] == null || r[key] === '' ? '—' : String(r[key]));
+}
+
+const LIBRARY_EXTRA_RENDER = {
+    cityZh: r => escapeHTML(r.cityZh || r.city || '—'),
+    status: r => escapeHTML(LIBRARY_STATUS_LABEL[r.status] || r.status || '—'),
+};
+
+export const LIBRARY_COLUMNS = LIBRARY_ORDER.map(key => {
+    const base = byKey.get(key);
+    if (!base) throw new Error(`LIBRARY_ORDER 含未定义的列: ${key}`);
+    return {
+        key,
+        label: base.label,
+        csvLabel: base.csvLabel,
+        inTable: true,
+        inCSV: true,
+        sortable: base.sortable !== false,
+        type: base.type,
+        render: base.render || LIBRARY_EXTRA_RENDER[key] || libPlainCell(key),
+        csv: base.csv,
+    };
+});
+
+/** IP 库 CSV 导出的可选列（与表格共用一个字段注册表）。 */
+export const LIBRARY_CSV_COLUMNS = LIBRARY_COLUMNS
+    .filter(c => c.inCSV)
+    .map(c => ({ key: c.key, label: c.csvLabel ?? c.label }));

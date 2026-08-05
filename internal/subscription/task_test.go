@@ -96,6 +96,7 @@ func TestTaskValidateErrors(t *testing.T) {
 		{Name: "x", Rules: nil},
 		{Name: "x", Rules: []TaskRule{{Name: "r", Limit: 1, Conditions: []Condition{{Field: "bogus", Values: []string{"a"}}}}}},
 		{Name: "x", Rules: []TaskRule{{Name: "r", Limit: 1, LatencyMin: 500, LatencyMax: 100}}},
+		{Name: "x", MaxCandidates: -1, Rules: []TaskRule{{Name: "r", Limit: 1}}},
 	}
 	for i, c := range cases {
 		if err := c.Validate(); err == nil {
@@ -223,6 +224,40 @@ func TestRunTaskTotalLimit(t *testing.T) {
 	lines := strings.Split(strings.TrimSpace(string(body)), "\n")
 	if len(lines) != 3 || lines[0] != "1.0.0.11:443" {
 		t.Fatalf("应按延迟升序取前 3: %v", lines)
+	}
+}
+
+func TestRunTaskMaxCandidates(t *testing.T) {
+	dir := t.TempDir()
+	fake := newFake()
+	lib, _ := library.Open(filepath.Join(dir, library.FileName))
+	// 5 条美国 IP：前 4 条延迟通过，最后 1 条失败（若被检测会被删除）。
+	ips := []string{"1.0.0.11", "1.0.0.12", "1.0.0.13", "1.0.0.14", "1.0.0.15"}
+	for i, ip := range ips {
+		lib.Upsert(library.Entry{IP: ip, Port: 443, CountryCode: "US", Status: library.StatusActive, TCPLatencyMs: int64(100 + i*10)})
+		fake.add(ip, 443, "US", i < 4, 0)
+	}
+	task := Task{
+		Name:          "检测上限",
+		MaxCandidates: 2,
+		Rules:         []TaskRule{{Name: "美国", Limit: 0, Conditions: []Condition{{Field: "country", Values: []string{"US"}}}}},
+		Output:        TaskOutput{Path: "out/t.txt", Template: "{ip}:{port}"},
+	}
+	report, err := RunTask(context.Background(), fake, lib, task, RunOptions{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.latencyCalled) != 2 {
+		t.Fatalf("应只检测 2 条，实际 %d: %v", len(fake.latencyCalled), fake.latencyCalled)
+	}
+	if _, ok := lib.Get("1.0.0.15", 443); !ok {
+		t.Fatal("未检测的失败条目不应被删除")
+	}
+	if report.RemovedDead != 0 {
+		t.Fatalf("本轮不应删除任何条目: %+v", report)
+	}
+	if report.TotalLines != 2 {
+		t.Fatalf("应输出 2 条，实际 %d", report.TotalLines)
 	}
 }
 
@@ -391,9 +426,17 @@ func TestTaskValidateLibrarySources(t *testing.T) {
 		{"official invalid family", func(t *Task) { t.LibrarySource = LibrarySourceOfficial; t.LibraryFamily = "ipv5" }, false, nil},
 		{"official invalid sample mode", func(t *Task) { t.LibrarySource = LibrarySourceOfficial; t.LibrarySampleMode = "two" }, false, nil},
 		{"official n requires sampleN", func(t *Task) { t.LibrarySource = LibrarySourceOfficial; t.LibrarySampleMode = "n" }, false, nil},
-		{"official n valid", func(t *Task) { t.LibrarySource = LibrarySourceOfficial; t.LibrarySampleMode = "n"; t.LibrarySampleN = 8 }, true, nil},
+		{"official n valid", func(t *Task) {
+			t.LibrarySource = LibrarySourceOfficial
+			t.LibrarySampleMode = "n"
+			t.LibrarySampleN = 8
+		}, true, nil},
 		{"official invalid port", func(t *Task) { t.LibrarySource = LibrarySourceOfficial; t.LibraryPort = 70000 }, false, nil},
-		{"official custom port", func(t *Task) { t.LibrarySource = LibrarySourceOfficial; t.LibraryProtocol = "http"; t.LibraryPort = 8080 }, true, func(t *Task) bool { return t.LibraryPort == 8080 }},
+		{"official custom port", func(t *Task) {
+			t.LibrarySource = LibrarySourceOfficial
+			t.LibraryProtocol = "http"
+			t.LibraryPort = 8080
+		}, true, func(t *Task) bool { return t.LibraryPort == 8080 }},
 		{"remote requires url", func(t *Task) { t.LibrarySource = LibrarySourceRemote }, false, nil},
 		{"remote valid", func(t *Task) { t.LibrarySource = LibrarySourceRemote; t.LibraryURL = "https://example.com/ips.txt" }, true, nil},
 		{"bad source", func(t *Task) { t.LibrarySource = "other" }, false, nil},

@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -85,8 +84,7 @@ func parseImportText(w http.ResponseWriter, text, sampleMode string, sampleN int
 // 而不是在 JS 里再实现一遍抽样。
 func (s *Server) handleImportText(w http.ResponseWriter, r *http.Request) {
 	var req importTextRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON: "+err.Error())
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	if strings.TrimSpace(req.Text) == "" {
@@ -134,8 +132,7 @@ func normalizeRemoteImportURL(raw string) (string, error) {
 // Access-Control-Allow-Origin，前端 fetch 直接被拦。由 Go 来取则无此限制。
 func (s *Server) handleImportRemote(w http.ResponseWriter, r *http.Request) {
 	var req importRemoteRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON: "+err.Error())
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 
@@ -218,8 +215,7 @@ func sanitizeInputFileName(name string) string {
 func (s *Server) handleAutoInputUpload(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxImportBytes+(1<<20))
 	var req autoInputUploadRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON 或文件过大: "+err.Error())
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	if len(req.Text) == 0 {

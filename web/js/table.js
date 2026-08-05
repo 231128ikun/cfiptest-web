@@ -1,6 +1,7 @@
 // table.js —— 结果表格模块：渲染、排序、过滤、选择、分组配额
 
 import { TABLE_COLUMNS, columnByKey, escapeHTML } from './columns.js';
+import { entryKey } from './store.js';
 
 // 虚拟滚动参数。行数不多时全量渲染最简单也最快，超过阈值才切窗口渲染——
 // 官方段每 /24 取 1 个就是 5956 个目标，全测出来一次 innerHTML 拼 6000 行
@@ -27,7 +28,7 @@ export class ResultTable {
         this._buildSkeleton();
     }
 
-    static keyOf(r) { return `${r.ip}|${r.port}`; }
+    static keyOf(r) { return entryKey(r); }
 
     /** 结果集/排序变化后调用：让派生缓存失效。 */
     _invalidate() { this._sortedCache = null; }
@@ -35,7 +36,7 @@ export class ResultTable {
     _buildSkeleton() {
         const thead = this.columns.map(col => {
             if (col.key === '_sel') {
-                return `<th class="no-sort"><input type="checkbox" id="sel-all" title="全选"></th>`;
+                return `<th class="no-sort"><input type="checkbox" data-table-role="select-all" title="全选"></th>`;
             }
             const attrs = col.sortable ? 'tabindex="0" aria-sort="none"' : '';
             return `<th data-key="${col.key}" class="${col.sortable ? '' : 'no-sort'}" ${attrs}>${col.label}<span class="arrow"></span></th>`;
@@ -45,13 +46,13 @@ export class ResultTable {
             <div class="table-wrap">
                 <table class="results">
                     <thead><tr>${thead}</tr></thead>
-                    <tbody id="result-tbody">
+                    <tbody data-table-role="tbody">
                         <tr class="empty-row"><td colspan="${this.columns.length}">暂无结果 —— 请先运行延迟测试</td></tr>
                     </tbody>
                 </table>
             </div>`;
 
-        this.tbody = this.container.querySelector('#result-tbody');
+        this.tbody = this.container.querySelector('[data-table-role="tbody"]');
         this.wrap = this.container.querySelector('.table-wrap');
 
         // 虚拟滚动：滚动时重算窗口。行数少于阈值时 _renderNow 直接全量渲染，
@@ -76,7 +77,7 @@ export class ResultTable {
             });
         });
 
-        this.container.querySelector('#sel-all').addEventListener('change', e => {
+        this.container.querySelector('[data-table-role="select-all"]').addEventListener('change', e => {
             const visible = this._visibleResults();
             if (e.target.checked) visible.forEach(r => this.selectedKeys.add(ResultTable.keyOf(r)));
             else visible.forEach(r => this.selectedKeys.delete(ResultTable.keyOf(r)));
@@ -133,7 +134,7 @@ export class ResultTable {
 
     /** 全选框状态跟随可见行：全选/部分选/未选。 */
     _syncSelectAll() {
-        const box = this.container.querySelector('#sel-all');
+        const box = this.container.querySelector('[data-table-role="select-all"]');
         if (!box) return;
         const visible = this._visibleResults();
         const selected = visible.filter(r => this.selectedKeys.has(ResultTable.keyOf(r))).length;

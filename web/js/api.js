@@ -20,6 +20,12 @@ export async function fetchConfig() {
 export function saveConfig(config) { return postJSON('/api/config', config, 'PUT'); }
 export function saveSettings(settings) { return postJSON('/api/settings', settings, 'PUT'); }
 
+/** 合并补丁保存设置：先取当前完整设置再合并补丁，避免覆盖其他设置项（模板、日志等共存于 settings.json）。 */
+export async function saveSettingsPatch(patch) {
+    const config = await fetchConfig();
+    await saveSettings({ ...(config.settings || {}), ...patch });
+}
+
 /**
  * 启动延迟测试。
  * targets 为 [{ip, port}]，由候选区提供（网段已在导入阶段展开）。
@@ -92,11 +98,6 @@ export function runAuto(taskId) { return postJSON('/api/auto/run', { taskId }); 
 // 调试日志
 export function fetchLog(lines = 200) { return postJSON(`/api/log?lines=${lines}`, {}, 'GET'); }
 export function clearLog() { return postJSON('/api/log/clear', {}); }
-
-/** 下载订阅输出文件（path 相对 data 目录） */
-export function autoOutputUrl(path) {
-    return `/api/auto/output?path=${encodeURIComponent(path)}`;
-}
 
 /** 启动测速；targets 为从结果中挑选的子集 */
 export function startSpeedTest(targets, options) {

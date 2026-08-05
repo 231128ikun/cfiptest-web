@@ -71,7 +71,7 @@ func Open(path string) (*Store, error) {
 }
 
 // NewInMemory 创建仅内存的 IP 库（不落盘，Save 为空操作）。
-// 用于官方 IP 库 / 远程 URL 库等远程维护来源：候选来自远程拉取，结果只写出、不保存到本地库。
+// 用于远程维护来源（官方 IP 段 / 远程 URL 库）：候选来自远程拉取，结果只写出、不保存到本地库。
 func NewInMemory(baseDir string, entries []Entry) *Store {
 	s := &Store{baseDir: baseDir, memory: true, by: make(map[string]*Entry, len(entries))}
 	for i := range entries {
@@ -86,9 +86,6 @@ func NewInMemory(baseDir string, entries []Entry) *Store {
 
 // Path 返回库文件完整路径。
 func (s *Store) Path() string { return s.path }
-
-// Dir 返回库文件所在目录（兼容旧调用）。
-func (s *Store) Dir() string { return filepath.Dir(s.path) }
 
 // BaseDir 返回应用数据目录（输出订阅文件等相对它）。
 func (s *Store) BaseDir() string { return s.baseDir }
@@ -153,13 +150,16 @@ func (s *Store) All() []Entry {
 	for _, e := range s.by {
 		out = append(out, *e)
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].IP != out[j].IP {
-			return out[i].IP < out[j].IP
-		}
-		return out[i].Port < out[j].Port
-	})
+	sort.Slice(out, func(i, j int) bool { return entryLess(&out[i], &out[j]) })
 	return out
+}
+
+// entryLess 按 (ip, port) 比较条目，供 All / Save 共用，保证输出稳定。
+func entryLess(a, b *Entry) bool {
+	if a.IP != b.IP {
+		return a.IP < b.IP
+	}
+	return a.Port < b.Port
 }
 
 // Stats 是库的概览统计（含按字段分布，各取 Top N）。
@@ -250,7 +250,7 @@ func topN(m map[string]int, n int) map[string]int {
 }
 
 // Save 将全量条目原子写回 JSONL（按 key 排序，输出稳定）。
-// 仅内存库（远程维护来源）为空操作：官方/URL 库不落盘，失效条目也不会从本地库删除。
+// 仅内存库（远程维护来源）为空操作：候选来自远程拉取，结果只写出、不保存到本地库。
 func (s *Store) Save() error {
 	if s.memory {
 		return nil
@@ -262,12 +262,7 @@ func (s *Store) Save() error {
 		entries = append(entries, &cp)
 	}
 	s.mu.RUnlock()
-	sort.Slice(entries, func(i, j int) bool {
-		if entries[i].IP != entries[j].IP {
-			return entries[i].IP < entries[j].IP
-		}
-		return entries[i].Port < entries[j].Port
-	})
+	sort.Slice(entries, func(i, j int) bool { return entryLess(entries[i], entries[j]) })
 
 	tmp, err := os.CreateTemp(filepath.Dir(s.path), ".ipdb-*.tmp")
 	if err != nil {

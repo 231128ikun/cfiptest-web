@@ -397,7 +397,7 @@
                             </section>
                             <div class="task-form-row task-source-heading">
                                 <label>维护来源<select id="task-library-source">
-                                    <option value="official">官方 IP 库（远程）</option>
+                                    <option value="official">官方 IP 段（本地缓存）</option>
                                     <option value="local">本地 IP 库</option>
                                     <option value="remote">远程 URL 库</option>
                                 </select></label>
@@ -419,7 +419,7 @@
                                 <label id="task-library-sample-n-wrap">每段数量<input type="number" id="task-library-sample-n" min="1" max="256" value="2"></label>
                                 <label>协议<select id="task-library-protocol"><option value="https">HTTPS</option><option value="http">HTTP</option></select></label>
                                 <label>端口<select id="task-library-port"></select></label>
-                                <span class="hint task-source-wide">官方 IP 库是远程库：每次维护拉取最新官方段作为候选，失效不删除。</span>
+                                <span class="hint task-source-wide">官方 IP 段优先读取本地缓存/内置兜底数据，必要时自动更新；作为候选，失效不删除。</span>
                             </div>
                             <div class="task-source-panel" id="task-source-remote" data-task-source="remote" hidden>
                                 <label class="task-source-wide">远程 URL 库<input type="text" id="task-library-url" placeholder="https://example.com/ips.txt"></label>
@@ -444,6 +444,7 @@
                                 <label>输出文件<input type="text" id="task-output" placeholder="留空：文件来源回写原文件，其它来源写入 out/任务名.txt"></label>
                                 <label>输出格式<select id="task-format"><option value="txt">txt</option><option value="csv">csv</option></select></label>
                                 <label>总数限制<span class="input-with-unit"><input type="number" id="task-limit" min="0" placeholder="0 = 不限"> <span class="unit">条</span></span></label>
+                                <label title="每次运行最多检测的候选数（跨分组去重后），超出部分留待下次；0 = 默认 200">单次检测上限<span class="input-with-unit"><input type="number" id="task-max-candidates" min="0" placeholder="0 = 默认 200"> <span class="unit">条</span></span></label>
                                 <label class="checkbox"><input type="checkbox" id="task-speed" title="开启后各规则可选择速度范围"> 开启测速</label>
                             </div>
                             <div class="task-form-row task-detection-options">
@@ -515,37 +516,82 @@
                             <select id="lib-field-value" aria-label="字段取值（含统计）" disabled><option value="">选择取值…</option></select>
                         </div>
                         <div class="lib-manage-actions" aria-label="当前库操作">
+                            <button type="button" id="lib-import">导入</button>
+                            <button type="button" id="lib-export">导出</button>
+                            <span id="lib-selected-count" class="hint" aria-live="polite"></span>
                             <button type="button" id="lib-rename">重命名</button>
-                            <button type="button" id="lib-remove-selected" class="danger">移除勾选</button>
+                            <button type="button" id="lib-remove-selected" class="danger" disabled>移除勾选</button>
                             <button type="button" id="lib-clear" class="danger">清空当前库</button>
                             <button type="button" id="lib-delete" class="danger">删除当前库</button>
                         </div>
                     </div>
                     <div id="lib-stats" class="lib-stats"></div>
-                    <div class="lib-table-wrap">
-                        <table class="results library-results">
-                            <thead>
-                                <tr>
-                                    <th class="no-sort"><input type="checkbox" id="lib-checkall" aria-label="全选"></th>
-                                    <th>IP 地址</th><th>端口</th><th>数据中心</th><th>IP位置</th><th>地区</th><th>城市</th><th>地区(中文)</th><th>国家</th><th>国家代码</th><th>城市(中文)</th><th>国旗</th><th>延迟</th><th>速度</th><th>出站IP</th><th>出站类型</th><th>IPS 类型</th><th>ASN 号码</th><th>ASN 组织</th><th>访问协议</th><th>TLS版本</th><th>SNI</th><th>HTTP版本</th><th>WARP</th><th>Gateway</th><th>RBI</th><th>密钥交换</th><th>时间戳</th><th>状态</th><th>首次发现</th><th>上次检测</th><th>检测次数</th><th>来源</th>
-                                </tr>
-                            </thead>
-                            <tbody id="lib-tbody"></tbody>
-                        </table>
-                    </div>
+                    <div id="lib-table-container" class="lib-table-container"></div>
                     <div id="lib-count" class="hint"></div>
                 </div>
             </div>
         </section>
 
+        <div id="lib-import-modal" class="help-overlay" hidden role="dialog" aria-modal="true" aria-label="导入 IP 到当前库">
+            <div class="help-panel lib-import-panel">
+                <div class="help-panel-head"><strong>导入 IP 到当前库</strong><button type="button" id="btn-lib-import-close" class="side-toggle" aria-label="关闭">×</button></div>
+                <div class="help-panel-body">
+                    <label class="import-text-field">粘贴 IP 文本（支持 IP:端口 与 CIDR 网段）
+                        <textarea id="lib-import-text" rows="8" placeholder="每行一个 IP:端口，如 104.16.0.1:443&#10;也支持 104.16.0.0/24 等网段，按抽样粒度展开"></textarea>
+                    </label>
+                    <div class="lib-import-options">
+                        <label>网段抽样<select id="lib-import-sample-mode">
+                            <option value="one">每段取 1 个</option>
+                            <option value="n">每段取 N 个</option>
+                            <option value="all">全部</option>
+                        </select></label>
+                        <label>N<input type="number" id="lib-import-sample-n" min="1" max="256" value="2"></label>
+                        <label class="file-btn" for="lib-import-file">选择文件</label>
+                        <input type="file" id="lib-import-file" accept=".txt,.csv,text/plain,text/csv" hidden>
+                    </div>
+                    <div class="import-actions">
+                        <button type="button" id="btn-lib-import-cancel">取消</button>
+                        <button type="button" id="btn-lib-import-confirm" class="primary">导入</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="lib-export-modal" class="help-overlay" hidden role="dialog" aria-modal="true" aria-label="导出当前库">
+            <div class="help-panel lib-export-panel">
+                <div class="help-panel-head"><strong>导出当前库（按当前筛选）</strong><button type="button" id="btn-lib-export-close" class="side-toggle" aria-label="关闭">×</button></div>
+                <div class="help-panel-body">
+                    <div class="export-config-section">
+                        <div class="export-config-label">导出格式</div>
+                        <div class="export-segmented">
+                            <label class="radio"><input type="radio" name="lib-export-format" value="txt" checked> TXT</label>
+                            <label class="radio"><input type="radio" name="lib-export-format" value="csv"> CSV</label>
+                        </div>
+                    </div>
+                    <label id="lib-export-template-field">导出模板<input type="text" id="lib-export-template" value="{ip}:{port}"></label>
+                    <p class="hint">CSV 导出全部字段；TXT 按模板逐行输出，支持 {ip} {port} {country} {city} {emoji} {latency} {speed} 等占位符。</p>
+                    <div class="export-actions export-actions-right">
+                        <button type="button" id="btn-lib-export-cancel">取消</button>
+                        <button type="button" id="btn-lib-export-confirm" class="primary">导出</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <section id="page-logs" class="page">
             <div class="page-head">
                 <div>
                     <h2>日志</h2>
-                    <p class="page-desc">调试日志默认关闭；开启后才会记录请求、任务阶段、错误与耗时，并写入 data/logs/app.log。</p>
+                    <p class="page-desc">调试日志总开关：开启后记录请求、任务阶段、错误与耗时到 data/logs/app.log；关闭时立即清空，磁盘不保留日志。</p>
                 </div>
                 <div class="page-actions">
-                    <label class="toggle" title="开启后写入 data/logs/app.log"><input type="checkbox" id="log-enable"><span class="toggle-track"></span><span class="toggle-label">记录调试日志</span></label>
+                    <label class="toggle" title="总开关：关闭时停止记录并清空日志文件"><input type="checkbox" id="log-enable"><span class="toggle-track"></span><span class="toggle-label">记录调试日志</span></label>
+                    <label title="一般保持「全部」即可，便于分析排查">级别<select id="log-level">
+                        <option value="debug">debug（全部，默认）</option>
+                        <option value="info">info</option>
+                        <option value="warn">warn</option>
+                        <option value="error">error</option>
+                    </select></label>
                     <button type="button" id="log-refresh" class="secondary-button">刷新</button>
                     <button type="button" id="log-clear" class="danger">清空日志</button>
                 </div>
@@ -575,10 +621,12 @@
                             <label>延迟超时 <span class="input-with-unit"><input type="number" id="auto-lat-timeout" min="200" max="60000" step="100" placeholder="默认 1000"> <span class="unit">ms</span></span></label>
                             <label>TCP 探测次数 <input type="number" id="auto-lat-probes" min="1" max="10" step="1" placeholder="默认 4"></label>
                             <label>HTTP 校验次数 <input type="number" id="auto-lat-http-probes" min="1" max="10" step="1" placeholder="默认 1"></label>
+                            <label>HTTP 校验超时 <span class="input-with-unit"><input type="number" id="auto-lat-http-timeout" min="200" max="60000" step="100" placeholder="默认 3000"> <span class="unit">ms</span></span></label>
+                            <label>连续失败移除阈值 <input type="number" id="auto-lat-remove-after" min="1" max="20" step="1" placeholder="默认 3"></label>
                             <label>测速并发 <input type="number" id="auto-spd-concurrency" min="1" max="100" step="1" placeholder="默认 5"></label>
                             <label>测速时长 <span class="input-with-unit"><input type="number" id="auto-spd-duration" min="1" max="120" step="1" placeholder="默认 5"> <span class="unit">秒</span></span></label>
                         </div>
-                        <div class="threshold-note">延迟会对每个 IP 独立 TCP 探测多次并对成功结果取平均，HTTP 校验 1 次；全部失败才淘汰。并发过高可能造成漏测或误判，建议从延迟 50 / 测速 5 开始，再按机器和网络逐步调整。</div>
+                        <div class="threshold-note">延迟会对每个 IP 独立 TCP 探测多次并对成功结果取平均，HTTP 校验 1 次、单请求超时默认 3 秒；连续失败达到阈值（默认 3 次）才从库移除，达到阈值前保留并累计。并发过高可能造成漏测或误判，建议从延迟 50 / 测速 5 开始，再按机器和网络逐步调整。</div>
                     </div>
                     <label>官方 IP 段源 <textarea id="advanced-official-sources" rows="2" placeholder="每行一个地址"></textarea></label>
                     <div class="advanced-group">

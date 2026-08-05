@@ -39,7 +39,7 @@ function makeContainer() {
     const container = new El();
     const tbody = new El('tbody');
     const selAll = new El('input');
-    const map = new Map([['#result-tbody', tbody], ['#sel-all', selAll]]);
+    const map = new Map([['[data-table-role="tbody"]', tbody], ['[data-table-role="select-all"]', selAll]]);
     container._register(map);
     container.querySelectorAll = () => [];
     return { container, tbody, selAll };

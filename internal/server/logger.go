@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -18,21 +19,41 @@ const (
 )
 
 type Logger struct {
-	dir     string
-	path    string
-	enabled bool
-	mu      sync.Mutex
-	lastErr string
+	dir      string
+	path     string
+	enabled  bool
+	minLevel int
+	mu       sync.Mutex
+	lastErr  string
+}
+
+// levels 为日志级别从低到高的顺序，索引即级别阈值。
+var levels = []string{"debug", "info", "warn", "error"}
+
+func levelRank(name string) (int, bool) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	for i, level := range levels {
+		if level == name {
+			return i, true
+		}
+	}
+	return 0, false
 }
 
 func NewLogger(dataDir string, enabled bool) *Logger {
-	return &Logger{dir: filepath.Join(dataDir, LogDir), path: filepath.Join(dataDir, LogDir, LogFileName), enabled: enabled}
+	l := &Logger{dir: filepath.Join(dataDir, LogDir), path: filepath.Join(dataDir, LogDir, LogFileName)}
+	l.SetEnabled(enabled)
+	return l
 }
 
+// SetEnabled 是日志总开关：关闭时停止写入并立即清空已有日志文件。
 func (l *Logger) SetEnabled(on bool) {
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	l.enabled = on
+	l.mu.Unlock()
+	if !on {
+		_ = l.Clear()
+	}
 }
 
 func (l *Logger) Enabled() bool {
@@ -41,11 +62,34 @@ func (l *Logger) Enabled() bool {
 	return l.enabled
 }
 
-// Log writes one serialized, timestamped line when debug logging is enabled.
-func (l *Logger) Log(level, format string, args ...any) {
+// SetMinLevel 设置写入阈值；无效或空值回落到 debug（全量）。
+func (l *Logger) SetMinLevel(level string) {
+	rank, ok := levelRank(level)
+	if !ok {
+		rank = 0 // debug
+	}
+	l.mu.Lock()
+	l.minLevel = rank
+	l.mu.Unlock()
+}
+
+// Level 返回当前级别过滤阈值（如 "info"）。
+func (l *Logger) Level() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if !l.enabled {
+	return levels[l.minLevel]
+}
+
+// Log writes one serialized, timestamped line when the master switch is on
+// and the level passes the configured threshold.
+func (l *Logger) Log(level, format string, args ...any) {
+	rank, ok := levelRank(level)
+	if !ok {
+		rank = 1 // info
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if !l.enabled || rank < l.minLevel {
 		return
 	}
 	if err := os.MkdirAll(l.dir, 0755); err != nil {
@@ -53,7 +97,11 @@ func (l *Logger) Log(level, format string, args ...any) {
 		return
 	}
 	l.rotateIfNeededLocked()
-	line := fmt.Sprintf("%s [%s] %s\n", time.Now().Format(time.RFC3339Nano), strings.ToLower(level), fmt.Sprintf(format, args...))
+	caller := ""
+	if _, file, line, ok := runtime.Caller(1); ok {
+		caller = fmt.Sprintf("%s:%d", filepath.Base(file), line)
+	}
+	line := fmt.Sprintf("%s [%s] %s %s\n", time.Now().Format(time.RFC3339Nano), levels[rank], caller, fmt.Sprintf(format, args...))
 	f, err := os.OpenFile(l.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		l.lastErr = err.Error()

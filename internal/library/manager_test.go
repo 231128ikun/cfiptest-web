@@ -19,17 +19,8 @@ func TestManagerMigratesLegacy(t *testing.T) {
 		t.Fatal(err)
 	}
 	list, err := m.List()
-	if err != nil || len(list) != 2 || list[0].ID != DefaultID || list[0].Name != "默认库" {
-		t.Fatalf("迁移后应有默认库+官方库: %+v err=%v", list, err)
-	}
-	foundOfficial := false
-	for _, info := range list {
-		if info.ID == OfficialID && info.Type == "official" {
-			foundOfficial = true
-		}
-	}
-	if !foundOfficial {
-		t.Fatalf("官方 IP 库（远程库）应自动注册: %+v", list)
+	if err != nil || len(list) != 1 || list[0].ID != DefaultID || list[0].Name != "默认库" {
+		t.Fatalf("迁移后应只有默认库: %+v err=%v", list, err)
 	}
 	s, err := m.Open(DefaultID)
 	if err != nil {
@@ -43,6 +34,54 @@ func TestManagerMigratesLegacy(t *testing.T) {
 	}
 	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
 		t.Fatal("旧文件应已移除")
+	}
+}
+
+func TestManagerPrunesOfficialLibrary(t *testing.T) {
+	dir := t.TempDir()
+	// 旧版索引里残留「官方 IP 库」（远程库，不落盘），应被清理且不重新注册。
+	officialFile := filepath.Join(dir, ManagerDir, "官方IP库.jsonl")
+	if err := os.MkdirAll(filepath.Dir(officialFile), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(officialFile, []byte("{\"ip\":\"1.1.1.1\",\"port\":443,\"status\":\"new\"}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	index := filepath.Join(dir, ManagerDir, IndexFile)
+	indexBody := "{\"libraries\":[{\"id\":\"default\",\"name\":\"默认库\",\"file\":\"默认库.jsonl\"},{\"id\":\"official\",\"name\":\"官方 IP 库\",\"file\":\"官方IP库.jsonl\",\"type\":\"official\"}]}\n"
+	if err := os.WriteFile(index, []byte(indexBody), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := OpenManager(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, err := m.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, info := range list {
+		if info.ID == "official" {
+			t.Fatalf("官方 IP 库不应出现在本地库列表: %+v", list)
+		}
+	}
+	if len(list) != 1 {
+		t.Fatalf("应只剩默认库: %+v", list)
+	}
+	if _, err := os.Stat(officialFile); !os.IsNotExist(err) {
+		t.Fatal("官方 IP 库残留文件应被删除")
+	}
+	// 再次打开不重新注册
+	m2, err := OpenManager(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	list2, err := m2.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list2) != 1 {
+		t.Fatalf("再次打开不应重新注册官方库: %+v", list2)
 	}
 }
 
@@ -96,58 +135,12 @@ func TestManagerCreateRenameDelete(t *testing.T) {
 	}
 }
 
-func TestManagerOfficialRemoteLibrary(t *testing.T) {
-	dir := t.TempDir()
-	m, err := OpenManager(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// 官方库可打开并写入（远程同步会把数据放进来）
-	s, err := m.Open(OfficialID)
-	if err != nil {
-		t.Fatalf("官方库应可打开: %v", err)
-	}
-	s.Upsert(Entry{IP: "1.1.1.1", Port: 443, Status: StatusNew, Source: SourceOfficial})
-	if err := s.Save(); err != nil {
-		t.Fatal(err)
-	}
-	if s.Len() != 1 {
-		t.Fatalf("官方库应保存条目: %d", s.Len())
-	}
-	// 官方库不可删除、不可重命名（远程库）
-	if err := m.Delete(OfficialID); err == nil {
-		t.Fatal("官方库不应允许删除")
-	}
-	if err := m.Rename(OfficialID, "改名"); err == nil {
-		t.Fatal("官方库不应允许重命名")
-	}
-	// 清空允许（之后可重新同步）
-	if err := m.Clear(OfficialID); err != nil {
-		t.Fatal(err)
-	}
-	// 再次打开管理器，官方库仍在
-	m2, err := OpenManager(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	list, err := m2.List()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, info := range list {
-		if info.ID == OfficialID {
-			return
-		}
-	}
-	t.Fatalf("官方库应在索引中持久存在: %+v", list)
-}
-
 func TestManagerNameSanitize(t *testing.T) {
 	cases := map[string]string{
-		"美国 日本": "美国 日本",
+		"美国 日本":  "美国 日本",
 		"a/b\\c": "abc",
-		"":    "库",
-		"上海-2": "上海-2",
+		"":       "库",
+		"上海-2":   "上海-2",
 	}
 	for in, want := range cases {
 		if got := SanitizeName(in); got != want {

@@ -139,10 +139,6 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/auto/output", s.handleAutoOutput)
 	s.mux.HandleFunc("GET /api/log", s.handleLogGet)
 	s.mux.HandleFunc("POST /api/log/clear", s.handleLogClear)
-	// 旧订阅器路径别名（兼容旧页面）
-	s.mux.HandleFunc("GET /api/auto/subs", s.handleTasksGet)
-	s.mux.HandleFunc("PUT /api/auto/subs", s.handleTasksSave)
-	s.mux.HandleFunc("POST /api/auto/subs/validate", s.handleTaskValidate)
 }
 
 // broadcast 将事件推送给所有 SSE 订阅者（engine 回调入口）。
@@ -280,4 +276,13 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+// decodeJSON 解析请求体 JSON；失败时写 400 响应并返回 false。
+func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
+	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON: "+err.Error())
+		return false
+	}
+	return true
 }

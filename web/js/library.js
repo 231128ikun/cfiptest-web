@@ -1,24 +1,14 @@
-// library.js —— IP 库页：库列表（多库管理）+ 库内容表格 + 导入/移除/清空/改名/删除
+// library.js —— IP 库页：库列表（多库管理）+ 库内容表格 + 手动导入/导出。
+// 表格复用工作台结果页的 ResultTable 与 columns.js 列注册表，
+// 导出复用 exporter.js 的 serialize / download，避免维护第二套渲染与导出逻辑。
 import { escapeHTML } from './columns.js';
+import { LIBRARY_COLUMNS, LIBRARY_CSV_COLUMNS } from './columns.js';
+import { ResultTable } from './table.js';
+import { download, downloadAsCSV, serialize } from './exporter.js';
 import * as api from './api.js';
 
 const $ = id => document.getElementById(id);
-const STATUS_LABEL = { active: '有效', new: '未测' };
-const fmtNumber = value => Number.isFinite(Number(value)) && Number(value) > 0
-    ? Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 0 })
-    : '—';
-const fmtValue = value => value == null || value === '' ? '—' : String(value);
-const fmtTimestamp = value => value ? String(value) : '—';
-const fmtTime = ts => {
-    if (!ts) return '—';
-    const d = new Date(ts);
-    if (Number.isNaN(d.getTime())) return '—';
-    const diff = Date.now() - d.getTime();
-    if (diff < 60_000) return '刚刚';
-    if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
-    if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
-    return d.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-};
+const PAGE_SIZE = 2000; // 后端单页上限
 
 export function initLibrary({ toast }) {
     const state = {
@@ -27,8 +17,8 @@ export function initLibrary({ toast }) {
         entries: [],
         total: 0,
         stats: null,
-        selected: new Set(),
     };
+    let table = null;
 
     async function loadLibraries() {
         try {
@@ -62,29 +52,37 @@ export function initLibrary({ toast }) {
 
     const FIELD_PARAM = { country: 'country', city: 'city', dc: 'dc', asn: 'asn', port: 'port' };
 
-    async function loadEntries() {
-        const sel = $('lib-status').value;
-        const q = $('lib-q').value.trim();
+    function currentFilterParams() {
+        const params = {};
         const field = $('lib-field').value;
         const fieldValue = $('lib-field-value').value;
-        const params = {};
         if (field && fieldValue) params[FIELD_PARAM[field] || field] = fieldValue;
+        return params;
+    }
+
+    async function loadEntries() {
         if (!state.current) {
             state.entries = [];
             state.total = 0;
             renderTable();
+            $('lib-count').textContent = '';
             return;
         }
         try {
-            const data = await api.fetchAutoLibrary({ lib: state.current.id, status: sel, q, limit: 500, ...params });
+            const data = await api.fetchAutoLibrary({
+                lib: state.current.id,
+                status: $('lib-status').value,
+                q: $('lib-q').value.trim(),
+                limit: 500,
+                ...currentFilterParams(),
+            });
             state.entries = data.entries || [];
             state.total = data.total || 0;
             state.stats = { ...(state.stats || {}), [state.current.id]: data.stats };
-            state.selected.clear();
-            renderTable();
             renderLibList();
             renderStats();
             renderFieldValueOptions(data.stats);
+            renderTable();
         } catch (error) {
             toast(`加载库内容失败：${error.message}`);
         }
@@ -96,8 +94,6 @@ export function initLibrary({ toast }) {
             ? `${escapeHTML(state.current.name)}：共 ${st.total} 条 · 有效 ${st.active} · 未测 ${st.new} · 已测速 ${st.speedValid}`
             : '';
     }
-
-    const FIELD_LABEL = { country: '国家', city: '城市', dc: '数据中心', asn: 'ASN', port: '端口' };
 
     function renderFieldValueOptions(stats) {
         const field = $('lib-field').value;
@@ -124,64 +120,29 @@ export function initLibrary({ toast }) {
     }
 
     function renderTable() {
-        const tbody = $('lib-tbody');
-        const columnCount = 33;
-        if (!state.entries.length) {
-            tbody.innerHTML = `<tr class="pad"><td colspan="${columnCount}" class="auto-lib-empty">${state.current ? '库为空：粘贴 IP 到上方导入，或在检测结果页一键导入' : '请先选择 IP 库'}</td></tr>`;
-            $('lib-count').textContent = state.current ? `共 ${state.total} 条` : '';
-            return;
+        if (!table) {
+            table = new ResultTable($('lib-table-container'), LIBRARY_COLUMNS);
+            table.container.querySelector('table')?.classList.add('library-results');
+            table.container.addEventListener('selectionchange', () => {
+                const n = table.getSelectedResults().length;
+                $('lib-remove-selected').disabled = n === 0;
+                $('lib-selected-count').textContent = n ? `已选 ${n} 条` : '';
+            });
         }
-        tbody.innerHTML = state.entries.map(e => {
-            const key = `${e.ip}|${e.port || 0}`;
-            const checked = state.selected.has(key) ? 'checked' : '';
-            const speed = Number(e.downloadSpeedKBs ?? e.speedKBs);
-            const speedText = e.speedValid && speed > 0 ? `${fmtNumber(speed)} kB/s` : '—';
-            const cell = value => escapeHTML(fmtValue(value));
-            return `<tr>
-                <td><input type="checkbox" class="lib-check" data-key="${escapeHTML(key)}" ${checked} aria-label="选择 ${escapeHTML(e.ip)}"></td>
-                <td class="mono">${cell(e.ip)}</td>
-                <td class="num">${e.port || '—'}</td>
-                <td>${cell(e.dataCenter)}</td>
-                <td>${cell(e.locCode)}</td>
-                <td>${cell(e.region)}</td>
-                <td>${cell(e.city)}</td>
-                <td>${cell(e.regionZh)}</td>
-                <td>${cell(e.country)}</td>
-                <td>${cell(e.countryCode)}</td>
-                <td>${cell(e.cityZh)}</td>
-                <td>${cell(e.emoji)}</td>
-                <td class="num">${e.tcpLatencyMs > 0 ? `${e.tcpLatencyMs} ms` : '—'}</td>
-                <td class="num">${speedText}</td>
-                <td>${cell(e.outboundIP)}</td>
-                <td>${cell(e.ipType)}</td>
-                <td>${cell(e.ipsType)}</td>
-                <td class="num">${e.asn || '—'}</td>
-                <td>${cell(e.asnOrg)}</td>
-                <td>${cell(e.visitScheme)}</td>
-                <td>${cell(e.tlsVersion)}</td>
-                <td>${cell(e.sni)}</td>
-                <td>${cell(e.httpVersion)}</td>
-                <td>${cell(e.warp)}</td>
-                <td>${cell(e.gateway)}</td>
-                <td>${cell(e.rbi)}</td>
-                <td>${cell(e.kex)}</td>
-                <td>${cell(e.timestamp)}</td>
-                <td>${STATUS_LABEL[e.status] || cell(e.status)}</td>
-                <td>${fmtTimestamp(e.firstSeenAt)}</td>
-                <td>${fmtTimestamp(e.lastCheckedAt)}</td>
-                <td class="num">${e.checks || 0}</td>
-                <td>${cell(e.source)}</td>
-            </tr>`;
-        }).join('');
-        $('lib-count').textContent = `共 ${state.total} 条，当前显示 ${state.entries.length} 条`;
+        table.clear();
+        state.entries.forEach(e => table.appendResult(e));
+        $('lib-remove-selected').disabled = true;
+        $('lib-selected-count').textContent = '';
+        $('lib-count').textContent = state.current ? `共 ${state.total} 条，当前显示 ${state.entries.length} 条` : '';
     }
+
     async function removeSelected() {
-        const keys = [...state.selected];
+        if (!table) return;
+        const keys = table.getSelectedResults().map(r => ResultTable.keyOf(r));
         if (!keys.length) { toast('请先勾选要移除的条目'); return; }
         try {
             const result = await api.removeAutoLibrary(state.current.id, keys);
             toast(`已移除 ${result.removed} 条`);
-            state.selected.clear();
             await loadEntries();
         } catch (error) {
             toast(`移除失败：${error.message}`);
@@ -242,36 +203,116 @@ export function initLibrary({ toast }) {
         }
     }
 
+    // ---- 手动导入（复用后端 /api/auto/library/import 的解析逻辑）----
+    function openImportModal() {
+        if (!state.current) { toast('请先选择 IP 库'); return; }
+        $('lib-import-text').value = '';
+        $('lib-import-modal').hidden = false;
+    }
+
+    async function confirmImport() {
+        const text = $('lib-import-text').value.trim();
+        if (!text) { toast('请先粘贴 IP 文本或选择文件'); return; }
+        try {
+            const resp = await api.importAutoLibrary({
+                lib: state.current.id,
+                text,
+                sampleMode: $('lib-import-sample-mode').value,
+                sampleN: Number($('lib-import-sample-n').value) || 1,
+            });
+            toast(`已导入「${state.current.name}」：新增 ${resp.added} 条，更新 ${resp.updated} 条（共 ${resp.total} 条）`);
+            $('lib-import-modal').hidden = true;
+            window.dispatchEvent(new CustomEvent('library-changed'));
+            await loadEntries();
+        } catch (error) {
+            toast(`导入失败：${error.message}`);
+        }
+    }
+
+    // ---- 手动导出（复用 exporter.js 的 serialize / download 与列注册表）----
+    function openExportModal() {
+        if (!state.current) { toast('请先选择 IP 库'); return; }
+        $('lib-export-modal').hidden = false;
+    }
+
+    /** 分页拉取当前筛选条件下的全部条目（单页上限 2000）。 */
+    async function fetchAllFiltered() {
+        const params = { lib: state.current.id, status: $('lib-status').value, q: $('lib-q').value.trim(), limit: PAGE_SIZE };
+        Object.assign(params, currentFilterParams());
+        const all = [];
+        for (let offset = 0; ; offset += PAGE_SIZE) {
+            const data = await api.fetchAutoLibrary({ ...params, offset });
+            all.push(...(data.entries || []));
+            if (all.length >= (data.total || 0)) break;
+        }
+        return all;
+    }
+
+    async function confirmExport() {
+        if (!state.current) return;
+        const format = document.querySelector('input[name="lib-export-format"]:checked')?.value || 'txt';
+        try {
+            const rows = await fetchAllFiltered();
+            if (!rows.length) { toast('当前筛选没有可导出的条目'); return; }
+            const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+            const base = `${state.current.name}-${stamp}`;
+            if (format === 'csv') {
+                downloadAsCSV(rows, LIBRARY_CSV_COLUMNS, { filename: `${base}.csv` });
+            } else {
+                const template = $('lib-export-template').value || '{ip}:{port}';
+                const content = serialize(rows, 'txt', { template });
+                download(content, `${base}.txt`, 'text/plain;charset=utf-8');
+            }
+            toast(`已导出 ${rows.length} 条`);
+        } catch (error) {
+            toast(`导出失败：${error.message}`);
+        }
+    }
+
     // 事件绑定
     $('lib-list').addEventListener('click', e => {
         const item = e.target.closest('.lib-item');
         if (!item) return;
         state.current = state.libraries.find(l => l.id === item.dataset.id) || null;
-        state.selected.clear();
         renderLibList();
         loadEntries();
     });
     $('lib-new').addEventListener('click', createNew);
+    $('lib-import').addEventListener('click', openImportModal);
+    $('lib-export').addEventListener('click', openExportModal);
+    $('lib-rename').addEventListener('click', renameCurrent);
     $('lib-remove-selected').addEventListener('click', removeSelected);
     $('lib-clear').addEventListener('click', clearCurrent);
-    $('lib-rename').addEventListener('click', renameCurrent);
     $('lib-delete').addEventListener('click', deleteCurrent);
     $('lib-field').addEventListener('change', () => { renderFieldValueOptions(state.stats?.[state.current?.id]); loadEntries(); });
     $('lib-field-value').addEventListener('change', loadEntries);
     ['lib-q', 'lib-status'].forEach(id => $(id).addEventListener('input', loadEntries));
     $('lib-status').addEventListener('change', loadEntries);
-    $('lib-tbody').addEventListener('change', e => {
-        const box = e.target.closest('.lib-check');
-        if (!box) return;
-        if (box.checked) state.selected.add(box.dataset.key);
-        else state.selected.delete(box.dataset.key);
+
+    // 导入弹窗
+    $('lib-import-modal').addEventListener('click', e => { if (e.target === $('lib-import-modal')) $('lib-import-modal').hidden = true; });
+    $('btn-lib-import-close').addEventListener('click', () => { $('lib-import-modal').hidden = true; });
+    $('btn-lib-import-cancel').addEventListener('click', () => { $('lib-import-modal').hidden = true; });
+    $('btn-lib-import-confirm').addEventListener('click', confirmImport);
+    $('lib-import-file').addEventListener('change', async event => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        const text = await file.text();
+        $('lib-import-text').value = text;
+        toast(`已读取 ${file.name}（${text.length} 字符），确认后导入`);
+        event.target.value = '';
     });
-    $('lib-checkall').addEventListener('change', e => {
-        const checked = e.target.checked;
-        state.selected.clear();
-        if (checked) state.entries.forEach(en => state.selected.add(`${en.ip}|${en.port || 0}`));
-        renderTable();
+    $('lib-import-sample-mode').addEventListener('change', () => {
+        $('lib-import-sample-n').disabled = $('lib-import-sample-mode').value !== 'n';
     });
+
+    // 导出弹窗
+    $('lib-export-modal').addEventListener('click', e => { if (e.target === $('lib-export-modal')) $('lib-export-modal').hidden = true; });
+    $('btn-lib-export-close').addEventListener('click', () => { $('lib-export-modal').hidden = true; });
+    $('btn-lib-export-cancel').addEventListener('click', () => { $('lib-export-modal').hidden = true; });
+    $('btn-lib-export-confirm').addEventListener('click', confirmExport);
+    document.querySelectorAll('input[name="lib-export-format"]').forEach(input =>
+        input.addEventListener('change', () => { $('lib-export-template-field').hidden = input.value !== 'txt'; }));
 
     loadLibraries();
     return { refresh: loadLibraries };

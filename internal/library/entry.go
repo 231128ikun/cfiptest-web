@@ -72,6 +72,8 @@ type Entry struct {
 	FirstSeenAt   time.Time `json:"firstSeenAt"`
 	LastCheckedAt time.Time `json:"lastCheckedAt"`
 	Checks        int       `json:"checks"`
+	// ConsecutiveFailures 连续延迟失败次数；达到上层阈值才从库移除，成功一次即清零。
+	ConsecutiveFailures int `json:"consecutiveFailures,omitempty"`
 }
 
 // UnmarshalJSON 兼容旧版库中的 speedKBs 字段；保存时统一写为 downloadSpeedKBs。

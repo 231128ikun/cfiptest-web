@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
+
 	"time"
 
 	"iptest-web/internal/config"
@@ -48,8 +48,7 @@ func (s *Server) handleTasksSave(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Tasks []subscription.Task `json:"tasks"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON: "+err.Error())
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	if err := subscription.SaveTasks(s.dataDir, req.Tasks); err != nil {
@@ -61,8 +60,7 @@ func (s *Server) handleTasksSave(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTaskValidate(w http.ResponseWriter, r *http.Request) {
 	var task subscription.Task
-	if err := json.NewDecoder(r.Body).Decode(&task); err != nil {
-		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON: "+err.Error())
+	if !decodeJSON(w, r, &task) {
 		return
 	}
 	if err := task.Validate(); err != nil {
@@ -92,8 +90,7 @@ func (s *Server) handleLibrariesCreate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name string `json:"name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON: "+err.Error())
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	mgr, err := s.libraryManager()
@@ -114,8 +111,7 @@ func (s *Server) handleLibrariesRename(w http.ResponseWriter, r *http.Request) {
 		ID   string `json:"id"`
 		Name string `json:"name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON: "+err.Error())
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	mgr, err := s.libraryManager()
@@ -134,8 +130,7 @@ func (s *Server) handleLibrariesDelete(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ID string `json:"id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON: "+err.Error())
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	mgr, err := s.libraryManager()
@@ -155,8 +150,7 @@ func (s *Server) handleLibrariesClear(w http.ResponseWriter, r *http.Request) {
 		ID      string `json:"id"`
 		Confirm bool   `json:"confirm"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON: "+err.Error())
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	if !req.Confirm {
@@ -303,8 +297,7 @@ type autoImportResponse struct {
 
 func (s *Server) handleLibraryImport(w http.ResponseWriter, r *http.Request) {
 	var req autoImportRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON: "+err.Error())
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	mgr, err := s.libraryManager()
@@ -388,8 +381,7 @@ func (s *Server) handleLibraryRemove(w http.ResponseWriter, r *http.Request) {
 		Lib  string   `json:"lib"`
 		Keys []string `json:"keys"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON: "+err.Error())
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	mgr, err := s.libraryManager()
@@ -433,8 +425,7 @@ type autoRunRequest struct {
 
 func (s *Server) handleAutoRun(w http.ResponseWriter, r *http.Request) {
 	var req autoRunRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON: "+err.Error())
+	if !decodeJSON(w, r, &req) {
 		return
 	}
 	tasks, err := subscription.LoadTasks(s.dataDir)
@@ -475,13 +466,15 @@ func (s *Server) autoRunOptions(task *subscription.Task, overrides *subscription
 	s.configMu.RUnlock()
 	settings := config.LoadSettings(s.dataDir)
 	opts := subscription.RunOptions{
-		LatencyTimeoutMs:   settingsIntOr(settings, "autoLatencyTimeoutMs", latencyDefaults.TimeoutMs),
-		LatencyProbes:      settingsInt(settings, "autoLatencyProbes"),
-		LatencyHTTPProbes:  settingsInt(settings, "autoLatencyHTTPProbes"),
-		LatencyConcurrency: settingsInt(settings, "autoLatencyConcurrency"),
-		SpeedDurationSec:   settingsIntOr(settings, "autoSpeedDurationSec", speedDefaults.DurationSec),
-		SpeedConcurrency:   settingsInt(settings, "autoSpeedConcurrency"),
-		DownloadURL:        speedDefaults.DownloadURL,
+		LatencyTimeoutMs:     settingsIntOr(settings, "autoLatencyTimeoutMs", latencyDefaults.TimeoutMs),
+		LatencyProbes:        settingsInt(settings, "autoLatencyProbes"),
+		LatencyHTTPProbes:    settingsInt(settings, "autoLatencyHTTPProbes"),
+		LatencyHTTPTimeoutMs: settingsIntOr(settings, "autoLatencyHTTPTimeoutMs", latencyDefaults.HTTPTimeoutMs),
+		LatencyConcurrency:   settingsInt(settings, "autoLatencyConcurrency"),
+		RemoveAfterFailures:  settingsIntOr(settings, "autoRemoveAfterFailures", 3),
+		SpeedDurationSec:     settingsIntOr(settings, "autoSpeedDurationSec", speedDefaults.DurationSec),
+		SpeedConcurrency:     settingsInt(settings, "autoSpeedConcurrency"),
+		DownloadURL:          speedDefaults.DownloadURL,
 	}
 	if task != nil {
 		if task.LatencyTimeoutMs > 0 {
@@ -516,8 +509,14 @@ func (s *Server) autoRunOptions(task *subscription.Task, overrides *subscription
 	if merged.LatencyHTTPProbes == 0 {
 		merged.LatencyHTTPProbes = opts.LatencyHTTPProbes
 	}
+	if merged.LatencyHTTPTimeoutMs == 0 {
+		merged.LatencyHTTPTimeoutMs = opts.LatencyHTTPTimeoutMs
+	}
 	if merged.LatencyConcurrency == 0 {
 		merged.LatencyConcurrency = opts.LatencyConcurrency
+	}
+	if merged.RemoveAfterFailures == 0 {
+		merged.RemoveAfterFailures = opts.RemoveAfterFailures
 	}
 	if merged.SpeedDurationSec == 0 {
 		merged.SpeedDurationSec = opts.SpeedDurationSec
@@ -557,7 +556,7 @@ func settingsInt(settings map[string]any, key string) int {
 // resolveMaintenanceLibrary 按任务的「维护来源」准备本次运行的 IP 库与附加参数：
 //
 //	local    → 打开本地库；任务的「初始化」（文件/远程 URL）先导入本地库（候选只从库内收集）
-//	official → 官方 IP 库（远程）：拉取最新官方段并按抽样展开为内存候选；不写本地库、失效不删除
+//	official → 官方 IP 段（本地缓存/内置兜底优先）：按抽样展开为内存候选；不写本地库、失效不删除
 //	remote   → 远程 URL 库（远程）：运行时拉取 URL 为内存候选；不写本地库、失效不删除
 //
 // 返回 (库, 附加运行参数, 是否远程库, 来源标签, 错误)。
@@ -565,7 +564,7 @@ func (s *Server) resolveMaintenanceLibrary(task subscription.Task) (*library.Sto
 	var extra subscription.RunOptions
 	switch task.LibrarySource {
 	case subscription.LibrarySourceOfficial:
-		store, err := s.officialLibraryStore(task)
+		store, err := s.officialRangesStore(task)
 		if err != nil {
 			return nil, extra, false, "", err
 		}
@@ -573,7 +572,7 @@ func (s *Server) resolveMaintenanceLibrary(task subscription.Task) (*library.Sto
 		if extra.Protocol == "" {
 			extra.Protocol = "https"
 		}
-		return store, extra, true, "官方 IP 库", nil
+		return store, extra, true, "官方 IP 段", nil
 	case subscription.LibrarySourceRemote:
 		store, err := s.remoteURLLibraryStore(task.LibraryURL)
 		if err != nil {
@@ -604,26 +603,32 @@ func (s *Server) resolveMaintenanceLibrary(task subscription.Task) (*library.Sto
 	return lib, extra, false, "本地 IP 库", nil
 }
 
-// resolveInitRemote 拉取并解析「初始化」远程 URL（复用工作台远程导入逻辑）。
-func (s *Server) resolveInitRemote(input subscription.TaskInput) ([]engine.Target, error) {
-	targetURL, err := normalizeRemoteImportURL(input.URL)
+// fetchRemoteTargets 拉取并解析远程 IP 文本（每个 /24 取 1 个），
+// 供「初始化远程来源」与「远程 URL 库」两种维护入口共用。
+func (s *Server) fetchRemoteTargets(rawURL, label string) ([]engine.Target, error) {
+	targetURL, err := normalizeRemoteImportURL(rawURL)
 	if err != nil {
 		return nil, err
 	}
 	body, _, err := fetchTextFile(targetURL)
 	if err != nil {
-		return nil, fmt.Errorf("读取初始化远程来源失败: %w", err)
+		return nil, fmt.Errorf("读取%s失败: %w", label, err)
 	}
 	targets := engine.ParseTargetsWithCIDR(body, engine.SampleOnePerSubnet, 1)
 	if len(targets) == 0 {
-		return nil, fmt.Errorf("初始化远程来源中没有可识别的 IP")
+		return nil, fmt.Errorf("%s中没有可识别的 IP", label)
 	}
 	return targets, nil
 }
 
-// officialLibraryStore 构造官方 IP 库（远程库）的内存候选：拉取最新官方段，按任务抽样/端口展开。
-// 结果只用于本次运行，不写入本地库，失效条目不删除。
-func (s *Server) officialLibraryStore(task subscription.Task) (*library.Store, error) {
+// resolveInitRemote 拉取并解析「初始化」远程 URL（复用工作台远程导入逻辑）。
+func (s *Server) resolveInitRemote(input subscription.TaskInput) ([]engine.Target, error) {
+	return s.fetchRemoteTargets(input.URL, "初始化远程来源")
+}
+
+// officialRangesStore 构造官方 IP 段的内存候选：优先读本地缓存/内置兜底数据，
+// 按任务抽样/端口展开。结果只用于本次运行，不写入本地库，失效条目不删除。
+func (s *Server) officialRangesStore(task subscription.Task) (*library.Store, error) {
 	ranges := s.officialRanges(false)
 	cidrs := ranges.IPv4
 	if strings.EqualFold(task.LibraryFamily, "ipv6") {
@@ -643,7 +648,7 @@ func (s *Server) officialLibraryStore(task subscription.Task) (*library.Store, e
 		}
 	}
 	if total, _ := engine.CountCIDRs(cidrs, modeValue, sampleN); total > maxExpandedTargets {
-		return nil, fmt.Errorf("官方库按当前抽样需展开 %d 个目标，超过 %d 上限", total, maxExpandedTargets)
+		return nil, fmt.Errorf("官方 IP 段按当前抽样需展开 %d 个目标，超过 %d 上限", total, maxExpandedTargets)
 	}
 	targets, _ := engine.ExpandCIDRs(cidrs, modeValue, sampleN, port)
 	for i := range targets {
@@ -652,37 +657,29 @@ func (s *Server) officialLibraryStore(task subscription.Task) (*library.Store, e
 		}
 	}
 	if len(targets) == 0 {
-		return nil, fmt.Errorf("官方库中没有可识别的 IP")
+		return nil, fmt.Errorf("官方 IP 段中没有可识别的 IP")
 	}
-	now := time.Now()
-	entries := make([]library.Entry, 0, len(targets))
-	for _, t := range targets {
-		entries = append(entries, library.Entry{IP: t.IP, Port: t.Port, Source: library.SourceOfficial, Status: library.StatusNew, FirstSeenAt: now})
-	}
-	return library.NewInMemory(filepath.Join(s.dataDir, library.ManagerDir), entries), nil
+	return s.inMemoryStoreFromTargets(targets, library.SourceOfficial), nil
 }
 
 // remoteURLLibraryStore 构造远程 URL 库（远程库）的内存候选：运行时拉取并解析。
 // 结果只用于本次运行，不写入本地库，失效条目不删除。
 func (s *Server) remoteURLLibraryStore(rawURL string) (*library.Store, error) {
-	targetURL, err := normalizeRemoteImportURL(rawURL)
+	targets, err := s.fetchRemoteTargets(rawURL, "远程库")
 	if err != nil {
 		return nil, err
 	}
-	body, _, err := fetchTextFile(targetURL)
-	if err != nil {
-		return nil, fmt.Errorf("读取远程库失败: %w", err)
-	}
-	targets := engine.ParseTargetsWithCIDR(body, engine.SampleOnePerSubnet, 1)
-	if len(targets) == 0 {
-		return nil, fmt.Errorf("远程库中没有可识别的 IP")
-	}
+	return s.inMemoryStoreFromTargets(targets, library.SourceImport), nil
+}
+
+// inMemoryStoreFromTargets 把候选目标构造成仅内存库（远程维护来源共用，不落盘）。
+func (s *Server) inMemoryStoreFromTargets(targets []engine.Target, source string) *library.Store {
 	now := time.Now()
 	entries := make([]library.Entry, 0, len(targets))
 	for _, t := range targets {
-		entries = append(entries, library.Entry{IP: t.IP, Port: t.Port, Source: library.SourceImport, Status: library.StatusNew, FirstSeenAt: now})
+		entries = append(entries, library.Entry{IP: t.IP, Port: t.Port, Source: source, Status: library.StatusNew, FirstSeenAt: now})
 	}
-	return library.NewInMemory(filepath.Join(s.dataDir, library.ManagerDir), entries), nil
+	return library.NewInMemory(filepath.Join(s.dataDir, library.ManagerDir), entries)
 }
 
 func (s *Server) runAutoTask(ctx context.Context, taskID string, task subscription.Task, opts subscription.RunOptions) {
@@ -740,6 +737,7 @@ func (s *Server) handleLogGet(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"enabled":    s.log.Enabled(),
+		"level":      s.log.Level(),
 		"path":       filepath.Join(LogDir, LogFileName),
 		"lines":      s.log.Tail(lines),
 		"writeError": s.log.LastError(),
@@ -747,7 +745,7 @@ func (s *Server) handleLogGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogClear(w http.ResponseWriter, _ *http.Request) {
-	if err := s.log.Clear(); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := s.log.Clear(); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -788,5 +786,3 @@ func (s *Server) handleAutoOutput(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", "attachment; filename="+name)
 	w.Write(body)
 }
-
-var _ = sync.Mutex{}
