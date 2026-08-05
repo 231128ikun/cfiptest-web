@@ -983,7 +983,7 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
     .page { padding: 18px 18px 42px; }
     .flow-nav { top: 118px; }
     .flow-section, .auto-section { scroll-margin-top: 176px; }
-    .lib-layout, .task-layout { grid-template-columns: 1fr; }
+    .lib-layout, .task-layout { grid-template-columns: minmax(0, 1fr); }
     .lib-side .lib-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .lib-filter-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .lib-filter-controls #lib-q { grid-column: 1 / -1; }
