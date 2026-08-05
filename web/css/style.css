@@ -493,7 +493,7 @@ details > summary { color: var(--text-secondary); font-weight: 580; cursor: poin
 .field-name { min-width: 80px; color: var(--text-secondary); font-size: 12px; }
 .field-row #sample-n { width: 68px; min-height: 30px; }
 .official-note { margin-top: 10px; padding: 10px 12px; border-left: 3px solid var(--accent); background: var(--accent-soft); color: var(--text-secondary); font-size: 12px; }
-.official-actions { display: flex; gap: 10px; margin-top: 12px; }
+.official-actions { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
 .estimate-box { margin-top: 10px; color: var(--text-secondary); font-size: 12px; }
 .official-candidate { padding: 16px; border: 1px solid var(--border-light); border-radius: var(--radius-lg); background: var(--surface); }
 .official-endpoint-row label { display: inline-flex; align-items: center; gap: 6px; }
@@ -903,12 +903,14 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 .lib-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .lib-item { border: 1px solid var(--border-light); background: var(--surface); border-radius: var(--radius); padding: 14px 16px; cursor: pointer; transition: border-color .15s ease, box-shadow .15s ease; }
 .lib-item:hover { border-color: var(--border); }
-.lib-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); align-items: start; gap: 10px 14px; margin-bottom: 10px; }
-.lib-toolbar input[type="text"] { min-width: 220px; flex: 1; }
+.lib-toolbar { display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
+.lib-toolbar input[type="text"] { min-width: 0; flex: 1; }
 .lib-import-text { flex-basis: 100%; }
-.lib-filter-controls { min-width: 0; display: grid; grid-template-columns: minmax(220px, 1fr) auto auto minmax(140px, auto); gap: 8px; }
+.lib-filter-controls { min-width: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+  .lib-filter-controls #lib-q { grid-column: 1 / -1; }
 .lib-filter-controls input, .lib-filter-controls select { min-width: 0; width: 100%; }
 .lib-manage-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .lib-manage-actions > button { flex: 0 1 auto; white-space: nowrap; }
 .lib-stats { padding: 8px 10px; border-radius: var(--radius-sm); background: var(--surface-soft); font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; }
 #lib-table-container .table-wrap { max-height: 460px; }
 #lib-table-container table.results { margin: 0; width: max-content; min-width: 100%; }
@@ -947,9 +949,7 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 
 /* ---------- 24. 响应式断点 ---------- */
 @media (max-width: 1120px) {
-    .lib-toolbar { grid-template-columns: 1fr; }
     .lib-manage-actions { justify-content: flex-start; }
-    .lib-filter-controls { grid-template-columns: minmax(220px, 1fr) repeat(3, minmax(130px, auto)); }
 }
 
 @media (max-width: 1040px) {
@@ -985,8 +985,6 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
     .flow-section, .auto-section { scroll-margin-top: 176px; }
     .lib-layout, .task-layout { grid-template-columns: minmax(0, 1fr); }
     .lib-side .lib-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .lib-filter-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .lib-filter-controls #lib-q { grid-column: 1 / -1; }
     .page-actions { flex-wrap: wrap; justify-content: flex-end; }
     .export-modal-body { grid-template-columns: 1fr; }
     .side-log-body { max-height: 120px; }
@@ -1014,10 +1012,7 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
     .task-card-head { gap: 10px; }
     .task-card-state { align-items: flex-end; flex-direction: column; gap: 7px; }
     .task-card-toggle { padding-left: 0; border-left: 0; }
-    .lib-filter-controls { grid-template-columns: 1fr; }
-    .lib-filter-controls #lib-q { grid-column: auto; }
-    .lib-manage-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .lib-manage-actions button { width: 100%; }
+    .lib-manage-actions > button { flex: 1 1 calc(50% - 4px); }
     #log-viewer.log-viewer { height: 360px; min-height: 360px; max-height: 360px; }
     .task-file-row { grid-template-columns: 1fr; }
     .task-upload-button { width: 100%; }
@@ -1025,6 +1020,7 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 }
 
 @media (max-width: 640px) {
+    .lib-manage-actions > button { flex-basis: 100%; }
     .header-inner, .pipeline, .flow-nav-inner { padding-left: 16px; padding-right: 16px; }
     .header-inner { display: flex; flex-wrap: nowrap; }
     .brand-block, .brand-block > div:last-child { min-width: 0; }
@@ -1085,7 +1081,6 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
     .filter-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .filter-row .help-icon { width: 100%; }
     .lib-side .lib-list { grid-template-columns: 1fr; }
-    .lib-manage-actions { grid-template-columns: 1fr; }
     .result-run-strip { grid-template-columns: 1fr 1fr; }
     .result-run-strip > div { grid-column: 1 / -1; }
     .result-actions > :first-child { margin-left: 0; }
