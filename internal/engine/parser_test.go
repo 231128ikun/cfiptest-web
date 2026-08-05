@@ -163,3 +163,16 @@ func TestColoLocRegex(t *testing.T) {
 		t.Errorf("正则提取失败: %v", m)
 	}
 }
+
+func TestParseTargetsCSVUsesPortColumn(t *testing.T) {
+	targets := ParseTargetsWithCIDR("ip,port,country\n1.1.1.1,2053,US\n2001:db8::1,8443,JP\n", SampleOnePerSubnet, 1)
+	if len(targets) != 2 {
+		t.Fatalf("CSV 解析得到 %d 个目标，期望 2: %+v", len(targets), targets)
+	}
+	if targets[0].IP != "1.1.1.1" || targets[0].Port != 2053 {
+		t.Fatalf("IPv4 CSV 端口解析错误: %+v", targets[0])
+	}
+	if targets[1].IP != "2001:db8::1" || targets[1].Port != 8443 {
+		t.Fatalf("IPv6 CSV 端口解析错误: %+v", targets[1])
+	}
+}

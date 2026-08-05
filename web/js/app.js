@@ -256,7 +256,19 @@ function officialSettings() {
         family: document.querySelector('input[name="official-family"]:checked')?.value || 'ipv4',
         sampleMode: document.querySelector('input[name="sample-mode"]:checked')?.value || 'one',
         sampleN: parseInt($('sample-n').value, 10) || 1,
+        protocol: $('official-protocol').value === 'http' ? 'http' : 'https',
+        port: parseInt($('official-port').value, 10) || ($('official-protocol').value === 'http' ? 80 : 443),
     };
+}
+
+function updateOfficialPortOptions(preferredPort) {
+    const protocol = $('official-protocol').value === 'http' ? 'http' : 'https';
+    const defaults = protocol === 'http' ? [80, 8080, 8880, 2052, 2082, 2086, 2095] : [443, 2053, 2083, 2087, 2096, 8443];
+    const ports = officialRanges?.ports?.[protocol] || defaults;
+    const selected = Number(preferredPort || $('official-port').value);
+    $('official-port').innerHTML = ports.map(port => `<option value="${port}">${port}</option>`).join('');
+    $('official-port').value = ports.includes(selected) ? String(selected) : String(ports[0]);
+    $('official-port-summary').textContent = `${protocol.toUpperCase()} · ${$('official-port').value}`;
 }
 
 async function fetchRanges(refresh = false) {
@@ -268,6 +280,7 @@ async function fetchRanges(refresh = false) {
         const source = { builtin: '内置兜底', cache: '本地缓存', remote: '官方接口' }[officialRanges.source] || officialRanges.source;
         $('ranges-status').textContent = `${source} · IPv4 ${officialRanges.ipv4.length} 段 · IPv6 ${officialRanges.ipv6.length} 段`;
         if (officialRanges.warning) toast(officialRanges.warning);
+        updateOfficialPortOptions();
         renderRangesEstimate();
     } catch (error) {
         $('ranges-status').textContent = '加载失败';
@@ -278,11 +291,12 @@ async function fetchRanges(refresh = false) {
 }
 
 function renderRangesEstimate() {
-    const { family, sampleMode, sampleN } = officialSettings();
+    const { family, sampleMode, sampleN, protocol, port } = officialSettings();
     const hint = $('sample-hint');
     hint.textContent = family === 'ipv4'
-        ? 'IPv4 按每个 /24 抽样，避免直接检测百万级地址；官方模式端口固定 443。'
-        : 'IPv6 网段无法穷举，将在每个官方网段内随机抽样；官方模式端口固定 443。';
+        ? `IPv4 按每个 /24 抽样，避免直接检测百万级地址；当前使用 ${protocol.toUpperCase()} 端口 ${port}。`
+        : `IPv6 网段无法穷举，将在每个官方网段内抽样；当前使用 ${protocol.toUpperCase()} 端口 ${port}。`;
+    $('official-port-summary').textContent = `${protocol.toUpperCase()} · ${port}`;
     if (!officialRanges) return;
     let count;
     if (family === 'ipv4') {
@@ -306,15 +320,17 @@ async function generateOfficialCandidates() {
         return;
     }
     const ranges = settings.family === 'ipv6' ? officialRanges.ipv6 : officialRanges.ipv4;
-    const text = ranges.map(cidr => cidr.includes(':') ? `[${cidr}]:443` : `${cidr}:443`).join('\n');
+    const text = ranges.map(cidr => cidr.includes(':') ? `[${cidr}]:${settings.port}` : `${cidr}:${settings.port}`).join('\n');
     const button = $('btn-add-ranges');
     button.disabled = true;
     try {
         const resp = await api.importText(text, settings);
         officialCandidates = [];
         const { added } = addUnique(officialCandidates, resp.targets);
+        $('lat-tls').checked = settings.protocol === 'https';
+        updateDefaultPortHint();
         renderCandidates();
-        toast(`已生成 ${added} 条官方候选`);
+        toast(`已生成 ${added} 条官方候选（${settings.protocol.toUpperCase()}:${settings.port}）`);
     } catch (error) {
         toast(error.message);
     } finally {
@@ -338,6 +354,8 @@ function bindOfficialInput() {
     });
     document.querySelectorAll('input[name="official-family"], input[name="sample-mode"]').forEach(input =>
         input.addEventListener('change', renderRangesEstimate));
+    $('official-protocol').addEventListener('change', () => { updateOfficialPortOptions(); renderRangesEstimate(); });
+    $('official-port').addEventListener('change', renderRangesEstimate);
     $('sample-n').addEventListener('input', () => {
         renderRangesEstimate();
         clearTimeout(officialEstimateTimer);
@@ -345,12 +363,14 @@ function bindOfficialInput() {
             if (!officialRanges) return;
             try {
                 officialRanges = await api.fetchOfficialRanges(officialSettings().sampleN);
+                updateOfficialPortOptions();
                 renderRangesEstimate();
             } catch (error) {
                 toast(error.message);
             }
         }, 250);
     });
+    updateOfficialPortOptions();
 }
 
 function bindModes() {
@@ -366,6 +386,7 @@ function bindModes() {
         $('source-proxy').hidden = store.mode !== 'proxy';
         $('source-official').hidden = store.mode !== 'official';
         renderCandidates();
+        updateDefaultPortHint();
         if (store.mode === 'official' && !officialRanges) fetchRanges(false);
     };
     $('mode-tabs').addEventListener('click', event => {
@@ -420,6 +441,7 @@ function readNumberField(id, { min = -Infinity, max = Infinity, integer = false,
 function normalizeRuleFields({ notify = false } = {}) {
     const rules = [
         ['lat-concurrency', { min: 1, max: 1000, integer: true }],
+        ['lat-probes', { min: 1, max: 10, integer: true }],
         ['lat-timeout', { min: 200, max: 10000, integer: true }],
         ['lat-maxlatency', { min: 0, max: 10000, integer: true, optional: true }],
         ['spd-concurrency', { min: 1, max: 100, integer: true }],
@@ -443,6 +465,7 @@ function latencyOptions() {
     normalizeRuleFields();
     return {
         maxConcurrency: readNumberField('lat-concurrency', { min: 1, max: 1000, integer: true, optional: true }),
+        probeCount: readNumberField('lat-probes', { min: 1, max: 10, integer: true, optional: true }),
         timeoutMs: readNumberField('lat-timeout', { min: 200, max: 10000, integer: true, optional: true }),
         maxLatencyMs: readNumberField('lat-maxlatency', { min: 0, max: 10000, integer: true, optional: true }) || 0,
         // 启用速度规则时，统一数量限制只在最终测速阶段生效。
@@ -471,14 +494,21 @@ function applySpeedEnabled() {
 }
 
 function updateDefaultPortHint() {
+    const hint = $('default-port-hint');
+    if (store.mode === 'official') {
+        const { protocol, port } = officialSettings();
+        hint.textContent = `官方候选已写入 ${protocol.toUpperCase()} 端口 ${port}`;
+        return;
+    }
     const port = $('lat-tls').checked ? 443 : 80;
-    $('default-port-hint').textContent = `未指定端口使用 ${port}`;
+    hint.textContent = `目标自带端口优先；未指定时使用 ${port}`;
 }
 
 function resetRules() {
     const lat = defaults?.latency || { maxConcurrency: 100, timeoutMs: 1000, maxLatencyMs: 0, enableTLS: true, enableIPAPI: false };
     const spd = defaults?.speed || { maxConcurrency: 5, durationSec: 5, minSpeedKBs: 0, downloadURL: 'speed.cloudflare.com/__down?bytes=500000000' };
     $('lat-concurrency').value = lat.maxConcurrency;
+    $('lat-probes').value = lat.probeCount || 3;
     $('lat-timeout').value = lat.timeoutMs;
     $('lat-maxlatency').value = lat.maxLatencyMs > 0 ? lat.maxLatencyMs : '';
     $('lat-tls').checked = lat.enableTLS;
@@ -593,7 +623,7 @@ function bindRulesAndRun() {
         $(id).addEventListener('input', previewBadgeThresholdsFromUI);
         $(id).addEventListener('change', applyBadgeThresholdsFromUI);
     });
-    ['lat-concurrency', 'lat-timeout', 'lat-maxlatency', 'spd-concurrency', 'spd-duration', 'spd-minspeed', 'rule-maxresults']
+    ['lat-concurrency', 'lat-probes', 'lat-timeout', 'lat-maxlatency', 'spd-concurrency', 'spd-duration', 'spd-minspeed', 'rule-maxresults']
         .forEach(id => $(id).addEventListener('change', () => normalizeRuleFields({ notify: true })));
     $('lat-tls').addEventListener('change', () => {
         $('spd-tls').checked = $('lat-tls').checked;
@@ -845,7 +875,10 @@ function currentSettings() {
         customColumns: [...customColumnKeys],
         ui: { badgeThresholds: readBadgeThresholds() },
         autoLatencyConcurrency: positiveInt('auto-lat-concurrency'),
+        autoLatencyTimeoutMs: positiveInt('auto-lat-timeout'),
+        autoLatencyProbes: positiveInt('auto-lat-probes'),
         autoSpeedConcurrency: positiveInt('auto-spd-concurrency'),
+        autoSpeedDurationSec: positiveInt('auto-spd-duration'),
     };
 }
 
@@ -931,6 +964,7 @@ function applySavedSettings(settings = {}) {
     const lat = rules.latency || {};
     const spd = rules.speed || {};
     if (lat.maxConcurrency) $('lat-concurrency').value = lat.maxConcurrency;
+    if (lat.probeCount) $('lat-probes').value = lat.probeCount;
     if (lat.timeoutMs) $('lat-timeout').value = lat.timeoutMs;
     $('lat-maxlatency').value = Number(lat.maxLatencyMs) > 0 ? lat.maxLatencyMs : '';
     if (lat.enableTLS != null) $('lat-tls').checked = lat.enableTLS;
@@ -961,7 +995,10 @@ function applySavedSettings(settings = {}) {
             .filter(item => item && typeof item.name === 'string' && typeof item.template === 'string');
     }
     if (Number(settings.autoLatencyConcurrency) > 0) $('auto-lat-concurrency').value = settings.autoLatencyConcurrency;
+    if (Number(settings.autoLatencyTimeoutMs) > 0) $('auto-lat-timeout').value = settings.autoLatencyTimeoutMs;
+    if (Number(settings.autoLatencyProbes) > 0) $('auto-lat-probes').value = settings.autoLatencyProbes;
     if (Number(settings.autoSpeedConcurrency) > 0) $('auto-spd-concurrency').value = settings.autoSpeedConcurrency;
+    if (Number(settings.autoSpeedDurationSec) > 0) $('auto-spd-duration').value = settings.autoSpeedDurationSec;
     fillBadgeThresholdFields(settings);
     const legacyScope = { all: 'direct', visible: 'rules', selected: 'custom' }[settings.exportScope] || settings.exportScope;
     if (['direct', 'rules', 'custom'].includes(legacyScope)) {

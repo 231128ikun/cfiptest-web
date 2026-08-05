@@ -40,19 +40,26 @@ type ProgressFunc func(p Progress) error
 
 // RunOptions 控制编排运行的行为；零值使用默认值。
 type RunOptions struct {
-	LatencyTimeoutMs   int    // 单连接延迟超时（ms），默认 1000
-	LatencyConcurrency int    // 延迟检测并发，默认 50；维护场景过高并发易漏测/误判
-	SpeedDurationSec   int    // 单 IP 测速时长（秒），默认 5
-	SpeedConcurrency   int    // 测速并发，默认 5
-	DownloadURL        string // 测速文件地址（不含协议头），默认 engine 默认值
-	SlackFactor        int    // 每组候选倍数：count*SlackFactor + SlackExtra，默认 3
-	SlackExtra         int    // 默认 10
-	MaxPerGroup        int    // 每组候选硬上限，默认 200
+	LatencyTimeoutMs   int             // 单连接延迟超时（ms），默认 1000
+	LatencyProbes      int             // 延迟探测次数，默认 3；成功探测取平均
+	LatencyConcurrency int             // 延迟检测并发，默认 50；维护场景过高并发易漏测/误判
+	SpeedDurationSec   int             // 单 IP 测速时长（秒），默认 5
+	SpeedConcurrency   int             // 测速并发，默认 5
+	DownloadURL        string          // 测速文件地址（不含协议头），默认 engine 默认值
+	SlackFactor        int             // 每组候选倍数：count*SlackFactor + SlackExtra，默认 3
+	SlackExtra         int             // 默认 10
+	MaxPerGroup        int             // 每组候选硬上限，默认 200
+	InputTargets       []engine.Target `json:"-"`                  // 服务端已解析的初始化来源目标（官方/URL），不参与 JSON
+	InputSource        string          `json:"-"`                  // 初始化来源标签，用于进度日志
+	Protocol           string          `json:"protocol,omitempty"` // https（默认）| http
 }
 
 func (o RunOptions) withDefaults() RunOptions {
 	if o.LatencyTimeoutMs <= 0 {
 		o.LatencyTimeoutMs = 1000
+	}
+	if o.LatencyProbes <= 0 {
+		o.LatencyProbes = 3
 	}
 	if o.LatencyConcurrency <= 0 {
 		o.LatencyConcurrency = 50
@@ -71,6 +78,9 @@ func (o RunOptions) withDefaults() RunOptions {
 	}
 	if o.SlackExtra <= 0 {
 		o.SlackExtra = 10
+	}
+	if o.Protocol != "http" {
+		o.Protocol = "https"
 	}
 	if o.MaxPerGroup <= 0 {
 		o.MaxPerGroup = 200
@@ -118,8 +128,8 @@ type Report struct {
 	TotalLines   int           `json:"totalLines"`
 	Shortages    []string      `json:"shortages"`
 	RemovedDead  int           `json:"removedDead"`
-	InputAdded   int           `json:"inputAdded"`   // 从输入订阅文件新导入的 IP 数
-	InputUpdated int           `json:"inputUpdated"` // 输入文件与库重叠更新的条数
+	InputAdded   int           `json:"inputAdded"`   // 从初始化来源新导入的 IP 数
+	InputUpdated int           `json:"inputUpdated"` // 初始化来源与库重叠更新的条数
 }
 
 // Run 执行一次订阅维护（兼容旧订阅器模型；新任务模型请用 RunTask）。
@@ -131,10 +141,11 @@ func Run(ctx context.Context, t Tester, lib *library.Store, sub Subscription, op
 }
 
 // RunTask 执行一次维护任务：
-//  1. 解析输入文件（如有）导入绑定的 IP 库；
-//  2. 把任务规则展开成分组（多条件笛卡尔积，每个组合取前 N）；
-//  3. 检测 / 清理 / 回写 / 补足；
-//  4. 合并去重后按任务总数限制截断，渲染并原子写出输出文件。
+//
+//	1.（可选）按任务「初始化来源」把官方/URL/文件解析出的 IP 导入绑定的 IP 库（已有条目保留元数据）；
+//	2. 把任务规则展开成分组（多条件笛卡尔积，每个组合取前 N）；
+//	3. 只从 IP 库收集候选，检测 / 清理 / 回写 / 补足；
+//	4. 合并去重后按任务总数限制截断，渲染并原子写出输出文件。
 func RunTask(ctx context.Context, t Tester, lib *library.Store, task Task, opts RunOptions, prog ProgressFunc) (*Report, error) {
 	if err := task.Validate(); err != nil {
 		return nil, err
@@ -147,6 +158,9 @@ func RunTask(ctx context.Context, t Tester, lib *library.Store, task Task, opts 
 	if task.Input.Mode == "file" {
 		inputPath = task.Input.File
 	}
+	if opts.Protocol == "" {
+		opts.Protocol = task.Input.Protocol
+	}
 	output := Output{Path: task.Output.Path, Format: task.Output.Format, Template: task.Output.Template}
 	report, err := runCore(ctx, t, lib, groups, inputPath, output, task.SpeedEnabled, task.Limit, opts, prog)
 	if err != nil {
@@ -158,11 +172,12 @@ func RunTask(ctx context.Context, t Tester, lib *library.Store, task Task, opts 
 }
 
 // runCore 执行核心编排流程：
-//  1. 从库中收集候选（按分组，含国家/城市未知条目；未指定端口的补 443）；
-//  2. 批量延迟检测：失败者从库移除，通过者回写元数据/延迟/状态；
-//  3. 需要测速的分组对短名单批量测速：失败不判死，只标记 SpeedValid=false；
-//  4. 按分组配额取最新结果，合并去重；若设了总数限制则按延迟升序截断；
-//  5. 渲染并原子写出输出文件。
+//
+//	0.（可选）初始化来源先导入 IP 库（官方 IP 只作为库）；候选始终只从库内收集。
+//	2. 批量延迟检测：失败者从库移除，通过者回写元数据/延迟/状态；
+//	3. 需要测速的分组对短名单批量测速：失败不判死，只标记 SpeedValid=false；
+//	4. 按分组配额取最新结果，合并去重；若设了总数限制则按延迟升序截断；
+//	5. 渲染并原子写出输出文件。
 //
 // ctx 取消时保存已完成的库更新并返回部分报告（带 context 错误）。
 func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, inputPath string, out Output, enableSpeed bool, totalLimit int, opts RunOptions, prog ProgressFunc) (*Report, error) {
@@ -176,16 +191,24 @@ func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, 
 		report.Groups[gi] = GroupReport{Name: g.Name, Target: g.Count}
 	}
 
-	// 0. 解析输入订阅文件（ip:port#备注 等格式，复用 engine 解析逻辑）导入 IP 库
-	if strings.TrimSpace(inputPath) != "" {
+	// 0.（可选）初始化来源：官方/URL/文件先导入 IP 库（已有条目保留元数据）；候选只从库内收集。
+	if len(opts.InputTargets) > 0 {
+		added, updated := importInputTargets(lib, opts.InputTargets, now, sourceForInput(opts.InputSource))
+		report.InputAdded, report.InputUpdated = added, updated
+		label := opts.InputSource
+		if label == "" {
+			label = "初始化来源"
+		}
+		_ = prog(Progress{Stage: "input", Tested: added + updated, Log: fmt.Sprintf("初始化导入%s：新增 %d / 更新 %d", label, added, updated)})
+	} else if strings.TrimSpace(inputPath) != "" {
 		added, updated, err := importInputFile(lib, inputPath, now)
 		if err != nil {
-			return nil, fmt.Errorf("读取输入文件失败: %w", err)
+			return nil, fmt.Errorf("读取初始化文件失败: %w", err)
 		}
 		report.InputAdded = added
 		report.InputUpdated = updated
 		_ = prog(Progress{Stage: "input", Tested: added + updated,
-			Log: fmt.Sprintf("解析输入文件 %s：新增 %d / 更新 %d", inputPath, added, updated)})
+			Log: fmt.Sprintf("初始化导入文件 %s：新增 %d / 更新 %d", inputPath, added, updated)})
 	}
 
 	// ---- 1. 收集候选（多分组去重） ----
@@ -230,14 +253,18 @@ func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, 
 	}
 	_ = prog(Progress{Stage: "gather", Tested: len(order), Log: fmt.Sprintf("收集候选 %d 条", len(order))})
 
-	// 解析未指定端口（TLS 默认 443），并让候选键跟随端口修正，
+	// 解析未指定端口（HTTPS 默认 443，HTTP 默认 80），并让候选键跟随端口修正，
 	// 否则按旧键（端口 0）找不到检测结果会被误判为失效。
+	defaultPort := 443
+	if opts.Protocol == "http" {
+		defaultPort = 80
+	}
 	resolvedOrder := make([]string, 0, len(order))
 	for _, key := range order {
 		c := candidates[key]
 		e := c.entry
 		if e.Port == 0 {
-			e.Port = 443
+			e.Port = defaultPort
 			c.entry = e
 			newKey := e.Key()
 			if newKey != key {
@@ -257,10 +284,12 @@ func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, 
 		e := candidates[key].entry
 		targets = append(targets, engine.Target{IP: e.IP, Port: e.Port})
 	}
+	enableTLS := opts.Protocol != "http"
 	latOpts := engine.LatencyOptions{
 		MaxConcurrency: opts.LatencyConcurrency,
 		TimeoutMs:      opts.LatencyTimeoutMs,
-		EnableTLS:      true,
+		ProbeCount:     opts.LatencyProbes,
+		EnableTLS:      enableTLS,
 	}
 	results, err := t.RunLatencyTest(ctx, targets, latOpts, func(engine.Event) {})
 	if err != nil && ctx.Err() != nil {
@@ -332,7 +361,7 @@ func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, 
 			MaxConcurrency: opts.SpeedConcurrency,
 			DurationSec:    opts.SpeedDurationSec,
 			MinSpeedKBs:    0, // 不过滤，阈值由分组判断，失败原因才能区分
-			EnableTLS:      true,
+			EnableTLS:      enableTLS,
 			DownloadURL:    opts.DownloadURL,
 		}
 		sErr := t.RunSpeedTest(ctx, speedTargets, speedOpts, func(ev engine.Event) {
@@ -427,7 +456,7 @@ func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, 
 	}
 	for gi := range report.Groups {
 		if report.Groups[gi].Shortage > 0 {
-			report.Shortages = append(report.Shortages, fmt.Sprintf("分组 %q 缺 %d 条（候选不足，请导入更多该地区 IP）",
+			report.Shortages = append(report.Shortages, fmt.Sprintf("分组 %q 缺 %d 条（IP 库候选不足：请用初始化来源导入更多该地区 IP，或放宽规则条件）",
 				report.Groups[gi].Name, report.Groups[gi].Shortage))
 		}
 	}
@@ -678,7 +707,37 @@ func effectiveSpeed(e library.Entry) float64 {
 	return e.SpeedKBs
 }
 
-// importInputFile 读取原订阅文件（相对库目录），解析出 IP 并导入 IP 库（状态 new）。
+func sourceForInput(source string) string {
+	if source == library.SourceOfficial {
+		return library.SourceOfficial
+	}
+	return library.SourceImport
+}
+
+// importInputTargets 把初始化来源（官方/URL/文件）解析出的目标导入 IP 库。
+// 已有条目保留全部检测元数据（国家/延迟/状态/次数等），仅补齐来源标记；
+// 只有真正的新条目以 StatusNew 入库。避免每次维护重复导入把已验证条目重置回“未测”。
+func importInputTargets(lib *library.Store, targets []engine.Target, now time.Time, source string) (int, int) {
+	added, updated := 0, 0
+	for _, t := range targets {
+		if strings.TrimSpace(t.IP) == "" {
+			continue
+		}
+		if existing, ok := lib.Get(t.IP, t.Port); ok {
+			if existing.Source == "" {
+				existing.Source = source
+			}
+			lib.Upsert(existing)
+			updated++
+			continue
+		}
+		lib.Upsert(library.Entry{IP: t.IP, Port: t.Port, Source: source, Status: library.StatusNew, FirstSeenAt: now})
+		added++
+	}
+	return added, updated
+}
+
+// importInputFile 读取初始化来源文件（相对库目录），解析出 IP 并导入 IP 库（新条目状态 new）。
 // 解析复用 engine.ParseTargetsWithCIDR：支持 ip:port、ip:port#备注、CIDR 展开等现有输入逻辑。
 func importInputFile(lib *library.Store, rel string, now time.Time) (int, int, error) {
 	abs, err := resolveInDir(lib.BaseDir(), rel)
@@ -690,17 +749,7 @@ func importInputFile(lib *library.Store, rel string, now time.Time) (int, int, e
 		return 0, 0, err
 	}
 	targets := engine.ParseTargetsWithCIDR(string(body), engine.SampleOnePerSubnet, 1)
-	added, updated := 0, 0
-	for _, t := range targets {
-		e := library.Entry{IP: t.IP, Port: t.Port, Source: library.SourceImport, Status: library.StatusNew, FirstSeenAt: now}
-		if existing, ok := lib.Get(t.IP, t.Port); ok {
-			e.FirstSeenAt = existing.FirstSeenAt
-			updated++
-		} else {
-			added++
-		}
-		lib.Upsert(e)
-	}
+	added, updated := importInputTargets(lib, targets, now, library.SourceImport)
 	return added, updated, nil
 }
 

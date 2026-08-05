@@ -58,6 +58,7 @@ export function initTasks({ toast }) {
         runQueue: [],
         lastRuns: new Map(),
         pendingEnabled: new Set(),
+        officialPorts: { https: [443, 2053, 2083, 2087, 2096, 8443], http: [80, 8080, 8880, 2052, 2082, 2086, 2095] },
     };
 
     function currentTask() {
@@ -74,9 +75,14 @@ export function initTasks({ toast }) {
     // ---- 加载 ----
     async function loadAll() {
         try {
-            const [tasksData, libsData] = await Promise.all([api.fetchTasks(), api.fetchLibraries()]);
+            const [tasksData, libsData, rangesData] = await Promise.all([
+                api.fetchTasks(),
+                api.fetchLibraries(),
+                api.fetchOfficialRanges(1).catch(() => null),
+            ]);
             state.tasks = tasksData.tasks || [];
             state.libraries = libsData.libraries || [];
+            if (rangesData?.ports) state.officialPorts = rangesData.ports;
             state.libNames = {};
             (state.libraries || []).forEach(l => { state.libNames[l.id] = l.name; });
             if (state.selected >= state.tasks.length) state.selected = -1;
@@ -224,16 +230,47 @@ export function initTasks({ toast }) {
         renderTaskGrid();
     }
 
+    function updateTaskOfficialPorts(preferredPort) {
+        const protocol = $('task-input-protocol').value === 'http' ? 'http' : 'https';
+        const ports = state.officialPorts[protocol] || (protocol === 'http' ? [80] : [443]);
+        const selected = Number(preferredPort || $('task-input-port').value);
+        $('task-input-port').innerHTML = ports.map(port => `<option value="${port}">${port}</option>`).join('');
+        $('task-input-port').value = ports.includes(selected) ? String(selected) : String(ports[0]);
+    }
+
+    function updateTaskInputUI() {
+        const mode = $('task-input-mode').value || 'official';
+        document.querySelectorAll('[data-task-source]').forEach(panel => {
+            panel.hidden = panel.dataset.taskSource !== mode;
+        });
+        const sampleN = $('task-input-sample-mode').value === 'n';
+        $('task-input-sample-n-wrap').hidden = !sampleN;
+        $('task-input-sample-n').disabled = !sampleN;
+    }
+
     function fillForm(task) {
         $('task-name').value = task.name || '';
         $('task-enabled').checked = task.enabled !== false;
         if (state.libraries.some(l => l.id === task.libraryId)) $('task-library').value = task.libraryId;
-        $('task-input').value = task.input?.file || '';
+        const input = task.input || { mode: 'file' };
+        $('task-input-mode').value = ['official', 'file', 'remote', 'none'].includes(input.mode) ? input.mode : 'official';
+        $('task-input').value = input.file || '';
+        $('task-input-url').value = input.url || '';
+        $('task-input-family').value = input.family === 'ipv6' ? 'ipv6' : 'ipv4';
+        $('task-input-sample-mode').value = ['one', 'n', 'all'].includes(input.sampleMode) ? input.sampleMode : 'one';
+        $('task-input-sample-n').value = Number(input.sampleN) > 0 ? input.sampleN : 2;
+        $('task-input-protocol').value = input.protocol === 'http' ? 'http' : 'https';
+        updateTaskOfficialPorts(input.port);
+        updateTaskInputUI();
+        $('task-input-file-status').textContent = input.file ? `已保存：${input.file}` : '文件会保存到 data/inputs，定时维护可重复读取。';
         $('task-output').value = task.output?.path || '';
         $('task-format').value = task.output?.format === 'csv' ? 'csv' : 'txt';
         $('task-limit').value = task.limit || 0;
         $('task-lat-concurrency').value = task.latencyConcurrency > 0 ? task.latencyConcurrency : '';
+        $('task-lat-timeout').value = task.latencyTimeoutMs > 0 ? task.latencyTimeoutMs : '';
+        $('task-lat-probes').value = task.latencyProbes > 0 ? task.latencyProbes : '';
         $('task-spd-concurrency').value = task.speedConcurrency > 0 ? task.speedConcurrency : '';
+        $('task-spd-duration').value = task.speedDurationSec > 0 ? task.speedDurationSec : '';
         $('task-speed').checked = Boolean(task.speedEnabled);
         $('task-schedule-enabled').checked = Boolean(task.schedule?.enabled);
         $('task-schedule-cron').value = task.schedule?.cron || '0 3 * * *';
@@ -281,7 +318,23 @@ export function initTasks({ toast }) {
         task.name = $('task-name').value.trim();
         task.enabled = $('task-enabled').checked;
         task.libraryId = $('task-library').value || 'default';
-        task.input = { mode: 'file', file: $('task-input').value.trim() || undefined };
+        const inputMode = $('task-input-mode').value || 'official';
+        if (inputMode === 'none') {
+            task.input = { mode: 'none' };
+        } else if (inputMode === 'remote') {
+            task.input = { mode: 'remote', url: $('task-input-url').value.trim() || undefined, protocol: 'https' };
+        } else if (inputMode === 'official') {
+            task.input = {
+                mode: 'official',
+                family: $('task-input-family').value,
+                sampleMode: $('task-input-sample-mode').value,
+                sampleN: Number($('task-input-sample-n').value) || 1,
+                protocol: $('task-input-protocol').value,
+                port: Number($('task-input-port').value) || undefined,
+            };
+        } else {
+            task.input = { mode: 'file', file: $('task-input').value.trim() || undefined, protocol: 'https' };
+        }
         task.output = {
             path: $('task-output').value.trim() || undefined,
             format: $('task-format').value,
@@ -291,7 +344,10 @@ export function initTasks({ toast }) {
         task.speedEnabled = $('task-speed').checked;
         const taskConcurrency = id => { const v = Number($(id).value); return Number.isFinite(v) && v > 0 ? v : undefined; };
         task.latencyConcurrency = taskConcurrency('task-lat-concurrency');
+        task.latencyTimeoutMs = taskConcurrency('task-lat-timeout');
+        task.latencyProbes = taskConcurrency('task-lat-probes');
         task.speedConcurrency = taskConcurrency('task-spd-concurrency');
+        task.speedDurationSec = taskConcurrency('task-spd-duration');
         task.schedule = {
             enabled: $('task-schedule-enabled').checked,
             cron: $('task-schedule-cron').value.trim() || '0 3 * * *',
@@ -429,6 +485,27 @@ export function initTasks({ toast }) {
     }
 
     // ---- 事件 ----
+    $('task-input-mode').addEventListener('change', updateTaskInputUI);
+    $('task-input-sample-mode').addEventListener('change', updateTaskInputUI);
+    $('task-input-protocol').addEventListener('change', () => updateTaskOfficialPorts());
+    $('task-input-upload').addEventListener('change', async event => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        const status = $('task-input-file-status');
+        status.textContent = `正在导入 ${file.name}…`;
+        try {
+            const text = await file.text();
+            const result = await api.uploadAutoInput(file.name, text);
+            $('task-input').value = result.path;
+            status.textContent = `已保存 ${result.name || file.name}：${result.targets} 个目标，${result.bytes} 字节`;
+            toast('本地文件已导入，可用于定时维护');
+        } catch (error) {
+            status.textContent = `导入失败：${error.message}`;
+            toast(error.message);
+        } finally {
+            event.target.value = '';
+        }
+    });
     $('task-grid').addEventListener('change', e => {
         const enable = e.target.closest('.task-enable');
         if (!enable) return;
@@ -453,7 +530,7 @@ export function initTasks({ toast }) {
         const task = {
             id: `t-${Date.now().toString(36)}`,
             name: '新任务', enabled: true, libraryId: state.libraries[0]?.id || 'default',
-            input: { mode: 'file' },
+            input: { mode: 'official', family: 'ipv4', sampleMode: 'one', sampleN: 2, protocol: 'https', port: 443 },
             output: { format: 'txt', template: '{ip}:{port}#{emoji}{country}' },
             limit: 0, speedEnabled: false, schedule: { enabled: false, cron: '0 3 * * *' },
             rules: [{ name: '规则 1', conditions: [{ field: 'country', values: [] }], limit: 0 }],

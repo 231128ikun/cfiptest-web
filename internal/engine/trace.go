@@ -24,34 +24,44 @@ var reColoLoc = regexp.MustCompile(`colo=([A-Z]+)[\s\S]*?loc=([A-Z]+)`)
 // 返回 nil 表示该目标不可用（连接失败、超时、延迟超标或非 CF 节点）。
 func (r *Runner) testSingleIP(ctx context.Context, target Target, opts LatencyOptions) *Result {
 	timeout := time.Duration(opts.TimeoutMs) * time.Millisecond
+	probeCount := opts.ProbeCount
+	if probeCount < 1 {
+		probeCount = 3
+	}
 
-	// 1. TCP 握手测延迟
+	// 多次独立 TCP 探测：单次抖动或偶发失败不直接淘汰，全部失败才判定不可用。
+	var totalProbe time.Duration
+	successfulProbes := 0
+	for i := 0; i < probeCount; i++ {
+		dialer := &net.Dialer{Timeout: timeout}
+		start := time.Now()
+		conn, err := dialer.DialContext(ctx, "tcp", target.String())
+		if err != nil {
+			continue
+		}
+		totalProbe += time.Since(start)
+		successfulProbes++
+		_ = conn.Close()
+	}
+	if successfulProbes == 0 {
+		return nil
+	}
+	averageLatency := totalProbe / time.Duration(successfulProbes)
+	if opts.MaxLatencyMs > 0 && averageLatency.Milliseconds() > int64(opts.MaxLatencyMs) {
+		return nil
+	}
+
+	// 独立连接执行 trace 校验，避免把 HTTP/TLS 开销计入 TCP 平均延迟。
 	dialer := &net.Dialer{Timeout: timeout}
-	addr := target.String()
-	start := time.Now()
-	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	conn, err := dialer.DialContext(ctx, "tcp", target.String())
 	if err != nil {
 		return nil
 	}
 	defer conn.Close()
-	tcpDuration := time.Since(start)
-
-	// 2. 延迟阈值过滤
-	if opts.MaxLatencyMs > 0 && tcpDuration.Milliseconds() > int64(opts.MaxLatencyMs) {
-		return nil
-	}
-
-	// 3. 劫持 HTTP 传输层：复用刚才建立的连接请求 trace 接口。
-	//    若目标不是 Cloudflare 边缘节点，这里不会返回合法 trace 文本。
 	client := &http.Client{
-		Transport: &http.Transport{
-			DialContext: func(context.Context, string, string) (net.Conn, error) {
-				return conn, nil
-			},
-		},
-		Timeout: timeout, // 覆盖 TLS 握手 + 请求 + 响应体读取全程
+		Transport: &http.Transport{DialContext: func(context.Context, string, string) (net.Conn, error) { return conn, nil }},
+		Timeout:   timeout,
 	}
-
 	scheme := "https://"
 	if !opts.EnableTLS {
 		scheme = "http://"
@@ -62,74 +72,41 @@ func (r *Runner) testSingleIP(ctx context.Context, target Target, opts LatencyOp
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0")
 	req.Close = true
-
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil
 	}
 	defer resp.Body.Close()
-
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil
 	}
 	bodyStr := string(body)
-
-	// 4. 防伪校验：trace 接口会回显客户端 UA，匹配才说明对面真是 CF 节点
 	if !strings.Contains(bodyStr, "uag=Mozilla/5.0") {
 		return nil
 	}
-
-	// 5. 提取数据中心与国家码
 	matches := reColoLoc.FindStringSubmatch(bodyStr)
 	if len(matches) <= 2 {
 		return nil
 	}
 	dataCenter, locCode := matches[1], matches[2]
-
-	// 6. 解析全部 key=value 字段
 	traceData := parseTraceResponse(bodyStr)
 	outboundIP := traceData["ip"]
-
 	res := &Result{
-		IP:           target.IP,
-		Port:         target.Port,
-		TCPLatencyMs: tcpDuration.Milliseconds(),
-		DataCenter:   dataCenter,
-		LocCode:      locCode,
-		OutboundIP:   outboundIP,
-		IPType:       getIPType(outboundIP),
-		VisitScheme:  traceData["visit_scheme"],
-		TLSVersion:   traceData["tls"],
-		SNI:          traceData["sni"],
-		HTTPVersion:  traceData["http"],
-		WARP:         traceData["warp"],
-		Gateway:      traceData["gateway"],
-		RBI:          traceData["rbi"],
-		KEX:          traceData["kex"],
-		Timestamp:    traceData["ts"],
-		IPSType:      "N/A",
+		IP: target.IP, Port: target.Port, TCPLatencyMs: averageLatency.Milliseconds(),
+		DataCenter: dataCenter, LocCode: locCode, OutboundIP: outboundIP,
+		IPType: getIPType(outboundIP), VisitScheme: traceData["visit_scheme"],
+		TLSVersion: traceData["tls"], SNI: traceData["sni"], HTTPVersion: traceData["http"],
+		WARP: traceData["warp"], Gateway: traceData["gateway"], RBI: traceData["rbi"],
+		KEX: traceData["kex"], Timestamp: traceData["ts"], IPSType: "N/A",
 	}
-
-	// 7. 地理位置查表
 	if loc, ok := r.lookupLocation(dataCenter); ok {
-		res.Region = loc.Region
-		res.City = loc.City
-		res.RegionZh = loc.RegionZh
-		res.Country = loc.Country
-		res.CountryCode = loc.Cca2
-		res.CityZh = loc.CityZh
-		res.Emoji = loc.Emoji
+		res.Region, res.City, res.RegionZh, res.Country, res.CountryCode, res.CityZh, res.Emoji = loc.Region, loc.City, loc.RegionZh, loc.Country, loc.Cca2, loc.CityZh, loc.Emoji
 	}
-
-	// 8. ASN 查询的是被测 Cloudflare 节点，而不是 trace 回显的本机出口 IP。
 	res.ASN, res.ASNOrg = r.lookupASN(target.IP)
-
-	// 9. 可选：IPS 类型检测
 	if opts.EnableIPAPI && outboundIP != "" {
 		res.IPSType = queryIPAPI(ctx, r.ipsTypeURL, target.IP)
 	}
-
 	return res
 }
 

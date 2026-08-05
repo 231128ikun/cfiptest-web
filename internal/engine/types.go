@@ -60,13 +60,13 @@ type Result struct {
 	LocCode    string `json:"locCode"`    // loc= 国家二字码
 
 	// 地理位置（由 locations.json 按 IATA 查表）
-	Region   string `json:"region"`
-	City     string `json:"city"`
-	RegionZh string `json:"regionZh"`
-	Country  string `json:"country"`     // 边缘节点国家中文名（locations 表按 colo 查）
+	Region      string `json:"region"`
+	City        string `json:"city"`
+	RegionZh    string `json:"regionZh"`
+	Country     string `json:"country"`     // 边缘节点国家中文名（locations 表按 colo 查）
 	CountryCode string `json:"countryCode"` // 边缘节点 ISO 二字母码（locations.cca2；非 trace loc）
-	CityZh   string `json:"cityZh"`
-	Emoji    string `json:"emoji"`
+	CityZh      string `json:"cityZh"`
+	Emoji       string `json:"emoji"`
 
 	// 出站信息
 	OutboundIP string `json:"outboundIP"`
@@ -97,6 +97,7 @@ type Result struct {
 // LatencyOptions 控制延迟测试阶段的参数。
 type LatencyOptions struct {
 	MaxConcurrency int  `json:"maxConcurrency"` // 并发数，默认 100
+	ProbeCount     int  `json:"probeCount"`     // TCP 探测次数，默认 3；成功探测取平均
 	TimeoutMs      int  `json:"timeoutMs"`      // 单连接超时（毫秒），默认 1000
 	MaxLatencyMs   int  `json:"maxLatencyMs"`   // 延迟过滤阈值，0=不过滤
 	MaxResults     int  `json:"maxResults"`     // 达到该数量的合格结果即停止，0=不限制（全部测完）
@@ -108,6 +109,7 @@ type LatencyOptions struct {
 func DefaultLatencyOptions() LatencyOptions {
 	return LatencyOptions{
 		MaxConcurrency: 100,
+		ProbeCount:     3,
 		TimeoutMs:      1000,
 		MaxLatencyMs:   0,
 		MaxResults:     0,

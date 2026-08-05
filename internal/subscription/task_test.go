@@ -334,3 +334,32 @@ func TestTaskValidateConcurrency(t *testing.T) {
 		t.Fatalf("正并发应通过: %v", err)
 	}
 }
+
+func TestTaskValidateInputSources(t *testing.T) {
+	base := Task{Name: "source", Rules: []TaskRule{{Name: "r", Limit: 1}}}
+	cases := []struct {
+		name  string
+		input TaskInput
+		valid bool
+	}{
+		{"remote requires url", TaskInput{Mode: "remote"}, false},
+		{"official invalid family", TaskInput{Mode: "official", Family: "ipv5"}, false},
+		{"official invalid port", TaskInput{Mode: "official", Family: "ipv4", SampleMode: "one", Port: 70000}, false},
+		{"file path traversal", TaskInput{Mode: "file", File: "../secret.txt"}, false},
+		{"none rejects file", TaskInput{Mode: "none", File: "a.txt"}, false},
+		{"none rejects url", TaskInput{Mode: "none", URL: "https://example.com/x"}, false},
+		{"none valid", TaskInput{Mode: "none"}, true},
+		{"remote valid", TaskInput{Mode: "remote", URL: "https://example.com/list.csv", Protocol: "https", Port: 443}, true},
+		{"official valid", TaskInput{Mode: "official", Family: "ipv6", SampleMode: "n", SampleN: 2, Protocol: "http", Port: 8080}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			task := base
+			task.Input = tc.input
+			err := task.Validate()
+			if (err == nil) != tc.valid {
+				t.Fatalf("Validate() error=%v, valid=%v", err, tc.valid)
+			}
+		})
+	}
+}

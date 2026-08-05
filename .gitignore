@@ -16,6 +16,7 @@ data/
 
 # go test cache
 .tmp-go-cache/
+.gocache/
 
 # tests
 *.test

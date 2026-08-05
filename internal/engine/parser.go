@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/csv"
 	"net"
 	"regexp"
 	"strconv"
@@ -96,9 +97,18 @@ func normalizeCIDRLine(line string) (string, int, bool) {
 		return "", 0, false
 	}
 
-	// CSV 行取首列
-	if fields := strings.Split(line, ","); len(fields) > 1 {
-		return normalizeCIDRLine(strings.TrimSpace(fields[0]))
+	// CSV 行优先识别独立端口列；若第二列不是端口，则保持兼容并只解析首列。
+	if fields := parseCSVFields(line); len(fields) > 1 {
+		cidr, port, ok := normalizeCIDRLine(strings.TrimSpace(fields[0]))
+		if !ok {
+			return "", 0, false
+		}
+		if port == 0 {
+			if csvPort, valid := parsePort(fields[1]); valid {
+				port = csvPort
+			}
+		}
+		return cidr, port, true
 	}
 
 	// [IPv6段]:port
@@ -143,9 +153,18 @@ func normalizeLine(line string) (Target, bool) {
 		return Target{}, false
 	}
 
-	// CSV 元数据行：取首列递归规范化
-	if fields := strings.Split(line, ","); len(fields) > 1 {
-		return normalizeLine(strings.TrimSpace(fields[0]))
+	// CSV 行优先识别 IP、端口两列；若第二列不是端口，则保持兼容并只解析首列。
+	if fields := parseCSVFields(line); len(fields) > 1 {
+		target, ok := normalizeLine(strings.TrimSpace(fields[0]))
+		if !ok {
+			return Target{}, false
+		}
+		if target.Port == 0 {
+			if csvPort, valid := parsePort(fields[1]); valid {
+				target.Port = csvPort
+			}
+		}
+		return target, true
 	}
 
 	// 仍含 "/" 说明这是一行写坏的网段（合法网段已由 normalizeCIDRLine 处理）。
@@ -204,6 +223,21 @@ func normalizeLine(line string) (Target, bool) {
 	}
 
 	return Target{}, false
+}
+
+func parseCSVFields(line string) []string {
+	if !strings.Contains(line, ",") {
+		return nil
+	}
+	reader := csv.NewReader(strings.NewReader(line))
+	reader.FieldsPerRecord = -1
+	reader.TrimLeadingSpace = true
+	reader.LazyQuotes = true
+	fields, err := reader.Read()
+	if err != nil {
+		return strings.Split(line, ",")
+	}
+	return fields
 }
 
 func isValidIPv4(ip string) bool {

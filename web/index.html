@@ -3,6 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#f5f5f7">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2214%22%20fill%3D%22%230071e3%22%2F%3E%3Ccircle%20cx%3D%2223%22%20cy%3D%2232%22%20r%3D%226.5%22%20fill%3D%22%23fff%22%2F%3E%3Ccircle%20cx%3D%2241%22%20cy%3D%2219.5%22%20r%3D%226.5%22%20fill%3D%22%23fff%22%2F%3E%3Ccircle%20cx%3D%2241%22%20cy%3D%2244.5%22%20r%3D%226.5%22%20fill%3D%22%23fff%22%2F%3E%3Cpath%20d%3D%22M28.5%2030.5l9-8.5M28.5%2033.5l9%208.5%22%20stroke%3D%22%23fff%22%20stroke-width%3D%224%22%20stroke-linecap%3D%22round%22%2F%3E%3C%2Fsvg%3E">
     <title>IP 优选工作台</title>
     <link rel="stylesheet" href="css/style.css">
 </head>
@@ -30,14 +32,14 @@
         </div>
         <nav class="sidebar-nav" aria-label="主导航">
             <div class="side-group">
-                <a href="#page-workspace" class="side-item active" data-page="workspace" title="测速工作台"><span class="side-icon">◎</span><span class="side-label">测速工作台</span></a>
-                <a href="#page-tasks" class="side-item" data-page="tasks" title="自动维护"><span class="side-icon">♻</span><span class="side-label">自动维护</span></a>
-                <a href="#page-library" class="side-item" data-page="library" title="IP 库"><span class="side-icon">▤</span><span class="side-label">IP 库</span></a>
-                <a href="#page-logs" class="side-item" data-page="logs" title="日志"><span class="side-icon">☰</span><span class="side-label">日志</span></a>
+                <a href="#page-workspace" class="side-item active" data-page="workspace" title="测速工作台"><span class="side-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/></svg></span><span class="side-label">测速工作台</span></a>
+                <a href="#page-tasks" class="side-item" data-page="tasks" title="自动维护"><span class="side-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><polyline points="20 4 20 8 16 8"/></svg></span><span class="side-label">自动维护</span></a>
+                <a href="#page-library" class="side-item" data-page="library" title="IP 库"><span class="side-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.6" y="3.6" width="7.4" height="7.4" rx="1.6"/><rect x="13" y="3.6" width="7.4" height="7.4" rx="1.6"/><rect x="3.6" y="13" width="7.4" height="7.4" rx="1.6"/><rect x="13" y="13" width="7.4" height="7.4" rx="1.6"/></svg></span><span class="side-label">IP 库</span></a>
+                <a href="#page-logs" class="side-item" data-page="logs" title="日志"><span class="side-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="13.5" y2="17"/></svg></span><span class="side-label">日志</span></a>
 
             </div>
             <div class="side-group side-bottom">
-                <a href="#page-settings" class="side-item" data-page="settings" title="设置"><span class="side-icon">⚙</span><span class="side-label">设置</span></a>
+                <a href="#page-settings" class="side-item" data-page="settings" title="设置"><span class="side-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.1"/><path d="M12 2.6v2.6M12 18.8v2.6M2.6 12h2.6M18.8 12h2.6M5.4 5.4l1.9 1.9M16.7 16.7l1.9 1.9M18.6 5.4l-1.9 1.9M7.3 16.7l-1.9 1.9"/></svg></span><span class="side-label">设置</span></a>
             </div>
         </nav>
         </aside>
@@ -141,7 +143,12 @@
                             <label class="radio"><input type="radio" name="sample-mode" value="n"> 每段取 <input type="number" id="sample-n" min="1" max="256" value="2"> 个</label>
                             <label class="radio"><input type="radio" name="sample-mode" value="all"> 全部</label>
                         </div>
-                        <div class="official-note" id="sample-hint">IPv4 按每个 /24 抽样，避免直接检测百万级地址；官方模式端口固定 443。</div>
+                        <div class="field-row official-endpoint-row">
+                            <span class="field-name">检测端点</span>
+                            <label>协议 <select id="official-protocol"><option value="https">HTTPS</option><option value="http">HTTP</option></select></label>
+                            <label>端口 <select id="official-port"><option value="443">443</option></select></label>
+                        </div>
+                        <div class="official-note" id="sample-hint">IPv4 按每个 /24 抽样，避免直接检测百万级地址；可选择 Cloudflare 支持的 HTTP/HTTPS 端口。</div>
                         <div class="official-actions">
                             <button id="btn-refresh-ranges" title="从远程官方接口拉取最新 IP 段并覆盖本地缓存文件">更新本地缓存</button>
                             <button id="btn-add-ranges" class="primary">生成官方候选</button>
@@ -151,7 +158,7 @@
                     <div class="candidate-pane official-candidate">
                         <div class="pane-head"><span>官方候选区</span><button id="btn-official-clear" class="text-button">清空</button></div>
                         <textarea id="official-candidates" rows="13" readonly placeholder="按设置生成的官方候选会显示在这里"></textarea>
-                        <div class="candidate-stats"><span>端口固定 443</span><span id="official-candidate-count">0 条</span></div>
+                        <div class="candidate-stats"><span id="official-port-summary">HTTPS · 443</span><span id="official-candidate-count">0 条</span></div>
                     </div>
                 </div>
             </div>
@@ -167,11 +174,12 @@
                 <summary>检测参数设置</summary>
             <div class="rules-grid">
                 <div class="rule-group">
-                    <div class="rule-group-head"><h3>连接与延迟</h3><span id="default-port-hint">未指定端口使用 443</span></div>
+                    <div class="rule-group-head"><h3>连接与延迟</h3><span id="default-port-hint">目标自带端口优先；未指定时使用 443</span></div>
                     <label class="rule-line"><span>TLS</span><input type="checkbox" id="lat-tls" checked></label>
                     <label class="rule-line"><span>检测 IPS 类型</span><input type="checkbox" id="lat-ipapi" title="调用外部接口识别被测 IP 的地址类型（IPv4/IPv6）"></label>
-                    <label class="rule-line"><span>延迟并发数</span><input type="number" id="lat-concurrency" min="1" max="1000"><em>个</em></label>
-                    <label class="rule-line"><span>单 IP 超时</span><input type="number" id="lat-timeout" min="200" max="10000"><em>ms</em></label>
+                    <label class="rule-line"><span>延迟并发数</span><input type="number" id="lat-concurrency" min="1" max="1000" step="1"><em>个</em></label>
+                    <label class="rule-line"><span>探测次数</span><input type="number" id="lat-probes" min="1" max="10" step="1"><em>次</em></label>
+                    <label class="rule-line"><span>单 IP 超时</span><input type="number" id="lat-timeout" min="200" max="10000" step="100"><em>ms</em></label>
                     <label class="rule-line"><span>最大允许延迟</span><input type="number" id="lat-maxlatency" min="0" max="10000" placeholder="不限制"><em>ms</em></label>
                 </div>
 
@@ -386,18 +394,46 @@
                                     <p class="task-cron-help">标准 5 段格式：分 时 日 月 周。支持 <code>*</code>、数字、范围、列表和步长，例如 <code>*/15 * * * *</code>。</p>
                                 </div>
                             </section>
-                            <div class="task-form-row">
-                                <label>使用 IP 库<select id="task-library"></select></label>
-                                <label>输入文件<input type="text" id="task-input" placeholder="out/原订阅.txt（相对 data，可选）"></label>
+                            <div class="task-form-row task-source-heading">
+                                <label>维护对象库<select id="task-library"></select></label>
+                                <label>补充来源<select id="task-input-mode"><option value="official">官方 IPv4/IPv6（推荐）</option><option value="file">导入文件</option><option value="remote">远程 URL</option><option value="none">无（仅维护对象库）</option></select></label>
                             </div>
+                            <div class="task-source-panel" id="task-source-file" data-task-source="file">
+                                <label class="task-source-wide">导入文件
+                                    <span class="task-file-row">
+                                        <input type="text" id="task-input" placeholder="本地 TXT / CSV，或 data 相对路径">
+                                        <label class="file-btn task-upload-button" for="task-input-upload">选择并导入</label>
+                                        <input type="file" id="task-input-upload" accept=".txt,.csv,text/plain,text/csv" hidden>
+                                    </span>
+                                    <span id="task-input-file-status" class="hint">导入后用于本次维护的补足候选；未导入时仅维护对象库。</span>
+                                </label>
+                            </div>
+                            <div class="task-source-panel" id="task-source-remote" data-task-source="remote" hidden>
+                                <label class="task-source-wide">远程 TXT / CSV URL<input type="text" id="task-input-url" placeholder="https://example.com/ips.txt"></label>
+                                <span class="hint">本次维护的补足候选，自动补全 https。</span>
+                            </div>
+                            <div class="task-source-panel task-official-source" id="task-source-official" data-task-source="official" hidden>
+                                <label>地址类型<select id="task-input-family"><option value="ipv4">IPv4</option><option value="ipv6">IPv6</option></select></label>
+                                <label>抽样<select id="task-input-sample-mode"><option value="one">每段 1 个</option><option value="n">每段 N 个</option><option value="all">全部</option></select></label>
+                                <label id="task-input-sample-n-wrap">每段数量<input type="number" id="task-input-sample-n" min="1" max="256" value="2"></label>
+                                <label>协议<select id="task-input-protocol"><option value="https">HTTPS</option><option value="http">HTTP</option></select></label>
+                                <label>端口<select id="task-input-port"><option value="443">443</option></select></label>
+                            </div>
+                            <p class="task-source-note">官方为默认来源：每次维护自动抽样最新官方 IP 段补足对象库；如不想补充，可选“无”。</p>
                             <div class="task-form-row">
-                                <label>输出文件<input type="text" id="task-output" placeholder="留空 = 更新输入文件"></label>
+                                <label>输出文件<input type="text" id="task-output" placeholder="留空：文件来源回写原文件，其它来源写入 out/任务名.txt"></label>
                                 <label>输出格式<select id="task-format"><option value="txt">txt</option><option value="csv">csv</option></select></label>
                                 <label>总数限制<input type="number" id="task-limit" min="0" placeholder="0 = 不限"> 条</label>
                                 <label class="checkbox"><input type="checkbox" id="task-speed" title="开启后各规则可选择速度范围"> 开启测速</label>
-                                <label>延迟并发<input type="number" id="task-lat-concurrency" min="0" step="1" placeholder="留空 = 全局默认"></label>
-                                <label>测速并发<input type="number" id="task-spd-concurrency" min="0" step="1" placeholder="留空 = 全局默认"></label>
                             </div>
+                            <div class="task-form-row task-detection-options">
+                                <label>延迟并发<input type="number" id="task-lat-concurrency" min="0" max="1000" step="1" placeholder="全局默认"></label>
+                                <label>延迟超时<input type="number" id="task-lat-timeout" min="0" max="60000" step="100" placeholder="全局默认"> ms</label>
+                                <label>探测次数<input type="number" id="task-lat-probes" min="0" max="10" step="1" placeholder="默认 3"></label>
+                                <label>测速并发<input type="number" id="task-spd-concurrency" min="0" max="100" step="1" placeholder="全局默认"></label>
+                                <label>测速时长<input type="number" id="task-spd-duration" min="0" max="120" step="1" placeholder="全局默认"> 秒</label>
+                            </div>
+                            <div class="threshold-note task-detection-note">任务级留空时使用设置页全局默认。延迟默认每个 IP 独立探测 3 次，成功结果取平均；并发过高时请优先降低延迟并发。</div>
                             <div class="task-form-row">
                                 <label class="task-template-label">输出模板
                                     <span class="auto-template-row">
@@ -513,12 +549,15 @@
                     <label>地理位置数据源 <textarea id="advanced-location-sources" rows="3" placeholder="每行一个地址"></textarea></label>
                     <label>ASN 数据源 <textarea id="advanced-asn-sources" rows="3" placeholder="每行一个地址"></textarea></label>
                     <div class="advanced-group">
-                        <div class="advanced-group-title">自动维护并发（全局默认）</div>
-                        <div class="advanced-inline-grid">
-                            <label>延迟并发 <input type="number" id="auto-lat-concurrency" min="1" step="1" placeholder="默认 50"></label>
-                            <label>测速并发 <input type="number" id="auto-spd-concurrency" min="1" step="1" placeholder="默认 5"></label>
+                        <div class="advanced-group-title">自动维护检测参数（全局默认）</div>
+                        <div class="advanced-inline-grid auto-maintenance-grid">
+                            <label>延迟并发 <input type="number" id="auto-lat-concurrency" min="1" max="1000" step="1" placeholder="默认 50"></label>
+                            <label>延迟超时 <input type="number" id="auto-lat-timeout" min="200" max="60000" step="100" placeholder="默认 1000"> ms</label>
+                            <label>探测次数 <input type="number" id="auto-lat-probes" min="1" max="10" step="1" placeholder="默认 3"></label>
+                            <label>测速并发 <input type="number" id="auto-spd-concurrency" min="1" max="100" step="1" placeholder="默认 5"></label>
+                            <label>测速时长 <input type="number" id="auto-spd-duration" min="1" max="120" step="1" placeholder="默认 5"> 秒</label>
                         </div>
-                        <div class="threshold-note">留空 = 内置默认（延迟 50、测速 5）；并发过高易导致漏测/测错，建议根据机器与网络调低。任务编辑里可单独覆盖。</div>
+                        <div class="threshold-note">延迟会对每个 IP 独立探测多次并对成功结果取平均；全部失败才淘汰。并发过高可能造成漏测或误判，建议从延迟 50 / 测速 5 开始，再按机器和网络逐步调整。</div>
                     </div>
                     <label>官方 IP 段源 <textarea id="advanced-official-sources" rows="2" placeholder="每行一个地址"></textarea></label>
                     <div class="advanced-group">

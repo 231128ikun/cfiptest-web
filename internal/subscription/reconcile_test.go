@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"iptest-web/internal/engine"
 	"iptest-web/internal/library"
@@ -415,5 +416,77 @@ func TestRunTaskConcurrencyOptions(t *testing.T) {
 	}
 	if fake2.latencyMaxConcurrency != 12 || fake2.speedMaxConcurrency != 3 {
 		t.Fatalf("覆盖并发应 12/3，实际 %d/%d", fake2.latencyMaxConcurrency, fake2.speedMaxConcurrency)
+	}
+}
+
+// TestImportInputTargetsKeepsExistingMetadata 验证重复导入初始化来源时，
+// 已有条目保留全部检测元数据，只有新条目以 StatusNew 入库。
+func TestImportInputTargetsKeepsExistingMetadata(t *testing.T) {
+	lib := mkLib(t, library.Entry{
+		IP: "1.0.0.1", Port: 443, Source: library.SourceOfficial,
+		CountryCode: "US", Country: "美国", TCPLatencyMs: 120,
+		Status: library.StatusActive, Checks: 5, SpeedValid: true, DownloadSpeedKBs: 1000,
+	})
+	added, updated := importInputTargets(lib, []engine.Target{
+		{IP: "1.0.0.1", Port: 443}, // 已存在：应保留元数据
+		{IP: "1.0.0.2", Port: 443}, // 新条目
+	}, time.Now(), library.SourceOfficial)
+	if added != 1 || updated != 1 {
+		t.Fatalf("期望新增 1 / 更新 1，实际 %d/%d", added, updated)
+	}
+	got, ok := lib.Get("1.0.0.1", 443)
+	if !ok || got.Status != library.StatusActive || got.CountryCode != "US" ||
+		got.TCPLatencyMs != 120 || got.Checks != 5 || !got.SpeedValid || got.DownloadSpeedKBs != 1000 {
+		t.Fatalf("已有条目元数据被重置: %+v", got)
+	}
+	entry, ok := lib.Get("1.0.0.2", 443)
+	if !ok || entry.Status != library.StatusNew || entry.Source != library.SourceOfficial || entry.FirstSeenAt.IsZero() {
+		t.Fatalf("新条目应以 StatusNew 入库: %+v", entry)
+	}
+}
+
+// TestRunTaskInitSourceFeedsLibraryOnly 验证任务带初始化来源时：
+// 来源目标先导入库，候选只从库收集；库中已有条目重复导入不重置元数据。
+func TestRunTaskInitSourceFeedsLibraryOnly(t *testing.T) {
+	dir := t.TempDir()
+	fake := newFake()
+	lib, err := library.Open(filepath.Join(dir, library.FileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lib.Upsert(library.Entry{IP: "1.0.0.1", Port: 443, CountryCode: "US", Status: library.StatusActive, TCPLatencyMs: 100, Checks: 3})
+	fake.add("1.0.0.1", 443, "US", true, 0)
+	fake.add("1.0.0.2", 443, "US", true, 0)
+
+	task := Task{
+		Name: "初始化+维护",
+		Rules: []TaskRule{
+			{Name: "美国", Limit: 2, Conditions: []Condition{{Field: "country", Values: []string{"US"}}}},
+		},
+		Output: TaskOutput{Path: "out/t.txt", Template: "{ip}:{port}"},
+	}
+	report, err := RunTask(context.Background(), fake, lib, task, RunOptions{
+		InputTargets: []engine.Target{
+			{IP: "1.0.0.1", Port: 443}, // 已存在：不应重置
+			{IP: "1.0.0.2", Port: 443}, // 新：先入库再检测
+		},
+		InputSource: library.SourceOfficial,
+	}, nil)
+	if err != nil {
+		t.Fatalf("RunTask 失败: %v", err)
+	}
+	if report.InputAdded != 1 || report.InputUpdated != 1 {
+		t.Fatalf("初始化导入统计错误: added=%d updated=%d", report.InputAdded, report.InputUpdated)
+	}
+	got, _ := lib.Get("1.0.0.1", 443)
+	if got.Status != library.StatusActive || got.Checks != 4 || got.CountryCode != "US" {
+		t.Fatalf("已有条目被重置: %+v", got)
+	}
+	entry, ok := lib.Get("1.0.0.2", 443)
+	if !ok || entry.Status != library.StatusActive || entry.CountryCode != "US" {
+		t.Fatalf("新来源条目应入库并检测回写: %+v", entry)
+	}
+	if report.TotalLines != 2 || report.Groups[0].Filled != 2 {
+		t.Fatalf("应输出 2 条: %+v", report)
 	}
 }

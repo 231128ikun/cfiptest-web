@@ -17,7 +17,7 @@ func TestLatencyRequestPipelineDTO(t *testing.T) {
 	var req latencyRequest
 	err := json.Unmarshal([]byte(`{
 		"targets":[{"ip":"1.2.3.4","port":0}],
-		"options":{"enableTLS":false,"maxResults":0},
+		"options":{"enableTLS":false,"maxResults":0,"probeCount":5},
 		"enableSpeed":true,
 		"speedOptions":{"minSpeedKBs":512,"maxResults":8}
 	}`), &req)
@@ -29,6 +29,9 @@ func TestLatencyRequestPipelineDTO(t *testing.T) {
 	}
 	if req.Options == nil || req.Options.MaxResults == nil || *req.Options.MaxResults != 0 {
 		t.Fatal("显式 maxResults=0 必须保留为不限制，不能与未提供混淆")
+	}
+	if req.Options.ProbeCount == nil || *req.Options.ProbeCount != 5 {
+		t.Fatal("工作台探测次数没有进入延迟请求 DTO")
 	}
 	if req.SpeedOptions.MaxResults == nil || *req.SpeedOptions.MaxResults != 8 {
 		t.Fatal("统一最大数量没有进入最终测速阶段")
@@ -60,12 +63,18 @@ func TestHandleTaskStatus(t *testing.T) {
 
 func TestOptionDTOExplicitZeroAndFalse(t *testing.T) {
 	latency := (&latencyOptionsDTO{
-		MaxResults: intPtr(0), EnableTLS: boolPtr(false),
+		MaxResults: intPtr(0), ProbeCount: intPtr(5), EnableTLS: boolPtr(false),
 	}).apply(engine.DefaultLatencyOptions())
 	if latency.MaxResults != 0 || latency.EnableTLS {
 		t.Fatalf("延迟 DTO 零值/false 覆盖失败: %+v", latency)
 	}
-
+	if latency.ProbeCount != 5 {
+		t.Fatalf("工作台探测次数覆盖失败: %+v", latency)
+	}
+	defaults := (&latencyOptionsDTO{}).apply(engine.DefaultLatencyOptions())
+	if defaults.ProbeCount != 3 {
+		t.Fatalf("default latency probe count must remain three: %+v", defaults)
+	}
 	speed := (&speedOptionsDTO{
 		MinSpeedKBs: floatPtr(0), MaxResults: intPtr(0), EnableTLS: boolPtr(false),
 	}).apply(engine.DefaultSpeedOptions())

@@ -256,4 +256,16 @@ check('统一最大数量按速度规则状态分配到最终阶段', () => {
     assert.ok(/maxResults: ruleMaxResults\(\)/.test(speed), '统一最大数量没有作用到最终测速阶段');
 });
 
+check('mobile header stays on one compact row', () => {
+    assert.ok(/@media \(max-width: 640px\)[\s\S]*?\.header-inner \{ display: flex; flex-wrap: nowrap; \}/.test(css));
+    assert.ok(/@media \(max-width: 640px\)[\s\S]*?\.header-status \{ flex: 0 0 auto; justify-content: flex-end; margin-left: auto; flex-wrap: nowrap; \}/.test(css));
+    assert.ok(/@media \(max-width: 640px\)[\s\S]*?\.local-badge \{ display: none; \}/.test(css));
+});
+check('official port hint distinguishes explicit and fallback ports', () => {
+    const body = bodyOf('function updateDefaultPortHint').slice(0, 700);
+    assert.ok(body.includes("store.mode === 'official'"));
+    assert.ok(body.includes('officialSettings()'));
+    assert.ok(body.includes("$('lat-tls').checked ? 443 : 80"));
+});
+
 console.log(`\n通过 ${pass} 项（引用 ${referencedIds.length} 个 id / 声明 ${idSet.size} 个）`);

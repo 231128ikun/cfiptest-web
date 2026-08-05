@@ -116,6 +116,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/official-ranges", s.handleOfficialRanges)
 	s.mux.HandleFunc("POST /api/import/remote", s.handleImportRemote)
 	s.mux.HandleFunc("POST /api/import/text", s.handleImportText)
+	s.mux.HandleFunc("POST /api/auto/input/upload", s.handleAutoInputUpload)
 	s.mux.HandleFunc("POST /api/task/latency", s.handleStartLatency)
 	s.mux.HandleFunc("POST /api/task/speed", s.handleStartSpeed)
 	s.mux.HandleFunc("POST /api/task/stop", s.handleStop)

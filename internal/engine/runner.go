@@ -155,11 +155,16 @@ loop:
 			if res == nil {
 				return
 			}
-			n := atomic.AddInt64(&validCount, 1)
-			// 超出上限的结果直接丢弃：并发下可能有多个协程同时越过阈值，
-			// 若都收下就会返回比用户要求更多的条目。
-			if opts.MaxResults > 0 && int(n) > opts.MaxResults {
-				return
+			var n int64
+			for {
+				current := atomic.LoadInt64(&validCount)
+				if opts.MaxResults > 0 && int(current) >= opts.MaxResults {
+					return
+				}
+				if atomic.CompareAndSwapInt64(&validCount, current, current+1) {
+					n = current + 1
+					break
+				}
 			}
 			resultCh <- *res
 			cb(Event{Type: EventResult, Result: res})
@@ -236,6 +241,10 @@ loop:
 
 			speed := testSingleSpeed(runCtx, target, opts)
 			if speed <= 0 {
+				// 达到结果上限后的主动取消不是测速失败，不应再推送额外失败事件。
+				if runCtx.Err() != nil {
+					return
+				}
 				cb(Event{Type: EventSpeed, Result: &Result{
 					IP:               target.IP,
 					Port:             target.Port,
@@ -246,9 +255,16 @@ loop:
 			if opts.MinSpeedKBs > 0 && speed < opts.MinSpeedKBs {
 				return
 			}
-			n := atomic.AddInt64(&validCount, 1)
-			if opts.MaxResults > 0 && int(n) > opts.MaxResults {
-				return
+			var n int64
+			for {
+				current := atomic.LoadInt64(&validCount)
+				if opts.MaxResults > 0 && int(current) >= opts.MaxResults {
+					return
+				}
+				if atomic.CompareAndSwapInt64(&validCount, current, current+1) {
+					n = current + 1
+					break
+				}
 			}
 			cb(Event{Type: EventSpeed, Result: &Result{
 				IP:               target.IP,
@@ -334,6 +350,9 @@ func (r *Runner) RunCombinedTest(ctx context.Context, targets []Target, latency 
 
 		speedVal := testSingleSpeed(runCtx, target, speed)
 		if speedVal <= 0 {
+			if runCtx.Err() != nil {
+				return
+			}
 			res.DownloadSpeedKBs = -1
 			cb(Event{Type: EventSpeed, Result: res})
 			return
@@ -342,7 +361,6 @@ func (r *Runner) RunCombinedTest(ctx context.Context, targets []Target, latency 
 			return
 		}
 		res.DownloadSpeedKBs = speedVal
-		cb(Event{Type: EventSpeed, Result: res})
 
 		mu.Lock()
 		if speed.MaxResults > 0 && len(results) >= speed.MaxResults {
@@ -353,6 +371,7 @@ func (r *Runner) RunCombinedTest(ctx context.Context, targets []Target, latency 
 		n := len(results)
 		mu.Unlock()
 		atomic.AddInt64(&validCount, 1)
+		cb(Event{Type: EventSpeed, Result: res})
 		if speed.MaxResults > 0 && n >= speed.MaxResults {
 			hitLimit.Store(true)
 			cancel()

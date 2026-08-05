@@ -34,11 +34,16 @@ type TaskRule struct {
 	SpeedMax   float64     `json:"speedMax,omitempty"`
 }
 
-// TaskInput 描述任务的数据来源。
+// TaskInput 描述任务的初始化来源（可选）：official/file/remote 在每次维护运行前导入并清洗进 IP 库；
 type TaskInput struct {
-	Mode string `json:"mode"` // file | remote（remote 预留）
-	File string `json:"file,omitempty"`
-	URL  string `json:"url,omitempty"`
+	Mode       string `json:"mode"` // file | remote | official | none；none = 仅维护对象库
+	File       string `json:"file,omitempty"`
+	URL        string `json:"url,omitempty"`
+	Family     string `json:"family,omitempty"`
+	SampleMode string `json:"sampleMode,omitempty"`
+	SampleN    int    `json:"sampleN,omitempty"`
+	Port       int    `json:"port,omitempty"`
+	Protocol   string `json:"protocol,omitempty"`
 }
 
 // TaskOutput 描述任务的输出。
@@ -66,6 +71,9 @@ type Task struct {
 	SpeedEnabled       bool         `json:"speedEnabled"`                 // 顶部测速总开关；关 = 规则速度字段无效
 	LatencyConcurrency int          `json:"latencyConcurrency,omitempty"` // 延迟并发；0 = 用设置页全局默认
 	SpeedConcurrency   int          `json:"speedConcurrency,omitempty"`   // 测速并发；0 = 用设置页全局默认
+	LatencyTimeoutMs   int          `json:"latencyTimeoutMs,omitempty"`   // 延迟超时；0 = 用设置页全局默认
+	LatencyProbes      int          `json:"latencyProbes,omitempty"`      // 延迟探测次数；0 = 用设置页全局默认
+	SpeedDurationSec   int          `json:"speedDurationSec,omitempty"`   // 测速时长；0 = 用设置页全局默认
 	Schedule           TaskSchedule `json:"schedule,omitempty"`
 	Rules              []TaskRule   `json:"rules"`
 }
@@ -82,15 +90,78 @@ func (t *Task) Validate() error {
 	if t.LibraryID == "" {
 		t.LibraryID = library.DefaultID
 	}
+	t.Input.Mode = strings.ToLower(strings.TrimSpace(t.Input.Mode))
 	if t.Input.Mode == "" {
 		t.Input.Mode = "file"
 	}
-
-	if t.LatencyConcurrency < 0 {
-		return fmt.Errorf("任务 %q 延迟并发不能为负", t.Name)
+	t.Input.File = strings.TrimSpace(t.Input.File)
+	t.Input.URL = strings.TrimSpace(t.Input.URL)
+	t.Input.Protocol = strings.ToLower(strings.TrimSpace(t.Input.Protocol))
+	if t.Input.Protocol == "" {
+		t.Input.Protocol = "https"
 	}
-	if t.SpeedConcurrency < 0 {
-		return fmt.Errorf("任务 %q 测速并发不能为负", t.Name)
+	if t.Input.Protocol != "http" && t.Input.Protocol != "https" {
+		return fmt.Errorf("任务 %q 检测协议仅支持 http/https", t.Name)
+	}
+	if t.Input.Port < 0 || t.Input.Port > 65535 {
+		return fmt.Errorf("任务 %q 端口必须在 1-65535 之间，0 表示按协议默认", t.Name)
+	}
+	switch t.Input.Mode {
+	case "none":
+		if t.Input.File != "" || t.Input.URL != "" {
+			return fmt.Errorf("任务 %q 初始化来源为「无」时不能同时填写文件或 URL", t.Name)
+		}
+	case "file":
+		if t.Input.File != "" {
+			cleaned := filepath.Clean(t.Input.File)
+			if filepath.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+				return fmt.Errorf("任务 %q 输入文件必须位于 data 目录内", t.Name)
+			}
+			t.Input.File = cleaned
+		}
+	case "remote":
+		if t.Input.URL == "" {
+			return fmt.Errorf("任务 %q 远程来源必须填写 URL", t.Name)
+		}
+	case "official":
+		t.Input.Family = strings.ToLower(strings.TrimSpace(t.Input.Family))
+		if t.Input.Family == "" {
+			t.Input.Family = "ipv4"
+		}
+		if t.Input.Family != "ipv4" && t.Input.Family != "ipv6" {
+			return fmt.Errorf("任务 %q 官方来源地址类型仅支持 ipv4/ipv6", t.Name)
+		}
+		t.Input.SampleMode = strings.ToLower(strings.TrimSpace(t.Input.SampleMode))
+		if t.Input.SampleMode == "" {
+			t.Input.SampleMode = "one"
+		}
+		if t.Input.SampleMode != "one" && t.Input.SampleMode != "n" && t.Input.SampleMode != "all" {
+			return fmt.Errorf("任务 %q 官方来源抽样方式仅支持 one/n/all", t.Name)
+		}
+		if t.Input.SampleMode == "n" && (t.Input.SampleN < 1 || t.Input.SampleN > 256) {
+			return fmt.Errorf("任务 %q 每段抽样数量必须在 1-256 之间", t.Name)
+		}
+		if t.Input.SampleMode != "n" && t.Input.SampleN < 0 {
+			return fmt.Errorf("任务 %q 抽样数量不能为负", t.Name)
+		}
+	default:
+		return fmt.Errorf("任务 %q 初始化来源仅支持 file/remote/official/none", t.Name)
+	}
+
+	if t.LatencyConcurrency < 0 || t.LatencyConcurrency > 1000 {
+		return fmt.Errorf("任务 %q 延迟并发必须在 1-1000 之间，0 表示全局默认", t.Name)
+	}
+	if t.SpeedConcurrency < 0 || t.SpeedConcurrency > 100 {
+		return fmt.Errorf("任务 %q 测速并发必须在 1-100 之间，0 表示全局默认", t.Name)
+	}
+	if t.LatencyTimeoutMs < 0 || t.LatencyTimeoutMs > 60000 {
+		return fmt.Errorf("任务 %q 延迟超时必须在 1-60000ms 之间，0 表示全局默认", t.Name)
+	}
+	if t.LatencyProbes < 0 || t.LatencyProbes > 10 {
+		return fmt.Errorf("任务 %q 延迟探测次数必须在 1-10 之间，0 表示全局默认", t.Name)
+	}
+	if t.SpeedDurationSec < 0 || t.SpeedDurationSec > 120 {
+		return fmt.Errorf("任务 %q 测速时长必须在 1-120 秒之间，0 表示全局默认", t.Name)
 	}
 	seenNames := map[string]bool{}
 	for i := range t.Rules {

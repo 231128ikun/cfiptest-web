@@ -475,13 +475,23 @@ func (s *Server) autoRunOptions(task *subscription.Task, overrides *subscription
 	s.configMu.RUnlock()
 	settings := config.LoadSettings(s.dataDir)
 	opts := subscription.RunOptions{
-		LatencyTimeoutMs:   latencyDefaults.TimeoutMs,
+		LatencyTimeoutMs:   settingsIntOr(settings, "autoLatencyTimeoutMs", latencyDefaults.TimeoutMs),
+		LatencyProbes:      settingsInt(settings, "autoLatencyProbes"),
 		LatencyConcurrency: settingsInt(settings, "autoLatencyConcurrency"),
-		SpeedDurationSec:   speedDefaults.DurationSec,
+		SpeedDurationSec:   settingsIntOr(settings, "autoSpeedDurationSec", speedDefaults.DurationSec),
 		SpeedConcurrency:   settingsInt(settings, "autoSpeedConcurrency"),
 		DownloadURL:        speedDefaults.DownloadURL,
 	}
 	if task != nil {
+		if task.LatencyTimeoutMs > 0 {
+			opts.LatencyTimeoutMs = task.LatencyTimeoutMs
+		}
+		if task.LatencyProbes > 0 {
+			opts.LatencyProbes = task.LatencyProbes
+		}
+		if task.SpeedDurationSec > 0 {
+			opts.SpeedDurationSec = task.SpeedDurationSec
+		}
 		if task.LatencyConcurrency > 0 {
 			opts.LatencyConcurrency = task.LatencyConcurrency
 		}
@@ -495,6 +505,9 @@ func (s *Server) autoRunOptions(task *subscription.Task, overrides *subscription
 	merged := *overrides
 	if merged.LatencyTimeoutMs == 0 {
 		merged.LatencyTimeoutMs = opts.LatencyTimeoutMs
+	}
+	if merged.LatencyProbes == 0 {
+		merged.LatencyProbes = opts.LatencyProbes
 	}
 	if merged.LatencyConcurrency == 0 {
 		merged.LatencyConcurrency = opts.LatencyConcurrency
@@ -512,6 +525,13 @@ func (s *Server) autoRunOptions(task *subscription.Task, overrides *subscription
 }
 
 // settingsInt 从 settings.json 读取整数键；缺失或非法返回 0（表示使用默认值）。
+func settingsIntOr(settings map[string]any, key string, fallback int) int {
+	if n := settingsInt(settings, key); n > 0 {
+		return n
+	}
+	return fallback
+}
+
 func settingsInt(settings map[string]any, key string) int {
 	switch v := settings[key].(type) {
 	case float64:
@@ -527,6 +547,69 @@ func settingsInt(settings map[string]any, key string) int {
 	return 0
 }
 
+func (s *Server) resolveTaskInput(task subscription.Task) ([]engine.Target, string, error) {
+	input := task.Input
+	mode := strings.ToLower(strings.TrimSpace(input.Mode))
+	if mode == "none" || mode == "" || mode == "file" {
+		return nil, "", nil
+	}
+	port := input.Port
+	if port < 1 || port > 65535 {
+		if input.Protocol == "http" {
+			port = 80
+		} else {
+			port = 443
+		}
+	}
+	modeValue := engine.ParseSampleMode(input.SampleMode)
+	sampleN := input.SampleN
+	if sampleN < 1 {
+		sampleN = 1
+	}
+	var targets []engine.Target
+	var source string
+	switch mode {
+	case "remote":
+		targetURL, err := normalizeRemoteImportURL(input.URL)
+		if err != nil {
+			return nil, "", err
+		}
+		body, _, err := fetchTextFile(targetURL)
+		if err != nil {
+			return nil, "", fmt.Errorf("读取远程来源失败: %w", err)
+		}
+		if cidrs := engine.CollectCIDRs(body); len(cidrs) > 0 {
+			if total, _ := engine.CountCIDRs(cidrs, modeValue, sampleN); total > maxExpandedTargets {
+				return nil, "", fmt.Errorf("远程来源按当前抽样需展开 %d 个目标，超过 %d 上限", total, maxExpandedTargets)
+			}
+		}
+		targets = engine.ParseTargetsWithCIDR(body, modeValue, sampleN)
+		source = "远程 URL"
+	case "official":
+		ranges := s.officialRanges(false)
+		cidrs := ranges.IPv4
+		if strings.EqualFold(input.Family, "ipv6") {
+			cidrs = ranges.IPv6
+		}
+		if total, _ := engine.CountCIDRs(cidrs, modeValue, sampleN); total > maxExpandedTargets {
+			return nil, "", fmt.Errorf("官方网段按当前抽样需展开 %d 个目标，超过 %d 上限", total, maxExpandedTargets)
+		}
+		targets, _ = engine.ExpandCIDRs(cidrs, modeValue, sampleN, port)
+		source = library.SourceOfficial
+	default:
+		return nil, "", fmt.Errorf("未知初始化来源 %q", input.Mode)
+	}
+	if len(targets) == 0 {
+		return nil, "", fmt.Errorf("输入来源中没有可识别的 IP")
+	}
+	for i := range targets {
+		if targets[i].Port == 0 {
+			targets[i].Port = port
+		}
+	}
+	return targets, source, nil
+}
+
 func (s *Server) runAutoTask(ctx context.Context, taskID string, task subscription.Task, opts subscription.RunOptions) {
 	defer s.finishTask(taskID)
 	emit := func(p subscription.Progress) error {
@@ -535,6 +618,17 @@ func (s *Server) runAutoTask(ctx context.Context, taskID string, task subscripti
 		return ctx.Err()
 	}
 	s.log.Log("info", "维护任务开始: %s (taskId=%s, 库=%s)", task.Name, task.ID, task.LibraryID)
+
+	resolvedTargets, inputSource, err := s.resolveTaskInput(task)
+	if err != nil {
+		s.broadcast(engine.Event{Type: engine.EventError, Message: "解析初始化来源失败: " + err.Error()})
+		s.log.Log("error", "维护任务 %s 初始化来源失败: %v", task.Name, err)
+		return
+	}
+	opts.InputTargets, opts.InputSource = resolvedTargets, inputSource
+	if opts.Protocol == "" {
+		opts.Protocol = task.Input.Protocol
+	}
 
 	mgr, err := s.libraryManager()
 	if err != nil {

@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -104,6 +106,28 @@ func (s *Server) handleImportText(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// normalizeRemoteImportURL 统一远程导入地址行为：缺少协议时补 https，且只允许 HTTP(S)。
+func normalizeRemoteImportURL(raw string) (string, error) {
+	target := strings.TrimSpace(raw)
+	if target == "" {
+		return "", fmt.Errorf("请填写要导入的地址")
+	}
+	if !strings.Contains(target, "://") {
+		target = "https://" + target
+	}
+	parsed, err := url.Parse(target)
+	if err != nil {
+		return "", fmt.Errorf("地址格式不正确: %w", err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", fmt.Errorf("只支持 http/https 地址")
+	}
+	if parsed.Host == "" {
+		return "", fmt.Errorf("地址缺少主机名")
+	}
+	return parsed.String(), nil
+}
+
 // handleImportRemote 代前端抓取远程 IP 列表。
 //
 // 存在的唯一理由是绕开浏览器 CORS：绝大多数订阅地址不会给
@@ -115,28 +139,9 @@ func (s *Server) handleImportRemote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	target := strings.TrimSpace(req.URL)
-	if target == "" {
-		writeError(w, http.StatusBadRequest, "请填写要导入的地址")
-		return
-	}
-	// 没写协议时按 https 补全，用户往往只粘一个域名
-	if !strings.Contains(target, "://") {
-		target = "https://" + target
-	}
-
-	parsed, err := url.Parse(target)
+	target, err := normalizeRemoteImportURL(req.URL)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "地址格式不正确: "+err.Error())
-		return
-	}
-	// 只放行 http/https：file:// 会让这个端点变成任意本地文件读取器。
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		writeError(w, http.StatusBadRequest, "只支持 http/https 地址")
-		return
-	}
-	if parsed.Host == "" {
-		writeError(w, http.StatusBadRequest, "地址缺少主机名")
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -177,6 +182,101 @@ func (s *Server) handleImportRemote(w http.ResponseWriter, r *http.Request) {
 		Format:  format,
 		Text:    body,
 	})
+}
+
+// autoInputUploadRequest 将浏览器选择的本地文件持久化到 data/inputs，供定时任务重复读取。
+type autoInputUploadRequest struct {
+	Name string `json:"name"`
+	Text string `json:"text"`
+}
+
+type autoInputUploadResponse struct {
+	Path    string `json:"path"`
+	Name    string `json:"name"`
+	Bytes   int    `json:"bytes"`
+	Targets int    `json:"targets"`
+}
+
+func sanitizeInputFileName(name string) string {
+	name = filepath.Base(strings.TrimSpace(name))
+	name = strings.Map(func(r rune) rune {
+		if r < 32 || strings.ContainsRune(`<>:"/\|?*`, r) {
+			return '_'
+		}
+		return r
+	}, name)
+	name = strings.Trim(name, " .")
+	if name == "" {
+		name = "targets.txt"
+	}
+	if ext := strings.ToLower(filepath.Ext(name)); ext != ".txt" && ext != ".csv" {
+		name += ".txt"
+	}
+	return name
+}
+
+func (s *Server) handleAutoInputUpload(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxImportBytes+(1<<20))
+	var req autoInputUploadRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "请求体不是合法 JSON 或文件过大: "+err.Error())
+		return
+	}
+	if len(req.Text) == 0 {
+		writeError(w, http.StatusBadRequest, "导入文件为空")
+		return
+	}
+	if len(req.Text) > maxImportBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("文件超过 %d MB 上限", maxImportBytes>>20))
+		return
+	}
+	targets := engine.ParseTargetsWithCIDR(req.Text, engine.SampleOnePerSubnet, 1)
+	if len(targets) == 0 {
+		writeError(w, http.StatusUnprocessableEntity, "文件中没有可识别的 IP 或 CIDR")
+		return
+	}
+	dir := filepath.Join(s.dataDir, "inputs")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		writeError(w, http.StatusInternalServerError, "创建输入目录失败: "+err.Error())
+		return
+	}
+	cleanName := sanitizeInputFileName(req.Name)
+	tmp, err := os.CreateTemp(dir, ".auto-input-*.tmp")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "创建输入临时文件失败: "+err.Error())
+		return
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(0644); err != nil {
+		_ = tmp.Close()
+		writeError(w, http.StatusInternalServerError, "设置输入文件权限失败: "+err.Error())
+		return
+	}
+	if _, err := tmp.WriteString(req.Text); err != nil {
+		_ = tmp.Close()
+		writeError(w, http.StatusInternalServerError, "写入输入文件失败: "+err.Error())
+		return
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		writeError(w, http.StatusInternalServerError, "刷新输入文件失败: "+err.Error())
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		writeError(w, http.StatusInternalServerError, "关闭输入文件失败: "+err.Error())
+		return
+	}
+	// 临时文件写完整后再原子改名，避免定时任务读到半截内容；随机后缀也避免同毫秒上传覆盖。
+	randomPart := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(tmpPath), ".auto-input-"), ".tmp")
+	name := time.Now().Format("20060102-150405.000") + "-" + randomPart + "-" + cleanName
+	abs := filepath.Join(dir, name)
+	if err := os.Rename(tmpPath, abs); err != nil {
+		writeError(w, http.StatusInternalServerError, "保存输入文件失败: "+err.Error())
+		return
+	}
+	rel := filepath.ToSlash(filepath.Join("inputs", name))
+	writeJSON(w, http.StatusOK, autoInputUploadResponse{Path: rel, Name: cleanName, Bytes: len(req.Text), Targets: len(targets)})
 }
 
 // fetchTextFile 取回远程文本，限制大小与耗时，并拒绝解析到内网的目标。
