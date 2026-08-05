@@ -12,13 +12,15 @@ const ROW_H_FALLBACK = 33;     // 首帧还没量到真实行高时的估值
 
 /** 结果表格：持有全部结果，支持逐条追加、排序、过滤、勾选、配额选择 */
 export class ResultTable {
-    constructor(containerEl, columns = TABLE_COLUMNS) {
+    constructor(containerEl, columns = TABLE_COLUMNS, opts = {}) {
         this.container = containerEl;
         this.columns = columns;
         this.results = [];             // 全部结果（原始顺序 = 到达顺序）
         this.selectedKeys = new Set(); // 唯一的勾选集合 "ip|port"
         this.sortKey = 'tcpLatencyMs';
         this.sortAsc = true;
+        this.emptyText = opts.emptyText ?? '暂无结果 —— 请先运行延迟测试';
+        this.noMatchText = opts.noMatchText ?? '没有匹配过滤条件的结果';
         this.filterText = '';
         this.filters = {};
         this.displayRules = null;
@@ -47,7 +49,7 @@ export class ResultTable {
                 <table class="results">
                     <thead><tr>${thead}</tr></thead>
                     <tbody data-table-role="tbody">
-                        <tr class="empty-row"><td colspan="${this.columns.length}">暂无结果 —— 请先运行延迟测试</td></tr>
+                        <tr class="empty-row"><td colspan="${this.columns.length}">${this.emptyText}</td></tr>
                     </tbody>
                 </table>
             </div>`;
@@ -337,7 +339,7 @@ export class ResultTable {
         });
 
         if (!visible.length) {
-            this.tbody.innerHTML = `<tr class="empty-row"><td colspan="${this.columns.length}">${this.results.length ? '没有匹配过滤条件的结果' : '暂无结果 —— 请先运行延迟测试'}</td></tr>`;
+            this.tbody.innerHTML = `<tr class="empty-row"><td colspan="${this.columns.length}">${this.results.length ? this.noMatchText : this.emptyText}</td></tr>`;
             this._syncSelectAll();
             return;
         }

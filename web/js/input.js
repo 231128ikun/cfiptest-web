@@ -301,3 +301,104 @@ export function getInputStats(lines) {
     }
     return { total: lines.length, ports, v4, v6 };
 }
+/** CSV 表头别名 → 结果字段 key（兼容本程序导出的 CSV 与常见英文表头） */
+const CSV_FIELD_ALIASES = new Map(Object.entries({
+    ip: 'ip', ip地址: 'ip', ipaddress: 'ip',
+    port: 'port', 端口: 'port', 端口号: 'port',
+    datacenter: 'dataCenter', 数据中心: 'dataCenter', colo: 'dataCenter', dc: 'dataCenter',
+    loccode: 'locCode', ip位置: 'locCode', loc: 'locCode',
+    region: 'region', 地区: 'region',
+    city: 'city', 城市: 'city',
+    regionzh: 'regionZh', 地区中文: 'regionZh',
+    country: 'country', 国家: 'country', 出站ip位置: 'country',
+    cityzh: 'cityZh', 城市中文: 'cityZh',
+    emoji: 'emoji', 国旗: 'emoji',
+    tcplatencyms: 'tcpLatencyMs', 网络延迟: 'tcpLatencyMs', 延迟: 'tcpLatencyMs', latency: 'tcpLatencyMs',
+    downloadspeedkbs: 'downloadSpeedKBs', 下载速度: 'downloadSpeedKBs', 速度: 'downloadSpeedKBs', speed: 'downloadSpeedKBs',
+    outboundip: 'outboundIP', 出站ip: 'outboundIP',
+    iptype: 'ipType', 出站ip类型: 'ipType', 出站类型: 'ipType',
+    ipstype: 'ipsType', ips类型: 'ipsType',
+    asn: 'asn', asn号码: 'asn',
+    asnorg: 'asnOrg', asn组织: 'asnOrg',
+    visitscheme: 'visitScheme', 访问协议: 'visitScheme',
+    tlsversion: 'tlsVersion', tls版本: 'tlsVersion',
+    sni: 'sni',
+    httpversion: 'httpVersion', http版本: 'httpVersion',
+    warp: 'warp',
+    gateway: 'gateway',
+    rbi: 'rbi',
+    kex: 'kex', 密钥交换: 'kex',
+    timestamp: 'timestamp', 时间戳: 'timestamp',
+    countrycode: 'countryCode', 国家代码: 'countryCode',
+}));
+
+/** 解析数值单元格："123 ms"、"1234 kB/s"、"1.2 MB/s"、"123"；无效返回 NaN */
+function parseNumericCell(value) {
+    const raw = String(value ?? '').trim();
+    if (!raw || /^[—\-]$/.test(raw) || /^(n\/?a|未知|未测)$/i.test(raw)) return NaN;
+    const num = parseFloat(raw.replace(/,/g, ''));
+    if (!Number.isFinite(num)) return NaN;
+    return /mb/i.test(raw) ? num * 1024 : num;
+}
+
+/** 解析 IP 单元格："1.2.3.4" / "[2606:4700::1]" / "1.2.3.4:443" → { ip, port } */
+function splitIPCell(value) {
+    const cell = String(value ?? '').trim().replace(/^\uFEFF/, '');
+    if (!cell) return null;
+    if (cell.includes(':')) {
+        const m = cell.match(/^\[?([0-9a-fA-F:.]+)\]?:(\d{1,5})$/);
+        if (m && isValidPort(m[2])) return { ip: m[1], port: Number(m[2]) };
+        const m2 = cell.match(/^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):(\d{1,5})$/);
+        if (m2 && isValidIPv4(m2[1]) && isValidPort(m2[2])) return { ip: m2[1], port: Number(m2[2]) };
+        return { ip: cell.replace(/^\[|\]$/g, ''), port: NaN };
+    }
+    return { ip: cell, port: NaN };
+}
+
+/** 解析 CSV 全字段：返回 { entries, invalid, total }；entries 为带 ip/port 及可选字段的对象数组 */
+export function parseCSVEntries(rawText) {
+    const lines = String(rawText || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    const out = { entries: [], invalid: 0, total: 0 };
+    if (!lines.length) return out;
+    const first = parseCSVRow(lines[0]);
+    const headers = first.map(normHeader);
+    const ipIdx = headers.findIndex(h => h === 'ip' || h === 'ip地址' || h === 'ipaddress');
+    const portIdx = headers.findIndex(h => h === 'port' || h === '端口' || h === '端口号');
+    let colMap = null;
+    let start = 0;
+    if (ipIdx >= 0 && portIdx >= 0) {
+        colMap = {};
+        headers.forEach((h, i) => { const key = CSV_FIELD_ALIASES.get(h); if (key) colMap[i] = key; });
+        start = 1;
+    }
+    out.total = lines.length - start;
+    const cell = (row, idx) => String(row[idx] ?? '').trim().replace(/^\uFEFF/, '');
+    for (let i = start; i < lines.length; i++) {
+        const row = parseCSVRow(lines[i]);
+        const rawIP = colMap ? cell(row, ipIdx) : cell(row, 0);
+        const rawPort = colMap ? cell(row, portIdx) : cell(row, 1);
+        const parsed = splitIPCell(rawIP);
+        if (!parsed || !parsed.ip) { out.invalid++; continue; }
+        let port = Number.isInteger(Number(rawPort)) && Number(rawPort) > 0 ? Number(rawPort) : parsed.port;
+        if (!Number.isInteger(port) || port <= 0 || port > 65535) { out.invalid++; continue; }
+        const entry = { ip: parsed.ip, port };
+        if (colMap) {
+            for (const [idx, key] of Object.entries(colMap)) {
+                if (key === 'ip' || key === 'port') continue;
+                const value = cell(row, Number(idx));
+                if (!value) continue;
+                if (key === 'tcpLatencyMs' || key === 'downloadSpeedKBs') {
+                    const num = parseNumericCell(value);
+                    if (Number.isFinite(num) && num > 0) entry[key] = Math.round(num);
+                } else if (key === 'asn') {
+                    const num = parseInt(String(value).replace(/[^\d]/g, ''), 10);
+                    if (Number.isFinite(num) && num > 0) entry[key] = num;
+                } else {
+                    entry[key] = value;
+                }
+            }
+        }
+        out.entries.push(entry);
+    }
+    return out;
+}

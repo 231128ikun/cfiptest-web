@@ -81,6 +81,10 @@ export function fetchAutoLibrary(params = {}) {
     if (params.lib) query.set('lib', params.lib);
     if (params.status) query.set('status', params.status);
     if (params.country) query.set('country', params.country);
+    if (params.city) query.set('city', params.city);
+    if (params.dc) query.set('dc', params.dc);
+    if (params.asn) query.set('asn', params.asn);
+    if (params.port) query.set('port', params.port);
     if (params.q) query.set('q', params.q);
     if (params.offset != null) query.set('offset', params.offset);
     if (params.limit != null) query.set('limit', params.limit);

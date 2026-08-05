@@ -494,6 +494,7 @@
             <div class="lib-layout">
                 <div class="lib-side">
                     <div class="page-subhead">库列表</div>
+                    <button type="button" id="lib-new-side" class="secondary-button lib-new-side">+ 新建库</button>
                     <div id="lib-list" class="lib-list"></div>
                 </div>
                 <div class="lib-main">
@@ -521,20 +522,40 @@
                                 <button type="button" id="lib-export">导出</button>
                             </div>
                             <div class="lib-action-sep"></div>
-                            <div class="lib-action-group">
-                                <button type="button" id="lib-rename">重命名</button>
-                                <span id="lib-selected-count" class="hint" aria-live="polite"></span>
-                                <button type="button" id="lib-remove-selected" class="danger" disabled>移除勾选</button>
+                            <div class="lib-action-group lib-popover-group">
+                                <button type="button" id="lib-column-toggle" aria-expanded="false" aria-controls="lib-column-box">显示字段</button>
+                                <span id="lib-column-selected-count" class="hint" aria-live="polite"></span>
+                                <div id="lib-column-box" class="lib-column-box" aria-label="显示字段">
+                                    <div class="lib-column-box-head">
+                                        <strong>显示字段</strong>
+                                        <button type="button" id="btn-lib-column-all" class="secondary-button">全选</button>
+                                        <button type="button" id="btn-lib-column-default" class="secondary-button">恢复默认</button>
+                                    </div>
+                                    <div id="lib-column-options" class="lib-column-options"></div>
+                                    <div class="lib-column-box-foot"><span id="lib-column-save-status" class="hint" aria-live="polite"></span></div>
+                                </div>
                             </div>
                             <div class="lib-action-sep"></div>
-                            <div class="lib-action-group lib-danger-group">
-                                <button type="button" id="lib-clear" class="danger">清空当前库</button>
-                                <button type="button" id="lib-delete" class="danger">删除当前库</button>
+                            <div class="lib-action-group lib-popover-group">
+                                <span id="lib-selected-count" class="hint" aria-live="polite"></span>
+                                <button type="button" id="lib-more" aria-expanded="false" aria-haspopup="true">更多 ▾</button>
+                                <div id="lib-more-wrap" class="lib-more-wrap">
+                                    <button type="button" id="lib-rename">重命名</button>
+                                    <button type="button" id="lib-remove-selected" class="danger" disabled>移除勾选</button>
+                                    <div class="lib-more-sep"></div>
+                                    <button type="button" id="lib-clear" class="danger">清空当前库</button>
+                                    <button type="button" id="lib-delete" class="danger">删除当前库</button>
+                                </div>
                             </div>
                         </div>
                     </div>
                     <div id="lib-stats" class="lib-stats"></div>
                     <div id="lib-table-container" class="lib-table-container"></div>
+                    <div id="lib-pager" class="lib-pager" hidden>
+                        <button type="button" id="lib-page-prev" class="secondary-button" disabled>上一页</button>
+                        <span id="lib-page-info" class="hint"></span>
+                        <button type="button" id="lib-page-next" class="secondary-button" disabled>下一页</button>
+                    </div>
                     <div id="lib-count" class="hint"></div>
                 </div>
             </div>
@@ -544,19 +565,14 @@
             <div class="help-panel lib-import-panel">
                 <div class="help-panel-head"><strong>导入 IP 到当前库</strong><button type="button" id="btn-lib-import-close" class="side-toggle" aria-label="关闭">×</button></div>
                 <div class="help-panel-body">
-                    <label class="import-text-field">粘贴 IP 文本（支持 IP:端口、CIDR 网段与 CSV 表格）
-                        <textarea id="lib-import-text" rows="8" placeholder="每行一个 IP:端口，如 104.16.0.1:443&#10;也支持 104.16.0.0/24 等网段，按抽样粒度展开&#10;CSV：首行含 IP/Port 列时自动转换"></textarea>
-                    </label>
+                    <p class="hint">仅支持 CSV 全字段导入：选择本程序导出的 CSV，或表头含 IP、端口等字段的 CSV 文件，导入后保留国家、城市、ASN、延迟、速度等全部字段。</p>
                     <div class="lib-import-options">
-                        <label>网段抽样<select id="lib-import-sample-mode">
-                            <option value="one">每段取 1 个</option>
-                            <option value="n">每段取 N 个</option>
-                            <option value="all">全部</option>
-                        </select></label>
-                        <label>N<input type="number" id="lib-import-sample-n" min="1" max="256" value="2"></label>
-                        <label class="file-btn" for="lib-import-file">选择文件</label>
-                        <input type="file" id="lib-import-file" accept=".txt,.csv,text/plain,text/csv" hidden>
+                        <label class="file-btn" for="lib-import-file">选择 CSV 文件</label>
+                        <input type="file" id="lib-import-file" accept=".csv,text/csv" hidden>
+                        <span id="lib-import-file-name" class="hint"></span>
                     </div>
+                    <div id="lib-import-dropzone" class="lib-import-dropzone">或将 CSV 文件拖拽到此处</div>
+                    <p id="lib-import-preview" class="hint" aria-live="polite"></p>
                     <div class="import-actions">
                         <button type="button" id="btn-lib-import-cancel">取消</button>
                         <button type="button" id="btn-lib-import-confirm" class="primary">导入</button>
@@ -582,7 +598,7 @@
                                 <optgroup label="内置模板"></optgroup>
                             </select>
                         </label>
-                        <label id="lib-export-template-field">模板内容<input type="text" id="lib-export-template" value="{ip}:{port}"></label>
+                        <label id="lib-export-template-field">模板内容<input type="text" id="lib-export-template" value="{ip}:{port}#{country}"></label>
                     </div>
                     <p class="hint">CSV 导出全部字段；TXT 按模板逐行输出，支持 {ip} {port} {country} {city} {emoji} {latency} {speed} 等占位符。</p>
                     <div class="export-actions export-actions-right">
@@ -602,7 +618,8 @@
                 <div class="page-actions">
                     <label class="toggle" title="总开关：关闭时停止记录并清空日志文件"><input type="checkbox" id="log-enable"><span class="toggle-track"></span><span class="toggle-label">记录调试日志</span></label>
                     <label title="一般保持「全部」即可，便于分析排查">级别<select id="log-level">
-                        <option value="debug">debug（全部，默认）</option>
+                        <option value="all">全部</option>
+                        <option value="debug">debug</option>
                         <option value="info">info</option>
                         <option value="warn">warn</option>
                         <option value="error">error</option>

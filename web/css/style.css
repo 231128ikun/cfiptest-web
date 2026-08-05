@@ -905,7 +905,6 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 .lib-item:hover { border-color: var(--border); }
 .lib-toolbar { display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
 .lib-toolbar input[type="text"] { min-width: 0; flex: 1; }
-.lib-import-text { flex-basis: 100%; }
 .lib-filter-controls { min-width: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
   .lib-filter-controls #lib-q { grid-column: 1 / -1; }
 .lib-filter-controls input, .lib-filter-controls select { min-width: 0; width: 100%; }
@@ -915,6 +914,34 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
   .lib-action-sep { width: 1px; height: 20px; background: var(--border-light); flex-shrink: 0; }
   .lib-danger-group > button { border-color: var(--danger); color: var(--danger); }
   .lib-danger-group > button:hover { background: var(--danger-soft); }
+.lib-new-side { width: 100%; margin-bottom: 10px; }
+.lib-popover-group { position: relative; }
+.lib-column-box, .lib-more-wrap {
+    position: absolute; top: calc(100% + 6px); z-index: 30;
+    background: var(--surface); border: 1px solid var(--border-light);
+    border-radius: var(--radius); box-shadow: var(--shadow-lg);
+}
+.lib-column-box { right: 0; width: 340px; max-width: 92vw; padding: 12px; display: none; }
+.lib-column-box.active { display: block; }
+.lib-column-box-head { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+.lib-column-box-head strong { margin-right: auto; font-size: 13px; }
+.lib-column-box-head .secondary-button { min-width: 0; padding: 3px 8px; font-size: 12px; }
+.lib-column-options { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; max-height: 300px; overflow: auto; font-size: 12.5px; }
+.lib-column-box-foot { margin-top: 10px; min-height: 14px; }
+.lib-more-wrap { right: 0; min-width: 168px; padding: 8px; display: none; flex-direction: column; gap: 6px; }
+.lib-more-wrap.open { display: flex; }
+.lib-more-wrap > button { width: 100%; }
+.lib-more-sep { height: 1px; background: var(--border-light); margin: 2px 0; }
+.lib-pager { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 10px 0 4px; }
+.lib-pager[hidden] { display: none; }
+.lib-pager .hint { min-width: 140px; text-align: center; }
+.lib-import-dropzone {
+    margin-top: 12px; border: 1.5px dashed var(--border); border-radius: var(--radius-sm);
+    padding: 26px 12px; text-align: center; color: var(--text-secondary); font-size: 13px;
+    transition: border-color .15s ease, background .15s ease;
+}
+.lib-import-dropzone.dragover { border-color: var(--primary); background: var(--primary-soft); }
+#lib-import-preview { margin: 10px 0 0; }
 .lib-stats { padding: 8px 10px; border-radius: var(--radius-sm); background: var(--surface-soft); font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; }
 #lib-table-container .table-wrap { max-height: 460px; }
 #lib-table-container table.results { margin: 0; width: max-content; min-width: 100%; }
@@ -1111,3 +1138,11 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 #lib-export-template-section .export-lib-field select { flex: 1; min-width: 130px; }
 #lib-export-template-field { display: block; font-weight: 600; margin-top: 8px; }
 #lib-export-template-field input { width: 100%; margin-top: 8px; font-family: var(--font-mono); }
+/* 空库 / 无匹配 引导（library.js 注入到结果表格的空行中） */
+.lib-empty-state {
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    padding: 40px 16px; color: var(--text-secondary);
+}
+.lib-empty-state strong { font-size: 15px; color: var(--text); }
+.lib-empty-state span { font-size: 13px; }
+.lib-empty-state .secondary-button { min-width: 0; }

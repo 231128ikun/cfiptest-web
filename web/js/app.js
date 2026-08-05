@@ -996,7 +996,7 @@ function applySavedSettings(settings = {}) {
         $('export-format').value = settings.exportFormat;
     }
     $('log-enable').checked = settings.debugLog === true;
-    $('log-level').value = settings.logLevel || 'debug';
+    $('log-level').value = settings.logLevel || 'all';
     $('log-level').disabled = !$('log-enable').checked;
     debugLogStatus($('log-enable').checked);
     if (Array.isArray(settings.savedTemplates)) {
@@ -1503,7 +1503,7 @@ function debugLogStatus(enabled, message = '') {
     if (!status) return;
     status.classList.toggle('is-enabled', enabled);
     status.classList.toggle('is-error', Boolean(message));
-    const levelLabel = $('log-level').value || 'debug';
+    const levelLabel = $('log-level').value === 'all' ? '全部' : ($('log-level').value || '全部');
     status.textContent = message || (enabled
         ? `调试日志已开启：请求、任务与错误写入 data/logs/app.log（级别：${levelLabel}）。`
         : '调试日志已关闭：不记录不显示，磁盘上也不保留日志文件。');
@@ -1527,23 +1527,27 @@ function sideLog(line, kind = '') {
 const LOG_KIND = { error: 'error', warn: 'warn', info: 'ok', debug: 'file' };
 
 function renderFilteredLogLines(lines, level) {
-    const rank = LOG_LEVEL_RANK[level] ?? 0;
     const body = $('log-viewer');
     if (!body) return;
+    const showAll = level === 'all' || !(level in LOG_LEVEL_RANK);
+    const rank = LOG_LEVEL_RANK[level];
     body.innerHTML = lines
         .filter(l => {
+            if (showAll) return true;
             const m = l.match(/^\S+\s+\[(\w+)\]/);
             if (!m) return true; // lines without level tag always show
             const lineRank = LOG_LEVEL_RANK[m[1].toLowerCase()];
             return lineRank != null ? lineRank >= rank : true;
         })
-        .map(l => {
-            const m = l.match(/^\S+\s+\[(\w+)\]/);
-            const kind = m ? (LOG_KIND[m[1].toLowerCase()] || 'file') : 'file';
-            return `<div class="log-line ${kind}">${escapeHTML(l)}</div>`;
-        })
+        .map(logLineHTML)
         .join('');
     body.scrollTop = body.scrollHeight;
+}
+
+function logLineHTML(l) {
+    const m = l.match(/^\S+\s+\[(\w+)\]/);
+    const kind = m ? (LOG_KIND[m[1].toLowerCase()] || 'file') : 'file';
+    return `<div class="log-line ${kind}">${escapeHTML(l)}</div>`;
 }
 
 function bindDebugLog() {
