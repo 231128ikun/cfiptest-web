@@ -179,7 +179,7 @@
                     <label class="rule-line"><span>检测 IPS 类型</span><input type="checkbox" id="lat-ipapi" title="调用外部接口识别被测 IP 的地址类型（IPv4/IPv6）"></label>
                     <label class="rule-line"><span>延迟并发数</span><input type="number" id="lat-concurrency" min="1" max="1000" step="1"><em>个</em></label>
                     <label class="rule-line"><span>TCP 探测次数</span><input type="number" id="lat-probes" min="1" max="10" step="1"><em>次</em></label>
-<label class="rule-line"><span>HTTP 校验次数</span><input type="number" id="lat-http-probes" min="1" max="10" step="1"><em>次</em></label>
+                    <label class="rule-line"><span>HTTP 校验次数</span><input type="number" id="lat-http-probes" min="1" max="10" step="1"><em>次</em></label>
                     <label class="rule-line"><span>单 IP 超时</span><input type="number" id="lat-timeout" min="200" max="10000" step="100"><em>ms</em></label>
                     <label class="rule-line"><span>最大允许延迟</span><input type="number" id="lat-maxlatency" min="0" max="10000" placeholder="不限制"><em>ms</em></label>
                 </div>
@@ -431,7 +431,7 @@
                                 <label>延迟并发<input type="number" id="task-lat-concurrency" min="0" max="1000" step="1" placeholder="全局默认"></label>
                                 <label>延迟超时<span class="input-with-unit"><input type="number" id="task-lat-timeout" min="0" max="60000" step="100" placeholder="全局默认"> <span class="unit">ms</span></span></label>
                                 <label>TCP 探测次数<input type="number" id="task-lat-probes" min="0" max="10" step="1" placeholder="默认 4"></label>
-<label>HTTP 校验次数<input type="number" id="task-lat-http-probes" min="0" max="10" step="1" placeholder="默认 1"></label>
+                                <label>HTTP 校验次数<input type="number" id="task-lat-http-probes" min="0" max="10" step="1" placeholder="默认 1"></label>
                                 <label>测速并发<input type="number" id="task-spd-concurrency" min="0" max="100" step="1" placeholder="全局默认"></label>
                                 <label>测速时长<span class="input-with-unit"><input type="number" id="task-spd-duration" min="0" max="120" step="1" placeholder="全局默认"> <span class="unit">秒</span></span></label>
                             </div>
@@ -556,7 +556,7 @@
                             <label>延迟并发 <input type="number" id="auto-lat-concurrency" min="1" max="1000" step="1" placeholder="默认 50"></label>
                             <label>延迟超时 <span class="input-with-unit"><input type="number" id="auto-lat-timeout" min="200" max="60000" step="100" placeholder="默认 1000"> <span class="unit">ms</span></span></label>
                             <label>TCP 探测次数 <input type="number" id="auto-lat-probes" min="1" max="10" step="1" placeholder="默认 4"></label>
-<label>HTTP 校验次数 <input type="number" id="auto-lat-http-probes" min="1" max="10" step="1" placeholder="默认 1"></label>
+                            <label>HTTP 校验次数 <input type="number" id="auto-lat-http-probes" min="1" max="10" step="1" placeholder="默认 1"></label>
                             <label>测速并发 <input type="number" id="auto-spd-concurrency" min="1" max="100" step="1" placeholder="默认 5"></label>
                             <label>测速时长 <span class="input-with-unit"><input type="number" id="auto-spd-duration" min="1" max="120" step="1" placeholder="默认 5"> <span class="unit">秒</span></span></label>
                         </div>

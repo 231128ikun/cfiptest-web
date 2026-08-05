@@ -764,7 +764,7 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 .auto-group-require { display: flex; align-items: center; gap: 4px; font-size: 12px; white-space: nowrap; color: var(--text); }
 .auto-group-row .g-del { border: 0; background: none; color: var(--danger); cursor: pointer; font-size: 14px; padding: 2px; }
 .auto-groups-empty { padding: 12px; text-align: center; color: var(--text-secondary); border: 1px dashed var(--border-light); border-radius: var(--radius-sm); }
-.auto-maintenance-grid { grid-template-columns: repeat(5, minmax(130px, 1fr)); }
+.auto-maintenance-grid { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
 
 /* ---------- 17. 设置页（高级配置与阈值） ---------- */
 .advanced-settings { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-light); }
@@ -883,7 +883,7 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 .task-file-row input { min-width: 0; width: 100%; }
 .task-upload-button { min-width: 104px; }
 .task-official-source { grid-template-columns: repeat(5, minmax(120px, 1fr)); }
-.task-detection-options { grid-template-columns: repeat(5, minmax(130px, 1fr)); }
+.task-detection-options { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
 .task-detection-note { margin: -4px 0 12px; }
   .task-form-row .input-with-unit { display: flex; align-items: center; gap: 6px; }
   .task-form-row .input-with-unit input { flex: 1; min-width: 0; }
