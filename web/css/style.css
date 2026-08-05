@@ -909,8 +909,12 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 .lib-filter-controls { min-width: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
   .lib-filter-controls #lib-q { grid-column: 1 / -1; }
 .lib-filter-controls input, .lib-filter-controls select { min-width: 0; width: 100%; }
-.lib-manage-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; align-items: center; }
-  .lib-manage-actions > button { flex: 0 1 auto; white-space: nowrap; }
+.lib-manage-actions { display: flex; justify-content: flex-end; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .lib-action-group { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .lib-action-group > button { flex: 0 1 auto; white-space: nowrap; }
+  .lib-action-sep { width: 1px; height: 20px; background: var(--border-light); flex-shrink: 0; }
+  .lib-danger-group > button { border-color: var(--danger); color: var(--danger); }
+  .lib-danger-group > button:hover { background: var(--danger-soft); }
 .lib-stats { padding: 8px 10px; border-radius: var(--radius-sm); background: var(--surface-soft); font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; }
 #lib-table-container .table-wrap { max-height: 460px; }
 #lib-table-container table.results { margin: 0; width: max-content; min-width: 100%; }
@@ -945,7 +949,7 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 .log-line.file { color: var(--text-secondary); }
 
 /* ---------- 23. 按钮对齐与统一 ---------- */
-.page-actions > button, .official-actions > button, .task-form-actions > button, .lib-manage-actions > button { min-width: 88px; }
+.page-actions > button, .official-actions > button, .task-form-actions > button, .lib-action-group > button { min-width: 88px; }
 
 /* ---------- 24. 响应式断点 ---------- */
 @media (max-width: 1120px) {
@@ -1012,7 +1016,7 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
     .task-card-head { gap: 10px; }
     .task-card-state { align-items: flex-end; flex-direction: column; gap: 7px; }
     .task-card-toggle { padding-left: 0; border-left: 0; }
-    .lib-manage-actions > button { flex: 1 1 calc(50% - 4px); }
+    .lib-action-group > button { flex: 1 1 calc(50% - 4px); }
     #log-viewer.log-viewer { height: 360px; min-height: 360px; max-height: 360px; }
     .task-file-row { grid-template-columns: 1fr; }
     .task-upload-button { width: 100%; }
@@ -1020,7 +1024,7 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 }
 
 @media (max-width: 640px) {
-    .lib-manage-actions > button { flex-basis: 100%; }
+    .lib-action-group > button { flex-basis: 100%; }
     .header-inner, .pipeline, .flow-nav-inner { padding-left: 16px; padding-right: 16px; }
     .header-inner { display: flex; flex-wrap: nowrap; }
     .brand-block, .brand-block > div:last-child { min-width: 0; }
@@ -1102,5 +1106,8 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 .lib-import-options { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-top: 10px; }
 .lib-import-options label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary); }
 .import-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
-#lib-export-template-field { display: block; font-weight: 600; margin-top: 12px; }
+#lib-export-template-section { margin-top: 12px; }
+#lib-export-template-section .export-lib-field { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+#lib-export-template-section .export-lib-field select { flex: 1; min-width: 130px; }
+#lib-export-template-field { display: block; font-weight: 600; margin-top: 8px; }
 #lib-export-template-field input { width: 100%; margin-top: 8px; font-family: var(--font-mono); }

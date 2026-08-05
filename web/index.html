@@ -516,13 +516,21 @@
                             <select id="lib-field-value" aria-label="字段取值（含统计）" disabled><option value="">选择取值…</option></select>
                         </div>
                         <div class="lib-manage-actions" aria-label="当前库操作">
-                            <button type="button" id="lib-import">导入</button>
-                            <button type="button" id="lib-export">导出</button>
-                            <span id="lib-selected-count" class="hint" aria-live="polite"></span>
-                            <button type="button" id="lib-rename">重命名</button>
-                            <button type="button" id="lib-remove-selected" class="danger" disabled>移除勾选</button>
-                            <button type="button" id="lib-clear" class="danger">清空当前库</button>
-                            <button type="button" id="lib-delete" class="danger">删除当前库</button>
+                            <div class="lib-action-group">
+                                <button type="button" id="lib-import">导入</button>
+                                <button type="button" id="lib-export">导出</button>
+                            </div>
+                            <div class="lib-action-sep"></div>
+                            <div class="lib-action-group">
+                                <button type="button" id="lib-rename">重命名</button>
+                                <span id="lib-selected-count" class="hint" aria-live="polite"></span>
+                                <button type="button" id="lib-remove-selected" class="danger" disabled>移除勾选</button>
+                            </div>
+                            <div class="lib-action-sep"></div>
+                            <div class="lib-action-group lib-danger-group">
+                                <button type="button" id="lib-clear" class="danger">清空当前库</button>
+                                <button type="button" id="lib-delete" class="danger">删除当前库</button>
+                            </div>
                         </div>
                     </div>
                     <div id="lib-stats" class="lib-stats"></div>
@@ -536,8 +544,8 @@
             <div class="help-panel lib-import-panel">
                 <div class="help-panel-head"><strong>导入 IP 到当前库</strong><button type="button" id="btn-lib-import-close" class="side-toggle" aria-label="关闭">×</button></div>
                 <div class="help-panel-body">
-                    <label class="import-text-field">粘贴 IP 文本（支持 IP:端口 与 CIDR 网段）
-                        <textarea id="lib-import-text" rows="8" placeholder="每行一个 IP:端口，如 104.16.0.1:443&#10;也支持 104.16.0.0/24 等网段，按抽样粒度展开"></textarea>
+                    <label class="import-text-field">粘贴 IP 文本（支持 IP:端口、CIDR 网段与 CSV 表格）
+                        <textarea id="lib-import-text" rows="8" placeholder="每行一个 IP:端口，如 104.16.0.1:443&#10;也支持 104.16.0.0/24 等网段，按抽样粒度展开&#10;CSV：首行含 IP/Port 列时自动转换"></textarea>
                     </label>
                     <div class="lib-import-options">
                         <label>网段抽样<select id="lib-import-sample-mode">
@@ -568,7 +576,14 @@
                             <label class="radio"><input type="radio" name="lib-export-format" value="csv"> CSV</label>
                         </div>
                     </div>
-                    <label id="lib-export-template-field">导出模板<input type="text" id="lib-export-template" value="{ip}:{port}"></label>
+                    <div id="lib-export-template-section">
+                        <label class="export-lib-field">导出模板
+                            <select id="lib-export-preset">
+                                <optgroup label="内置模板"></optgroup>
+                            </select>
+                        </label>
+                        <label id="lib-export-template-field">模板内容<input type="text" id="lib-export-template" value="{ip}:{port}"></label>
+                    </div>
                     <p class="hint">CSV 导出全部字段；TXT 按模板逐行输出，支持 {ip} {port} {country} {city} {emoji} {latency} {speed} 等占位符。</p>
                     <div class="export-actions export-actions-right">
                         <button type="button" id="btn-lib-export-cancel">取消</button>

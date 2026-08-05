@@ -36,6 +36,8 @@ let savedTemplates = [];
 let customResults = []; // 自定义导出列表，默认空，仅手动加入或勾选追加
 let customColumnKeys = CSV_COLUMNS.map(column => column.key); // 自定义 CSV 字段，默认全部
 let officialRangesLoading = false;
+const LOG_LEVEL_RANK = { debug: 0, info: 1, warn: 2, error: 3 };
+let lastLogRawLines = []; // store raw log lines for client-side level filtering
 
 const DEFAULT_COLUMN_KEYS = TABLE_COLUMNS.filter(c => c.key !== '_sel').map(c => c.key);
 const SELECTABLE_COLUMN_KEYS = ALL_COLUMNS
@@ -1521,6 +1523,29 @@ function sideLog(line, kind = '') {
     body.scrollTop = body.scrollHeight;
 }
 
+// level -> existing CSS color classes (error/warn/info=ok/debug=file)
+const LOG_KIND = { error: 'error', warn: 'warn', info: 'ok', debug: 'file' };
+
+function renderFilteredLogLines(lines, level) {
+    const rank = LOG_LEVEL_RANK[level] ?? 0;
+    const body = $('log-viewer');
+    if (!body) return;
+    body.innerHTML = lines
+        .filter(l => {
+            const m = l.match(/^\S+\s+\[(\w+)\]/);
+            if (!m) return true; // lines without level tag always show
+            const lineRank = LOG_LEVEL_RANK[m[1].toLowerCase()];
+            return lineRank != null ? lineRank >= rank : true;
+        })
+        .map(l => {
+            const m = l.match(/^\S+\s+\[(\w+)\]/);
+            const kind = m ? (LOG_KIND[m[1].toLowerCase()] || 'file') : 'file';
+            return `<div class="log-line ${kind}">${escapeHTML(l)}</div>`;
+        })
+        .join('');
+    body.scrollTop = body.scrollHeight;
+}
+
 function bindDebugLog() {
     const checkbox = $('log-enable');
     const body = $('log-viewer');
@@ -1547,8 +1572,8 @@ function bindDebugLog() {
         try {
             const data = await api.fetchLog(300);
             body.classList.remove('is-disabled');
-            body.innerHTML = (data.lines || []).map(l => `<div class="log-line file">${escapeHTML(l)}</div>`).join('');
-            body.scrollTop = body.scrollHeight;
+            lastLogRawLines = data.lines || [];
+            renderFilteredLogLines(lastLogRawLines, $('log-level').value);
             debugLogStatus(data.enabled === true, data.writeError ? '日志写入异常：' + data.writeError : '');
         } catch (error) {
             debugLogStatus(true, '读取日志失败：' + error.message);
@@ -1560,6 +1585,7 @@ function bindDebugLog() {
         try {
             await api.clearLog();
             body.innerHTML = '';
+            lastLogRawLines = [];
             body.classList.toggle('is-disabled', !checkbox.checked);
             toast('日志已清空');
         } catch (error) {
@@ -1567,6 +1593,7 @@ function bindDebugLog() {
         }
     });
     $('log-level').addEventListener('change', async () => {
+        renderFilteredLogLines(lastLogRawLines, $('log-level').value);
         try {
             await api.saveSettingsPatch({ logLevel: $('log-level').value });
             toast('日志级别已更新');

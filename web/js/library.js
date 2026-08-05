@@ -2,9 +2,11 @@
 // 表格复用工作台结果页的 ResultTable 与 columns.js 列注册表，
 // 导出复用 exporter.js 的 serialize / download，避免维护第二套渲染与导出逻辑。
 import { escapeHTML } from './columns.js';
+import { importCSVText } from './input.js';
 import { LIBRARY_COLUMNS, LIBRARY_CSV_COLUMNS } from './columns.js';
 import { ResultTable } from './table.js';
 import { download, downloadAsCSV, serialize } from './exporter.js';
+import { PRESETS } from './composer.js';
 import * as api from './api.js';
 
 const $ = id => document.getElementById(id);
@@ -210,9 +212,27 @@ export function initLibrary({ toast }) {
         $('lib-import-modal').hidden = false;
     }
 
+    /** 识别 CSV：首行含 IP/Port 表头，或首行就是「IP,端口」数据行。 */
+    function isCSVText(text) {
+        const first = text.split(/\r?\n/).find(line => line.trim());
+        if (!first || !first.includes(',')) return false;
+        const lower = first.toLowerCase();
+        if ((lower.includes('ip') || lower.includes('ip地址')) && (lower.includes('port') || lower.includes('端口'))) return true;
+        const cells = first.split(',');
+        if (cells.length < 2) return false;
+        const ip = cells[0].trim().replace(/^\[|\]$/g, '');
+        const ipv4 = /^\d{1,3}(\.\d{1,3}){3}$/.test(ip);
+        const ipv6 = /^[0-9a-fA-F:]{2,}$/.test(ip) && ip.includes(':');
+        return (ipv4 || ipv6) && /^\d{1,5}$/.test(cells[1].trim());
+    }
     async function confirmImport() {
-        const text = $('lib-import-text').value.trim();
+        let text = $('lib-import-text').value.trim();
         if (!text) { toast('请先粘贴 IP 文本或选择文件'); return; }
+        if (isCSVText(text)) {
+            const converted = importCSVText(text);
+            if (!converted) { toast('CSV 内容无法识别，请确认包含 IP、端口列'); return; }
+            text = converted;
+        }
         try {
             const resp = await api.importAutoLibrary({
                 lib: state.current.id,
@@ -312,7 +332,21 @@ export function initLibrary({ toast }) {
     $('btn-lib-export-cancel').addEventListener('click', () => { $('lib-export-modal').hidden = true; });
     $('btn-lib-export-confirm').addEventListener('click', confirmExport);
     document.querySelectorAll('input[name="lib-export-format"]').forEach(input =>
-        input.addEventListener('change', () => { $('lib-export-template-field').hidden = input.value !== 'txt'; }));
+        input.addEventListener('change', () => {
+            const isTxt = input.value === 'txt';
+            const section = $('lib-export-template-section');
+            if (section) section.style.display = isTxt ? '' : 'none';
+        }));
+    // 导出模板预设（复用测速工作台第三步的 PRESETS）
+    const presetSel = $('lib-export-preset');
+    if (presetSel) {
+        const group = presetSel.querySelector('optgroup');
+        if (group) group.innerHTML = PRESETS.map((preset, i) => `<option value="${i}">${preset.name}</option>`).join('');
+        presetSel.addEventListener('change', () => {
+            const preset = PRESETS[Number(presetSel.value)];
+            if (preset) $('lib-export-template').value = preset.template;
+        });
+    }
 
     loadLibraries();
     return { refresh: loadLibraries };
