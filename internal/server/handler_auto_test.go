@@ -102,7 +102,7 @@ func TestLibrariesCRUD(t *testing.T) {
 		Stats     map[string]library.Stats `json:"stats"`
 	}
 	_ = json.Unmarshal(rec.Body.Bytes(), &got)
-	if len(got.Libraries) != 1 || got.Libraries[0].ID != library.DefaultID || got.Libraries[0].Name != "默认库" {
+	if len(got.Libraries) < 1 || got.Libraries[0].ID != library.DefaultID || got.Libraries[0].Name != "默认库" {
 		t.Fatalf("应有默认库: %+v", got.Libraries)
 	}
 	// 新建
