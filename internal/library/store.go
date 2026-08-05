@@ -21,6 +21,7 @@ const FileName = "ipdb.jsonl"
 type Store struct {
 	path    string // JSONL 文件完整路径
 	baseDir string // 应用数据目录（输出订阅文件等相对该目录）
+	memory  bool   // true = 仅内存库（不落盘，Save 为空操作）
 	mu      sync.RWMutex
 	by      map[string]*Entry
 }
@@ -67,6 +68,20 @@ func Open(path string) (*Store, error) {
 		fmt.Printf("警告: IP 库共跳过 %d 行损坏数据\n", skipped)
 	}
 	return s, nil
+}
+
+// NewInMemory 创建仅内存的 IP 库（不落盘，Save 为空操作）。
+// 用于官方 IP 库 / 远程 URL 库等远程维护来源：候选来自远程拉取，结果只写出、不保存到本地库。
+func NewInMemory(baseDir string, entries []Entry) *Store {
+	s := &Store{baseDir: baseDir, memory: true, by: make(map[string]*Entry, len(entries))}
+	for i := range entries {
+		e := entries[i]
+		if e.FirstSeenAt.IsZero() {
+			e.FirstSeenAt = time.Now()
+		}
+		s.by[e.Key()] = &e
+	}
+	return s
 }
 
 // Path 返回库文件完整路径。
@@ -235,7 +250,11 @@ func topN(m map[string]int, n int) map[string]int {
 }
 
 // Save 将全量条目原子写回 JSONL（按 key 排序，输出稳定）。
+// 仅内存库（远程维护来源）为空操作：官方/URL 库不落盘，失效条目也不会从本地库删除。
 func (s *Store) Save() error {
+	if s.memory {
+		return nil
+	}
 	s.mu.RLock()
 	entries := make([]*Entry, 0, len(s.by))
 	for _, e := range s.by {

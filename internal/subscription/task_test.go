@@ -342,15 +342,16 @@ func TestTaskValidateInputSources(t *testing.T) {
 		input TaskInput
 		valid bool
 	}{
-		{"remote requires url", TaskInput{Mode: "remote"}, false},
-		{"official invalid family", TaskInput{Mode: "official", Family: "ipv5"}, false},
-		{"official invalid port", TaskInput{Mode: "official", Family: "ipv4", SampleMode: "one", Port: 70000}, false},
-		{"file path traversal", TaskInput{Mode: "file", File: "../secret.txt"}, false},
+		{"none valid", TaskInput{Mode: "none"}, true},
 		{"none rejects file", TaskInput{Mode: "none", File: "a.txt"}, false},
 		{"none rejects url", TaskInput{Mode: "none", URL: "https://example.com/x"}, false},
-		{"none valid", TaskInput{Mode: "none"}, true},
-		{"remote valid", TaskInput{Mode: "remote", URL: "https://example.com/list.csv", Protocol: "https", Port: 443}, true},
-		{"official valid", TaskInput{Mode: "official", Family: "ipv6", SampleMode: "n", SampleN: 2, Protocol: "http", Port: 8080}, true},
+		{"file without path downgrades to none", TaskInput{Mode: "file"}, true},
+		{"file path traversal", TaskInput{Mode: "file", File: "../secret.txt"}, false},
+		{"file valid", TaskInput{Mode: "file", File: "init/seed.txt"}, true},
+		{"legacy empty-file downgrades to none", TaskInput{Mode: "file", File: ""}, true},
+		{"remote requires url", TaskInput{Mode: "remote"}, false},
+		{"remote valid", TaskInput{Mode: "remote", URL: "https://example.com/list.csv"}, true},
+		{"legacy official migrates to official library", TaskInput{Mode: "official", Family: "ipv6", SampleMode: "n", SampleN: 2, Protocol: "http", Port: 8080}, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -359,6 +360,54 @@ func TestTaskValidateInputSources(t *testing.T) {
 			err := task.Validate()
 			if (err == nil) != tc.valid {
 				t.Fatalf("Validate() error=%v, valid=%v", err, tc.valid)
+			}
+			if err == nil && tc.input.Mode == "official" {
+				if task.LibrarySource != LibrarySourceOfficial || task.LibraryFamily != "ipv6" || task.LibrarySampleN != 2 || task.LibraryProtocol != "http" || task.LibraryPort != 8080 {
+					t.Fatalf("旧官方初始化应迁移到维护来源: %+v", task)
+				}
+			}
+			if err == nil && tc.input.Mode == "file" && tc.input.File == "" {
+				if task.Input.Mode != "none" {
+					t.Fatalf("空路径 file 应降级为 none，实际 mode=%q", task.Input.Mode)
+				}
+			}
+		})
+	}
+}
+
+func TestTaskValidateLibrarySources(t *testing.T) {
+	base := Task{Name: "lib", Rules: []TaskRule{{Name: "r", Limit: 1}}}
+	cases := []struct {
+		name   string
+		mutate func(*Task)
+		valid  bool
+		check  func(*Task) bool
+	}{
+		{"default local", func(t *Task) {}, true, func(t *Task) bool { return t.LibrarySource == LibrarySourceLocal && t.LibraryID == library.DefaultID }},
+		{"local valid", func(t *Task) { t.LibrarySource = LibrarySourceLocal; t.LibraryID = "l2" }, true, func(t *Task) bool { return t.LibrarySource == LibrarySourceLocal && t.LibraryID == "l2" }},
+		{"official defaults", func(t *Task) { t.LibrarySource = LibrarySourceOfficial }, true, func(t *Task) bool {
+			return t.LibraryFamily == "ipv4" && t.LibrarySampleMode == "one" && t.LibraryProtocol == "https"
+		}},
+		{"official invalid family", func(t *Task) { t.LibrarySource = LibrarySourceOfficial; t.LibraryFamily = "ipv5" }, false, nil},
+		{"official invalid sample mode", func(t *Task) { t.LibrarySource = LibrarySourceOfficial; t.LibrarySampleMode = "two" }, false, nil},
+		{"official n requires sampleN", func(t *Task) { t.LibrarySource = LibrarySourceOfficial; t.LibrarySampleMode = "n" }, false, nil},
+		{"official n valid", func(t *Task) { t.LibrarySource = LibrarySourceOfficial; t.LibrarySampleMode = "n"; t.LibrarySampleN = 8 }, true, nil},
+		{"official invalid port", func(t *Task) { t.LibrarySource = LibrarySourceOfficial; t.LibraryPort = 70000 }, false, nil},
+		{"official custom port", func(t *Task) { t.LibrarySource = LibrarySourceOfficial; t.LibraryProtocol = "http"; t.LibraryPort = 8080 }, true, func(t *Task) bool { return t.LibraryPort == 8080 }},
+		{"remote requires url", func(t *Task) { t.LibrarySource = LibrarySourceRemote }, false, nil},
+		{"remote valid", func(t *Task) { t.LibrarySource = LibrarySourceRemote; t.LibraryURL = "https://example.com/ips.txt" }, true, nil},
+		{"bad source", func(t *Task) { t.LibrarySource = "other" }, false, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			task := base
+			tc.mutate(&task)
+			err := task.Validate()
+			if (err == nil) != tc.valid {
+				t.Fatalf("Validate() error=%v, valid=%v", err, tc.valid)
+			}
+			if err == nil && tc.check != nil && !tc.check(&task) {
+				t.Fatalf("规范化结果不符: %+v", task)
 			}
 		})
 	}

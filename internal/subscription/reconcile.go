@@ -50,8 +50,9 @@ type RunOptions struct {
 	SlackFactor        int             // 每组候选倍数：count*SlackFactor + SlackExtra，默认 3
 	SlackExtra         int             // 默认 10
 	MaxPerGroup        int             // 每组候选硬上限，默认 200
-	InputTargets       []engine.Target `json:"-"`                  // 服务端已解析的初始化来源目标（官方/URL），不参与 JSON
-	InputSource        string          `json:"-"`                  // 初始化来源标签，用于进度日志
+	InputTargets       []engine.Target `json:"-"` // 服务端已解析的初始化来源目标（远程 URL），不参与 JSON
+	InputSource        string          `json:"-"` // 初始化来源标签，用于进度日志
+	RemoteLibrary      bool            `json:"-"` // 维护来源为远程库（官方/URL）：失效不删本地库、结果不落盘
 	Protocol           string          `json:"protocol,omitempty"` // https（默认）| http
 }
 
@@ -163,7 +164,10 @@ func RunTask(ctx context.Context, t Tester, lib *library.Store, task Task, opts 
 		inputPath = task.Input.File
 	}
 	if opts.Protocol == "" {
-		opts.Protocol = task.Input.Protocol
+		opts.Protocol = task.LibraryProtocol
+		if opts.Protocol == "" {
+			opts.Protocol = "https"
+		}
 	}
 	output := Output{Path: task.Output.Path, Format: task.Output.Format, Template: task.Output.Template}
 	report, err := runCore(ctx, t, lib, groups, inputPath, output, task.SpeedEnabled, task.Limit, opts, prog)
@@ -332,8 +336,12 @@ func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, 
 			}
 		}
 	}
+	deadNote := "（已从库移除）"
+	if opts.RemoteLibrary {
+		deadNote = "（远程库不删除）"
+	}
 	_ = prog(Progress{Stage: "latency", Tested: len(order), Passed: len(fresh), Failed: report.RemovedDead,
-		Log: fmt.Sprintf("延迟检测完成：通过 %d，失败 %d（已从库移除）", len(fresh), report.RemovedDead)})
+		Log: fmt.Sprintf("延迟检测完成：通过 %d，失败 %d%s", len(fresh), report.RemovedDead, deadNote)})
 	if ctx.Err() != nil {
 		_ = lib.Save()
 		return report, ctx.Err()
@@ -459,10 +467,14 @@ func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, 
 			gr.Shortage = g.Count - filled
 		}
 	}
+	shortHint := "IP 库候选不足：请用初始化来源导入更多该地区 IP，或放宽规则条件"
+	if opts.RemoteLibrary {
+		shortHint = "候选不足：请扩大抽样范围或放宽规则条件"
+	}
 	for gi := range report.Groups {
 		if report.Groups[gi].Shortage > 0 {
-			report.Shortages = append(report.Shortages, fmt.Sprintf("分组 %q 缺 %d 条（IP 库候选不足：请用初始化来源导入更多该地区 IP，或放宽规则条件）",
-				report.Groups[gi].Name, report.Groups[gi].Shortage))
+			report.Shortages = append(report.Shortages, fmt.Sprintf("分组 %q 缺 %d 条（%s）",
+				report.Groups[gi].Name, report.Groups[gi].Shortage, shortHint))
 		}
 	}
 

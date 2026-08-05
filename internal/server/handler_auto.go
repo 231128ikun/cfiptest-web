@@ -554,67 +554,135 @@ func settingsInt(settings map[string]any, key string) int {
 	return 0
 }
 
-func (s *Server) resolveTaskInput(task subscription.Task) ([]engine.Target, string, error) {
-	input := task.Input
-	mode := strings.ToLower(strings.TrimSpace(input.Mode))
-	if mode == "none" || mode == "" || mode == "file" {
-		return nil, "", nil
+// resolveMaintenanceLibrary 按任务的「维护来源」准备本次运行的 IP 库与附加参数：
+//
+//	local    → 打开本地库；任务的「初始化」（文件/远程 URL）先导入本地库（候选只从库内收集）
+//	official → 官方 IP 库（远程）：拉取最新官方段并按抽样展开为内存候选；不写本地库、失效不删除
+//	remote   → 远程 URL 库（远程）：运行时拉取 URL 为内存候选；不写本地库、失效不删除
+//
+// 返回 (库, 附加运行参数, 是否远程库, 来源标签, 错误)。
+func (s *Server) resolveMaintenanceLibrary(task subscription.Task) (*library.Store, subscription.RunOptions, bool, string, error) {
+	var extra subscription.RunOptions
+	switch task.LibrarySource {
+	case subscription.LibrarySourceOfficial:
+		store, err := s.officialLibraryStore(task)
+		if err != nil {
+			return nil, extra, false, "", err
+		}
+		extra.Protocol = task.LibraryProtocol
+		if extra.Protocol == "" {
+			extra.Protocol = "https"
+		}
+		return store, extra, true, "官方 IP 库", nil
+	case subscription.LibrarySourceRemote:
+		store, err := s.remoteURLLibraryStore(task.LibraryURL)
+		if err != nil {
+			return nil, extra, false, "", err
+		}
+		return store, extra, true, "远程 URL 库", nil
 	}
-	port := input.Port
+	// local（含旧任务默认）
+	mgr, err := s.libraryManager()
+	if err != nil {
+		return nil, extra, false, "", err
+	}
+	lib, err := mgr.Open(task.LibraryID)
+	if err != nil {
+		return nil, extra, false, "", err
+	}
+	switch task.Input.Mode {
+	case "file":
+		extra.InputSource = "初始化文件 " + task.Input.File
+	case "remote":
+		targets, err := s.resolveInitRemote(task.Input)
+		if err != nil {
+			return nil, extra, false, "", err
+		}
+		extra.InputTargets = targets
+		extra.InputSource = "初始化远程 URL"
+	}
+	return lib, extra, false, "本地 IP 库", nil
+}
+
+// resolveInitRemote 拉取并解析「初始化」远程 URL（复用工作台远程导入逻辑）。
+func (s *Server) resolveInitRemote(input subscription.TaskInput) ([]engine.Target, error) {
+	targetURL, err := normalizeRemoteImportURL(input.URL)
+	if err != nil {
+		return nil, err
+	}
+	body, _, err := fetchTextFile(targetURL)
+	if err != nil {
+		return nil, fmt.Errorf("读取初始化远程来源失败: %w", err)
+	}
+	targets := engine.ParseTargetsWithCIDR(body, engine.SampleOnePerSubnet, 1)
+	if len(targets) == 0 {
+		return nil, fmt.Errorf("初始化远程来源中没有可识别的 IP")
+	}
+	return targets, nil
+}
+
+// officialLibraryStore 构造官方 IP 库（远程库）的内存候选：拉取最新官方段，按任务抽样/端口展开。
+// 结果只用于本次运行，不写入本地库，失效条目不删除。
+func (s *Server) officialLibraryStore(task subscription.Task) (*library.Store, error) {
+	ranges := s.officialRanges(false)
+	cidrs := ranges.IPv4
+	if strings.EqualFold(task.LibraryFamily, "ipv6") {
+		cidrs = ranges.IPv6
+	}
+	modeValue := engine.ParseSampleMode(task.LibrarySampleMode)
+	sampleN := task.LibrarySampleN
+	if sampleN < 1 {
+		sampleN = 1
+	}
+	port := task.LibraryPort
 	if port < 1 || port > 65535 {
-		if input.Protocol == "http" {
+		if task.LibraryProtocol == "http" {
 			port = 80
 		} else {
 			port = 443
 		}
 	}
-	modeValue := engine.ParseSampleMode(input.SampleMode)
-	sampleN := input.SampleN
-	if sampleN < 1 {
-		sampleN = 1
+	if total, _ := engine.CountCIDRs(cidrs, modeValue, sampleN); total > maxExpandedTargets {
+		return nil, fmt.Errorf("官方库按当前抽样需展开 %d 个目标，超过 %d 上限", total, maxExpandedTargets)
 	}
-	var targets []engine.Target
-	var source string
-	switch mode {
-	case "remote":
-		targetURL, err := normalizeRemoteImportURL(input.URL)
-		if err != nil {
-			return nil, "", err
-		}
-		body, _, err := fetchTextFile(targetURL)
-		if err != nil {
-			return nil, "", fmt.Errorf("读取远程来源失败: %w", err)
-		}
-		if cidrs := engine.CollectCIDRs(body); len(cidrs) > 0 {
-			if total, _ := engine.CountCIDRs(cidrs, modeValue, sampleN); total > maxExpandedTargets {
-				return nil, "", fmt.Errorf("远程来源按当前抽样需展开 %d 个目标，超过 %d 上限", total, maxExpandedTargets)
-			}
-		}
-		targets = engine.ParseTargetsWithCIDR(body, modeValue, sampleN)
-		source = "远程 URL"
-	case "official":
-		ranges := s.officialRanges(false)
-		cidrs := ranges.IPv4
-		if strings.EqualFold(input.Family, "ipv6") {
-			cidrs = ranges.IPv6
-		}
-		if total, _ := engine.CountCIDRs(cidrs, modeValue, sampleN); total > maxExpandedTargets {
-			return nil, "", fmt.Errorf("官方网段按当前抽样需展开 %d 个目标，超过 %d 上限", total, maxExpandedTargets)
-		}
-		targets, _ = engine.ExpandCIDRs(cidrs, modeValue, sampleN, port)
-		source = library.SourceOfficial
-	default:
-		return nil, "", fmt.Errorf("未知初始化来源 %q", input.Mode)
-	}
-	if len(targets) == 0 {
-		return nil, "", fmt.Errorf("输入来源中没有可识别的 IP")
-	}
+	targets, _ := engine.ExpandCIDRs(cidrs, modeValue, sampleN, port)
 	for i := range targets {
 		if targets[i].Port == 0 {
 			targets[i].Port = port
 		}
 	}
-	return targets, source, nil
+	if len(targets) == 0 {
+		return nil, fmt.Errorf("官方库中没有可识别的 IP")
+	}
+	now := time.Now()
+	entries := make([]library.Entry, 0, len(targets))
+	for _, t := range targets {
+		entries = append(entries, library.Entry{IP: t.IP, Port: t.Port, Source: library.SourceOfficial, Status: library.StatusNew, FirstSeenAt: now})
+	}
+	return library.NewInMemory(filepath.Join(s.dataDir, library.ManagerDir), entries), nil
+}
+
+// remoteURLLibraryStore 构造远程 URL 库（远程库）的内存候选：运行时拉取并解析。
+// 结果只用于本次运行，不写入本地库，失效条目不删除。
+func (s *Server) remoteURLLibraryStore(rawURL string) (*library.Store, error) {
+	targetURL, err := normalizeRemoteImportURL(rawURL)
+	if err != nil {
+		return nil, err
+	}
+	body, _, err := fetchTextFile(targetURL)
+	if err != nil {
+		return nil, fmt.Errorf("读取远程库失败: %w", err)
+	}
+	targets := engine.ParseTargetsWithCIDR(body, engine.SampleOnePerSubnet, 1)
+	if len(targets) == 0 {
+		return nil, fmt.Errorf("远程库中没有可识别的 IP")
+	}
+	now := time.Now()
+	entries := make([]library.Entry, 0, len(targets))
+	for _, t := range targets {
+		entries = append(entries, library.Entry{IP: t.IP, Port: t.Port, Source: library.SourceImport, Status: library.StatusNew, FirstSeenAt: now})
+	}
+	return library.NewInMemory(filepath.Join(s.dataDir, library.ManagerDir), entries), nil
 }
 
 func (s *Server) runAutoTask(ctx context.Context, taskID string, task subscription.Task, opts subscription.RunOptions) {
@@ -624,31 +692,24 @@ func (s *Server) runAutoTask(ctx context.Context, taskID string, task subscripti
 		s.broadcast(engine.Event{Type: engine.EventAuto, Message: string(body)})
 		return ctx.Err()
 	}
-	s.log.Log("info", "维护任务开始: %s (taskId=%s, 库=%s)", task.Name, task.ID, task.LibraryID)
+	s.log.Log("info", "维护任务开始: %s (taskId=%s)", task.Name, task.ID)
 
-	resolvedTargets, inputSource, err := s.resolveTaskInput(task)
+	lib, extra, remote, libSource, err := s.resolveMaintenanceLibrary(task)
 	if err != nil {
-		s.broadcast(engine.Event{Type: engine.EventError, Message: "解析初始化来源失败: " + err.Error()})
-		s.log.Log("error", "维护任务 %s 初始化来源失败: %v", task.Name, err)
+		s.broadcast(engine.Event{Type: engine.EventError, Message: "准备维护来源失败: " + err.Error()})
+		s.log.Log("error", "维护任务 %s 准备维护来源失败: %v", task.Name, err)
 		return
 	}
-	opts.InputTargets, opts.InputSource = resolvedTargets, inputSource
+	opts.InputTargets, opts.InputSource = extra.InputTargets, extra.InputSource
+	opts.RemoteLibrary = remote
 	if opts.Protocol == "" {
-		opts.Protocol = task.Input.Protocol
+		opts.Protocol = extra.Protocol
+		if opts.Protocol == "" {
+			opts.Protocol = "https"
+		}
 	}
+	s.log.Log("info", "维护任务 %s 使用维护来源: %s（远程库=%v）", task.Name, libSource, remote)
 
-	mgr, err := s.libraryManager()
-	if err != nil {
-		s.broadcast(engine.Event{Type: engine.EventError, Message: "打开 IP 库失败: " + err.Error()})
-		s.log.Log("error", "维护任务 %s 打开 IP 库失败: %v", task.Name, err)
-		return
-	}
-	lib, err := mgr.Open(task.LibraryID)
-	if err != nil {
-		s.broadcast(engine.Event{Type: engine.EventError, Message: "打开 IP 库失败: " + err.Error()})
-		s.log.Log("error", "维护任务 %s 打开 IP 库失败: %v", task.Name, err)
-		return
-	}
 	report, err := subscription.RunTask(ctx, s.runner, lib, task, opts, emit)
 	if err != nil {
 		if ctx.Err() != nil {

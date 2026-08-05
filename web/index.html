@@ -372,7 +372,7 @@
                         <div id="task-form">
                             <div class="task-form-row task-primary-row">
                                 <label>任务名称<input type="text" id="task-name" placeholder="如：日本专线"></label>
-                                <label class="toggle task-enabled-toggle"><input type="checkbox" id="task-enabled" checked><span class="toggle-track"></span><span class="toggle-label">启用维护</span></label>
+
                             </div>
                             <section class="task-schedule-section" aria-labelledby="task-schedule-title">
                                 <div class="task-schedule-head">
@@ -396,31 +396,50 @@
                                 </div>
                             </section>
                             <div class="task-form-row task-source-heading">
-                                <label>维护对象库<select id="task-library"></select></label>
-                                <label>补充来源<select id="task-input-mode"><option value="official">官方 IPv4/IPv6（推荐）</option><option value="file">导入文件</option><option value="remote">远程 URL</option><option value="none">无（仅维护对象库）</option></select></label>
+                                <label>维护来源<select id="task-library-source">
+                                    <option value="official">官方 IP 库（远程）</option>
+                                    <option value="local">本地 IP 库</option>
+                                    <option value="remote">远程 URL 库</option>
+                                </select></label>
+                                <label>初始化<select id="task-input-mode">
+                                    <option value="none">无</option>
+                                    <option value="file">导入文件</option>
+                                    <option value="remote">远程 URL</option>
+                                </select></label>
                             </div>
-                            <div class="task-source-panel" id="task-source-file" data-task-source="file">
-                                <label class="task-source-wide">导入文件
-                                    <span class="task-file-row">
-                                        <input type="text" id="task-input" placeholder="本地 TXT / CSV，或 data 相对路径">
-                                        <label class="file-btn task-upload-button" for="task-input-upload">选择并导入</label>
-                                        <input type="file" id="task-input-upload" accept=".txt,.csv,text/plain,text/csv" hidden>
-                                    </span>
-                                    <span id="task-input-file-status" class="hint">导入后用于本次维护的补足候选；未导入时仅维护对象库。</span>
+                            <div class="task-source-panel" id="task-source-local" data-task-source="local" hidden>
+                                <label class="task-source-wide">本地 IP 库
+                                    <select id="task-library"></select>
+                                    <span class="hint">维护时从该库补充候选；检测失效的条目会从库中移除。</span>
                                 </label>
                             </div>
-                            <div class="task-source-panel" id="task-source-remote" data-task-source="remote" hidden>
-                                <label class="task-source-wide">远程 TXT / CSV URL<input type="text" id="task-input-url" placeholder="https://example.com/ips.txt"></label>
-                                <span class="hint">本次维护的补足候选，自动补全 https。</span>
-                            </div>
                             <div class="task-source-panel task-official-source" id="task-source-official" data-task-source="official" hidden>
-                                <label>地址类型<select id="task-input-family"><option value="ipv4">IPv4</option><option value="ipv6">IPv6</option></select></label>
-                                <label>抽样<select id="task-input-sample-mode"><option value="one">每段 1 个</option><option value="n">每段 N 个</option><option value="all">全部</option></select></label>
-                                <label id="task-input-sample-n-wrap">每段数量<input type="number" id="task-input-sample-n" min="1" max="256" value="2"></label>
-                                <label>协议<select id="task-input-protocol"><option value="https">HTTPS</option><option value="http">HTTP</option></select></label>
-                                <label>端口<select id="task-input-port"><option value="443">443</option></select></label>
+                                <label>地址类型<select id="task-library-family"><option value="ipv4">IPv4</option><option value="ipv6">IPv6</option></select></label>
+                                <label>抽样<select id="task-library-sample-mode"><option value="one">每段 1 个</option><option value="n">每段 N 个</option><option value="all">全部</option></select></label>
+                                <label id="task-library-sample-n-wrap">每段数量<input type="number" id="task-library-sample-n" min="1" max="256" value="2"></label>
+                                <label>协议<select id="task-library-protocol"><option value="https">HTTPS</option><option value="http">HTTP</option></select></label>
+                                <label>端口<select id="task-library-port"></select></label>
+                                <span class="hint task-source-wide">官方 IP 库是远程库：每次维护拉取最新官方段作为候选，失效不删除。</span>
                             </div>
-                            <p class="task-source-note">官方为默认来源：每次维护自动抽样最新官方 IP 段补足对象库；如不想补充，可选“无”。</p>
+                            <div class="task-source-panel" id="task-source-remote" data-task-source="remote" hidden>
+                                <label class="task-source-wide">远程 URL 库<input type="text" id="task-library-url" placeholder="https://example.com/ips.txt"></label>
+                                <span class="hint">运行时拉取该 URL 作为候选，自动补全 https；失效不删除。</span>
+                            </div>
+                            <div class="task-source-panel" id="task-init-file" data-task-init="file" hidden>
+                                <label class="task-source-wide">初始化文件
+                                    <span class="task-file-row">
+                                        <input type="text" id="task-init-file-path" placeholder="本地 TXT / CSV，或 data 相对路径">
+                                        <label class="file-btn task-upload-button" for="task-init-upload">选择并导入</label>
+                                        <input type="file" id="task-init-upload" accept=".txt,.csv,text/plain,text/csv" hidden>
+                                    </span>
+                                    <span id="task-init-file-status" class="hint">可选：先把基础 IP 导入本地 IP 库，再开始维护。</span>
+                                </label>
+                            </div>
+                            <div class="task-source-panel" id="task-init-remote" data-task-init="remote" hidden>
+                                <label class="task-source-wide">初始化远程 URL<input type="text" id="task-init-url" placeholder="https://example.com/ips.txt"></label>
+                                <span class="hint">可选：拉取该 URL 的基础 IP 导入本地 IP 库，自动补全 https。</span>
+                            </div>
+                            <p class="task-source-note">维护来源决定候选 IP 从哪里来；初始化（可选）把基础数据导入本地 IP 库。</p>
                             <div class="task-form-row">
                                 <label>输出文件<input type="text" id="task-output" placeholder="留空：文件来源回写原文件，其它来源写入 out/任务名.txt"></label>
                                 <label>输出格式<select id="task-format"><option value="txt">txt</option><option value="csv">csv</option></select></label>
@@ -452,7 +471,6 @@
                             <div id="task-rules"></div>
                             <div class="task-form-actions">
                                 <button type="button" id="task-save" class="primary">保存任务</button>
-                                <button type="button" id="task-run" class="secondary-button">运行此任务</button>
                                 <button type="button" id="task-delete" class="danger">删除任务</button>
                                 <span id="task-form-status" class="hint" aria-live="polite"></span>
                             </div>

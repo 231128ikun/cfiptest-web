@@ -68,8 +68,6 @@ export function initTasks({ toast }) {
     function setRunning(running) {
         state.running = running;
         $('btn-run-all').disabled = running;
-        const runBtn = $('task-run');
-        if (runBtn) runBtn.disabled = running;
     }
 
     // ---- 加载 ----
@@ -115,7 +113,11 @@ export function initTasks({ toast }) {
             }).join('；');
             const limit = task.limit ? `总数 ≤ ${task.limit}` : '不限总数';
             const speed = task.speedEnabled ? '启用测速' : '仅延迟筛选';
-            const libraryName = state.libNames[task.libraryId] || task.libraryId || '默认库';
+            const libraryName = task.librarySource === 'official'
+                ? `官方 IP 库（${task.libraryFamily || 'ipv4'}）`
+                : task.librarySource === 'remote'
+                    ? '远程 URL 库'
+                    : (state.libNames[task.libraryId] || task.libraryId || '默认库');
             const outputPath = task.output?.path || '未设置';
             const schedule = scheduleLabel(task.schedule);
             const pendingKey = task.id || String(i);
@@ -137,7 +139,7 @@ export function initTasks({ toast }) {
                 </div>
                 <div class="task-card-summary">
                     <div class="task-meta-row"><span class="task-meta-label">规则</span><span class="task-meta-value">${escapeHTML(ruleSummary || '任意')}</span></div>
-                    <div class="task-meta-row"><span class="task-meta-label">IP 库</span><span class="task-meta-value">${escapeHTML(libraryName)}</span></div>
+                    <div class="task-meta-row"><span class="task-meta-label">维护来源</span><span class="task-meta-value">${escapeHTML(libraryName)}</span></div>
                     <div class="task-meta-row"><span class="task-meta-label">输出</span><span class="task-meta-value task-output-path">${escapeHTML(outputPath)}</span></div>
                     <div class="task-card-flags"><span>${limit}</span><span>${speed}</span><span class="${task.schedule?.enabled ? 'is-scheduled' : ''}">${escapeHTML(schedule)}</span></div>
                 </div>
@@ -230,39 +232,43 @@ export function initTasks({ toast }) {
         renderTaskGrid();
     }
 
-    function updateTaskOfficialPorts(preferredPort) {
-        const protocol = $('task-input-protocol').value === 'http' ? 'http' : 'https';
+    function updateTaskLibraryPorts(preferredPort) {
+        const protocol = $('task-library-protocol').value === 'http' ? 'http' : 'https';
         const ports = state.officialPorts[protocol] || (protocol === 'http' ? [80] : [443]);
-        const selected = Number(preferredPort || $('task-input-port').value);
-        $('task-input-port').innerHTML = ports.map(port => `<option value="${port}">${port}</option>`).join('');
-        $('task-input-port').value = ports.includes(selected) ? String(selected) : String(ports[0]);
+        const selected = Number(preferredPort || $('task-library-port').value);
+        $('task-library-port').innerHTML = ports.map(port => `<option value="${port}">${port}</option>`).join('');
+        $('task-library-port').value = ports.includes(selected) ? String(selected) : String(ports[0]);
     }
-
-    function updateTaskInputUI() {
-        const mode = $('task-input-mode').value || 'official';
+    function updateTaskSourceUI() {
+        const source = $('task-library-source').value || 'official';
         document.querySelectorAll('[data-task-source]').forEach(panel => {
-            panel.hidden = panel.dataset.taskSource !== mode;
+            panel.hidden = panel.dataset.taskSource !== source;
         });
-        const sampleN = $('task-input-sample-mode').value === 'n';
-        $('task-input-sample-n-wrap').hidden = !sampleN;
-        $('task-input-sample-n').disabled = !sampleN;
+        const initMode = $('task-input-mode').value || 'none';
+        document.querySelectorAll('[data-task-init]').forEach(panel => {
+            panel.hidden = panel.dataset.taskInit !== initMode;
+        });
+        const sampleN = $('task-library-sample-mode').value === 'n';
+        $('task-library-sample-n-wrap').hidden = !sampleN;
+        $('task-library-sample-n').disabled = !sampleN;
     }
-
     function fillForm(task) {
         $('task-name').value = task.name || '';
-        $('task-enabled').checked = task.enabled !== false;
         if (state.libraries.some(l => l.id === task.libraryId)) $('task-library').value = task.libraryId;
-        const input = task.input || { mode: 'file' };
-        $('task-input-mode').value = ['official', 'file', 'remote', 'none'].includes(input.mode) ? input.mode : 'official';
-        $('task-input').value = input.file || '';
-        $('task-input-url').value = input.url || '';
-        $('task-input-family').value = input.family === 'ipv6' ? 'ipv6' : 'ipv4';
-        $('task-input-sample-mode').value = ['one', 'n', 'all'].includes(input.sampleMode) ? input.sampleMode : 'one';
-        $('task-input-sample-n').value = Number(input.sampleN) > 0 ? input.sampleN : 2;
-        $('task-input-protocol').value = input.protocol === 'http' ? 'http' : 'https';
-        updateTaskOfficialPorts(input.port);
-        updateTaskInputUI();
-        $('task-input-file-status').textContent = input.file ? `已保存：${input.file}` : '文件会保存到 data/inputs，定时维护可重复读取。';
+        const source = task.librarySource || (task.input?.mode === 'official' ? 'official' : 'local');
+        $('task-library-source').value = ['official', 'local', 'remote'].includes(source) ? source : 'local';
+        $('task-library-url').value = task.libraryUrl || '';
+        $('task-library-family').value = task.libraryFamily === 'ipv6' ? 'ipv6' : 'ipv4';
+        $('task-library-sample-mode').value = ['one', 'n', 'all'].includes(task.librarySampleMode) ? task.librarySampleMode : 'one';
+        $('task-library-sample-n').value = Number(task.librarySampleN) > 0 ? task.librarySampleN : 2;
+        $('task-library-protocol').value = task.libraryProtocol === 'http' ? 'http' : 'https';
+        updateTaskLibraryPorts(task.libraryPort);
+        const input = task.input || { mode: 'none' };
+        $('task-input-mode').value = ['none', 'file', 'remote'].includes(input.mode) ? input.mode : 'none';
+        $('task-init-file-path').value = input.file || '';
+        $('task-init-url').value = input.url || '';
+        updateTaskSourceUI();
+        $('task-init-file-status').textContent = input.file ? `已保存：${input.file}` : '文件会保存到 data/inputs，定时维护可重复读取。';
         $('task-output').value = task.output?.path || '';
         $('task-format').value = task.output?.format === 'csv' ? 'csv' : 'txt';
         $('task-limit').value = task.limit || 0;
@@ -317,24 +323,30 @@ export function initTasks({ toast }) {
     function collectForm() {
         const task = currentTask() || { rules: [] };
         task.name = $('task-name').value.trim();
-        task.enabled = $('task-enabled').checked;
+        if (task.enabled === undefined) task.enabled = true;
+        const source = $('task-library-source').value || 'local';
+        task.librarySource = source;
         task.libraryId = $('task-library').value || 'default';
-        const inputMode = $('task-input-mode').value || 'official';
-        if (inputMode === 'none') {
-            task.input = { mode: 'none' };
-        } else if (inputMode === 'remote') {
-            task.input = { mode: 'remote', url: $('task-input-url').value.trim() || undefined, protocol: 'https' };
-        } else if (inputMode === 'official') {
-            task.input = {
-                mode: 'official',
-                family: $('task-input-family').value,
-                sampleMode: $('task-input-sample-mode').value,
-                sampleN: Number($('task-input-sample-n').value) || 1,
-                protocol: $('task-input-protocol').value,
-                port: Number($('task-input-port').value) || undefined,
-            };
+        task.libraryUrl = source === 'remote' ? $('task-library-url').value.trim() || undefined : undefined;
+        task.libraryFamily = undefined;
+        task.librarySampleMode = undefined;
+        task.librarySampleN = undefined;
+        task.libraryProtocol = undefined;
+        task.libraryPort = undefined;
+        if (source === 'official') {
+            task.libraryFamily = $('task-library-family').value;
+            task.librarySampleMode = $('task-library-sample-mode').value;
+            task.librarySampleN = Number($('task-library-sample-n').value) || 1;
+            task.libraryProtocol = $('task-library-protocol').value;
+            task.libraryPort = Number($('task-library-port').value) || undefined;
+        }
+        const initMode = $('task-input-mode').value || 'none';
+        if (initMode === 'file') {
+            task.input = { mode: 'file', file: $('task-init-file-path').value.trim() || undefined };
+        } else if (initMode === 'remote') {
+            task.input = { mode: 'remote', url: $('task-init-url').value.trim() || undefined };
         } else {
-            task.input = { mode: 'file', file: $('task-input').value.trim() || undefined, protocol: 'https' };
+            task.input = { mode: 'none' };
         }
         task.output = {
             path: $('task-output').value.trim() || undefined,
@@ -428,13 +440,6 @@ export function initTasks({ toast }) {
         }
     }
 
-    function runSelected() {
-        const task = currentTask();
-        if (!task) { toast('请先选择任务'); return; }
-        if (state.running) { toast('已有任务在运行'); return; }
-        runTaskId(task.id);
-    }
-
     function runAll() {
         if (state.running) { toast('已有任务在运行'); return; }
         const enabled = state.tasks.filter(t => t.enabled && t.id);
@@ -487,18 +492,19 @@ export function initTasks({ toast }) {
     }
 
     // ---- 事件 ----
-    $('task-input-mode').addEventListener('change', updateTaskInputUI);
-    $('task-input-sample-mode').addEventListener('change', updateTaskInputUI);
-    $('task-input-protocol').addEventListener('change', () => updateTaskOfficialPorts());
-    $('task-input-upload').addEventListener('change', async event => {
+    $('task-input-mode').addEventListener('change', updateTaskSourceUI);
+    $('task-library-source').addEventListener('change', updateTaskSourceUI);
+    $('task-library-sample-mode').addEventListener('change', updateTaskSourceUI);
+    $('task-library-protocol').addEventListener('change', () => updateTaskLibraryPorts());
+    $('task-init-upload').addEventListener('change', async event => {
         const file = event.target.files?.[0];
         if (!file) return;
-        const status = $('task-input-file-status');
+        const status = $('task-init-file-status');
         status.textContent = `正在导入 ${file.name}…`;
         try {
             const text = await file.text();
             const result = await api.uploadAutoInput(file.name, text);
-            $('task-input').value = result.path;
+            $('task-init-file-path').value = result.path;
             status.textContent = `已保存 ${result.name || file.name}：${result.targets} 个目标，${result.bytes} 字节`;
             toast('本地文件已导入，可用于定时维护');
         } catch (error) {
@@ -530,20 +536,20 @@ export function initTasks({ toast }) {
     });
     $('btn-task-new').addEventListener('click', () => {
         const task = {
-            id: `t-${Date.now().toString(36)}`,
-            name: '新任务', enabled: true, libraryId: state.libraries[0]?.id || 'default',
-            input: { mode: 'official', family: 'ipv4', sampleMode: 'one', sampleN: 2, protocol: 'https', port: 443 },
+            name: '新任务', enabled: true, librarySource: 'official',
+            libraryId: state.libraries[0]?.id || 'default',
+            libraryFamily: 'ipv4', librarySampleMode: 'one', librarySampleN: 2,
+            libraryProtocol: 'https', libraryPort: 443,
+            input: { mode: 'none' },
             output: { format: 'txt', template: '{ip}:{port}#{emoji}{country}' },
             limit: 0, speedEnabled: false, schedule: { enabled: false, cron: '0 3 * * *' },
             rules: [{ name: '规则 1', conditions: [{ field: 'country', values: [] }], limit: 0 }],
         };
-        state.tasks.push(task);
         openEditor(task);
     });
     $('btn-task-editor-close').addEventListener('click', closeEditor);
     $('task-editor-overlay').addEventListener('click', e => { if (e.target === $('task-editor-overlay')) closeEditor(); });
     $('task-save').addEventListener('click', saveTask);
-    $('task-run').addEventListener('click', runSelected);
     $('task-delete').addEventListener('click', deleteTask);
     $('btn-run-all').addEventListener('click', runAll);
     function updateScheduleUI() {

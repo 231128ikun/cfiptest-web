@@ -264,18 +264,24 @@ func TestAutoOutputSecurity(t *testing.T) {
 	}
 }
 
-func TestResolveTaskInputNone(t *testing.T) {
+func TestResolveMaintenanceLibraryLocal(t *testing.T) {
 	s := autoServer(t)
-	task := subscription.Task{Name: "none-task", Input: subscription.TaskInput{Mode: "none", Protocol: "https", Port: 443}}
-	targets, source, err := s.resolveTaskInput(task)
+	task := subscription.Task{Name: "none-task", LibrarySource: subscription.LibrarySourceLocal, LibraryID: library.DefaultID, Input: subscription.TaskInput{Mode: "none"}}
+	store, opts, remote, source, err := s.resolveMaintenanceLibrary(task)
 	if err != nil {
-		t.Fatalf("none source should not error, got %v", err)
+		t.Fatalf("local source should not error, got %v", err)
 	}
-	if targets != nil || len(targets) != 0 {
-		t.Fatalf("none source should yield no targets, got %v", targets)
+	if store == nil {
+		t.Fatal("local source should open a store")
 	}
-	if source != "" {
-		t.Fatalf("none source should yield empty source label, got %q", source)
+	if remote {
+		t.Fatal("local source should not be remote")
+	}
+	if source == "" {
+		t.Fatal("local source should yield a source label")
+	}
+	if opts.InputTargets != nil && len(opts.InputTargets) != 0 {
+		t.Fatalf("none init should yield no targets, got %v", opts.InputTargets)
 	}
 }
 

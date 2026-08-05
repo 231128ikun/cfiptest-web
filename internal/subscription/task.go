@@ -16,6 +16,13 @@ import (
 // TasksFile 是维护任务定义文件名。
 const TasksFile = "tasks.json"
 
+// 维护来源（Task.LibrarySource）。
+const (
+	LibrarySourceLocal    = "local"    // 本地 IP 库：维护时检测失效的条目从库中删除
+	LibrarySourceOfficial = "official" // 官方 IP 库：远程库，每次维护拉取最新官方段，失效不删除
+	LibrarySourceRemote   = "remote"   // 远程 URL 库：远程库，运行时拉取，失效不删除
+)
+
 // Condition 是规则里的一个条件字段（多值 = 或）。
 type Condition struct {
 	Field  string   `json:"field"`            // country | city | port
@@ -34,9 +41,11 @@ type TaskRule struct {
 	SpeedMax   float64     `json:"speedMax,omitempty"`
 }
 
-// TaskInput 描述任务的初始化来源（可选）：official/file/remote 在每次维护运行前导入并清洗进 IP 库；
+// TaskInput 描述任务的「初始化」（可选）：维护开始前把文件/远程 URL 解析出的基础 IP 导入本地 IP 库。
+// family/sampleMode/sampleN/port/protocol 是旧版官方「初始化来源」字段，加载时迁移到
+// Task.Library*（维护来源）并从本结构中清除，仅保留用于读取旧 tasks.json。
 type TaskInput struct {
-	Mode       string `json:"mode"` // file | remote | official | none；none = 仅维护对象库
+	Mode       string `json:"mode"` // none | file | remote；none = 不初始化
 	File       string `json:"file,omitempty"`
 	URL        string `json:"url,omitempty"`
 	Family     string `json:"family,omitempty"`
@@ -64,7 +73,14 @@ type Task struct {
 	ID                 string       `json:"id,omitempty"`
 	Name               string       `json:"name"`
 	Enabled            bool         `json:"enabled"`   // 单独维护开关；false = 一键维护跳过
-	LibraryID          string       `json:"libraryId"` // 绑定的 IP 库 ID；空 = 默认库
+	LibraryID          string       `json:"libraryId"` // 本地库 ID（librarySource=local 时使用）；空 = 默认库
+	LibrarySource      string       `json:"librarySource,omitempty"` // 维护来源：local | official | remote；空 = local（旧任务）
+	LibraryURL         string       `json:"libraryUrl,omitempty"`    // librarySource=remote 时的远程库 URL
+	LibraryFamily      string       `json:"libraryFamily,omitempty"` // librarySource=official：ipv4 | ipv6
+	LibrarySampleMode  string       `json:"librarySampleMode,omitempty"` // librarySource=official：one | n | all
+	LibrarySampleN     int          `json:"librarySampleN,omitempty"` // librarySource=official：每段抽样数
+	LibraryProtocol    string       `json:"libraryProtocol,omitempty"` // librarySource=official：http | https
+	LibraryPort        int          `json:"libraryPort,omitempty"` // librarySource=official：0 = 按协议默认
 	Input              TaskInput    `json:"input"`
 	Output             TaskOutput   `json:"output"`
 	Limit              int          `json:"limit"`                        // 总数限制（合并去重后取前 N）；0=不限
@@ -88,66 +104,119 @@ func (t *Task) Validate() error {
 	if len(t.Rules) == 0 {
 		return fmt.Errorf("任务 %q 至少需要一条规则", t.Name)
 	}
-	if t.LibraryID == "" {
-		t.LibraryID = library.DefaultID
-	}
+	// ---- 维护来源：local（本地库）/ official（官方远程库）/ remote（远程 URL 库）----
 	t.Input.Mode = strings.ToLower(strings.TrimSpace(t.Input.Mode))
 	if t.Input.Mode == "" {
-		t.Input.Mode = "file"
+		t.Input.Mode = "none"
 	}
+	// 旧任务 mode=file 但未填路径：视为不初始化（旧版允许空文件路径）。
+	if t.Input.Mode == "file" && strings.TrimSpace(t.Input.File) == "" {
+		t.Input.Mode = "none"
+	}
+	legacyOfficial := t.Input.Mode == "official"
+	if legacyOfficial {
+		t.Input.Mode = "none"
+	}
+	t.LibrarySource = strings.ToLower(strings.TrimSpace(t.LibrarySource))
+	if t.LibrarySource == "" {
+		// 旧任务迁移：官方「初始化来源」→ 官方维护来源；其余默认本地库。
+		if legacyOfficial {
+			t.LibrarySource = LibrarySourceOfficial
+		} else {
+			t.LibrarySource = LibrarySourceLocal
+		}
+	}
+	switch t.LibrarySource {
+	case LibrarySourceLocal:
+		if t.LibraryID == "" {
+			t.LibraryID = library.DefaultID
+		}
+	case LibrarySourceOfficial:
+		t.LibraryFamily = strings.ToLower(strings.TrimSpace(t.LibraryFamily))
+		t.LibrarySampleMode = strings.ToLower(strings.TrimSpace(t.LibrarySampleMode))
+		t.LibraryProtocol = strings.ToLower(strings.TrimSpace(t.LibraryProtocol))
+		// 旧版官方初始化参数迁移到维护来源。
+		if t.LibraryFamily == "" {
+			t.LibraryFamily = strings.ToLower(strings.TrimSpace(t.Input.Family))
+		}
+		if t.LibrarySampleMode == "" {
+			t.LibrarySampleMode = strings.ToLower(strings.TrimSpace(t.Input.SampleMode))
+		}
+		if t.LibrarySampleN == 0 {
+			t.LibrarySampleN = t.Input.SampleN
+		}
+		if t.LibraryProtocol == "" {
+			t.LibraryProtocol = strings.ToLower(strings.TrimSpace(t.Input.Protocol))
+		}
+		if t.LibraryPort == 0 {
+			t.LibraryPort = t.Input.Port
+		}
+		if t.LibraryFamily == "" {
+			t.LibraryFamily = "ipv4"
+		}
+		if t.LibraryFamily != "ipv4" && t.LibraryFamily != "ipv6" {
+			return fmt.Errorf("任务 %q 官方库地址类型仅支持 ipv4/ipv6", t.Name)
+		}
+		if t.LibrarySampleMode == "" {
+			t.LibrarySampleMode = "one"
+		}
+		if t.LibrarySampleMode != "one" && t.LibrarySampleMode != "n" && t.LibrarySampleMode != "all" {
+			return fmt.Errorf("任务 %q 官方库抽样方式仅支持 one/n/all", t.Name)
+		}
+		if t.LibrarySampleMode == "n" && (t.LibrarySampleN < 1 || t.LibrarySampleN > 256) {
+			return fmt.Errorf("任务 %q 官方库每段抽样数量必须在 1-256 之间", t.Name)
+		}
+		if t.LibrarySampleMode != "n" && t.LibrarySampleN < 0 {
+			return fmt.Errorf("任务 %q 官方库抽样数量不能为负", t.Name)
+		}
+		if t.LibraryProtocol == "" {
+			t.LibraryProtocol = "https"
+		}
+		if t.LibraryProtocol != "http" && t.LibraryProtocol != "https" {
+			return fmt.Errorf("任务 %q 官方库协议仅支持 http/https", t.Name)
+		}
+		if t.LibraryPort < 0 || t.LibraryPort > 65535 {
+			return fmt.Errorf("任务 %q 官方库端口必须在 1-65535 之间，0 表示按协议默认", t.Name)
+		}
+	case LibrarySourceRemote:
+		t.LibraryURL = strings.TrimSpace(t.LibraryURL)
+		if t.LibraryURL == "" {
+			return fmt.Errorf("任务 %q 远程维护库必须填写 URL", t.Name)
+		}
+	default:
+		return fmt.Errorf("任务 %q 维护来源仅支持 local/official/remote", t.Name)
+	}
+
+	// ---- 初始化（可选）：none | file | remote ----
 	t.Input.File = strings.TrimSpace(t.Input.File)
 	t.Input.URL = strings.TrimSpace(t.Input.URL)
-	t.Input.Protocol = strings.ToLower(strings.TrimSpace(t.Input.Protocol))
-	if t.Input.Protocol == "" {
-		t.Input.Protocol = "https"
-	}
-	if t.Input.Protocol != "http" && t.Input.Protocol != "https" {
-		return fmt.Errorf("任务 %q 检测协议仅支持 http/https", t.Name)
-	}
-	if t.Input.Port < 0 || t.Input.Port > 65535 {
-		return fmt.Errorf("任务 %q 端口必须在 1-65535 之间，0 表示按协议默认", t.Name)
-	}
 	switch t.Input.Mode {
 	case "none":
 		if t.Input.File != "" || t.Input.URL != "" {
 			return fmt.Errorf("任务 %q 初始化来源为「无」时不能同时填写文件或 URL", t.Name)
 		}
 	case "file":
-		if t.Input.File != "" {
-			cleaned := filepath.Clean(t.Input.File)
-			if filepath.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
-				return fmt.Errorf("任务 %q 输入文件必须位于 data 目录内", t.Name)
-			}
-			t.Input.File = cleaned
+		if t.Input.File == "" {
+			return fmt.Errorf("任务 %q 初始化文件必须填写路径", t.Name)
 		}
+		cleaned := filepath.Clean(t.Input.File)
+		if filepath.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("任务 %q 输入文件必须位于 data 目录内", t.Name)
+		}
+		t.Input.File = cleaned
 	case "remote":
 		if t.Input.URL == "" {
-			return fmt.Errorf("任务 %q 远程来源必须填写 URL", t.Name)
-		}
-	case "official":
-		t.Input.Family = strings.ToLower(strings.TrimSpace(t.Input.Family))
-		if t.Input.Family == "" {
-			t.Input.Family = "ipv4"
-		}
-		if t.Input.Family != "ipv4" && t.Input.Family != "ipv6" {
-			return fmt.Errorf("任务 %q 官方来源地址类型仅支持 ipv4/ipv6", t.Name)
-		}
-		t.Input.SampleMode = strings.ToLower(strings.TrimSpace(t.Input.SampleMode))
-		if t.Input.SampleMode == "" {
-			t.Input.SampleMode = "one"
-		}
-		if t.Input.SampleMode != "one" && t.Input.SampleMode != "n" && t.Input.SampleMode != "all" {
-			return fmt.Errorf("任务 %q 官方来源抽样方式仅支持 one/n/all", t.Name)
-		}
-		if t.Input.SampleMode == "n" && (t.Input.SampleN < 1 || t.Input.SampleN > 256) {
-			return fmt.Errorf("任务 %q 每段抽样数量必须在 1-256 之间", t.Name)
-		}
-		if t.Input.SampleMode != "n" && t.Input.SampleN < 0 {
-			return fmt.Errorf("任务 %q 抽样数量不能为负", t.Name)
+			return fmt.Errorf("任务 %q 初始化远程来源必须填写 URL", t.Name)
 		}
 	default:
-		return fmt.Errorf("任务 %q 初始化来源仅支持 file/remote/official/none", t.Name)
+		return fmt.Errorf("任务 %q 初始化来源仅支持 file/remote/none", t.Name)
 	}
+	// 旧版官方字段已迁移到 Library*，从初始化结构中清除，避免新任务误用。
+	t.Input.Family = ""
+	t.Input.SampleMode = ""
+	t.Input.SampleN = 0
+	t.Input.Port = 0
+	t.Input.Protocol = ""
 
 	if t.LatencyConcurrency < 0 || t.LatencyConcurrency > 1000 {
 		return fmt.Errorf("任务 %q 延迟并发必须在 1-1000 之间，0 表示全局默认", t.Name)
@@ -220,7 +289,8 @@ func (t *Task) Validate() error {
 		}
 	}
 	if t.Output.Path == "" {
-		if strings.TrimSpace(t.Input.File) != "" {
+		if t.LibrarySource == LibrarySourceLocal && strings.TrimSpace(t.Input.File) != "" {
+			// 本地库 + 初始化文件：默认回写该文件。
 			t.Output.Path = filepath.Clean(strings.TrimSpace(t.Input.File))
 		} else {
 			t.Output.Path = filepath.Join("out", t.Name+".txt")
@@ -399,12 +469,16 @@ func migrateSubscriptions(dataDir string) ([]Task, error) {
 		if err := sub.Validate(); err != nil {
 			return nil, fmt.Errorf("%s 第 %d 项无效: %w", SubscriptionsFile, i+1, err)
 		}
+		input := TaskInput{Mode: "none"}
+		if strings.TrimSpace(sub.InputPath) != "" {
+			input = TaskInput{Mode: "file", File: sub.InputPath}
+		}
 		task := Task{
 			ID:           fmt.Sprintf("t-%d", i+1),
 			Name:         sub.Name,
 			Enabled:      true,
 			LibraryID:    library.DefaultID,
-			Input:        TaskInput{Mode: "file", File: sub.InputPath},
+			Input:        input,
 			Output:       TaskOutput{Path: sub.Output.Path, Format: sub.Output.Format, Template: sub.Output.Template},
 			SpeedEnabled: sub.EnableSpeed,
 		}

@@ -1,4 +1,4 @@
-﻿/* =====================================================================
+/* =====================================================================
    IP 优选工作台 · Apple 风格皮肤（方案 B）
    ---------------------------------------------------------------------
    仅外观层重写：设计变量（浅色 / 跟随系统深色）+ 布局与组件。
@@ -855,8 +855,8 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 .task-cron-help { margin: 0; font-size: 11px; color: var(--text-secondary); line-height: 1.6; }
 .task-cron-help code { padding: 1px 5px; border-radius: 4px; background: var(--surface-strong); font-family: var(--font-mono); font-size: 10px; }
 .task-form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px 12px; margin-bottom: 12px; }
-.task-primary-row { grid-template-columns: minmax(0, 1fr) 120px; align-items: end; }
-.task-primary-row .task-enabled-toggle { align-self: end; justify-self: center; flex-direction: column; justify-content: flex-end; gap: 7px; min-height: var(--control-h); padding: 0 8px 3px; color: var(--text); }
+.task-primary-row { grid-template-columns: minmax(0, 1fr); align-items: end; }
+
 .task-form-row label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-secondary); }
 .task-form-row label.checkbox { flex-direction: row; align-items: center; gap: 6px; padding-top: 16px; color: var(--text); }
 .task-template-label { grid-column: span 2; }
