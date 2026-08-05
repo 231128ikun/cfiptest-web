@@ -15,13 +15,17 @@ const (
 	ManagerDir = "ipdb"      // data/ipdb/
 	IndexFile  = "index.json"
 	DefaultID  = "default"   // 迁移产生的默认库 ID
+	OfficialID = "official"  // 官方 IP 库（远程库，固定 ID）
 )
 
 // Info 描述一个 IP 库。
+// Type 标明库的性质：local = 普通维护库（维护时删除失效条目）；
+// official = 官方远程库（数据来自远程刷新，维护时失效条目不删除）。
 type Info struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	File string `json:"file"` // 相对 ipdb 目录的 jsonl 文件名
+	Type string `json:"type,omitempty"` // local（默认）| official
 }
 
 // Manager 管理 data/ipdb/ 下的多个命名 IP 库。
@@ -41,7 +45,26 @@ func OpenManager(dataDir string) (*Manager, error) {
 	if err := m.migrateLegacy(); err != nil {
 		return nil, err
 	}
+	if err := m.ensureOfficial(); err != nil {
+		return nil, err
+	}
 	return m, nil
+}
+
+// ensureOfficial 保证「官方 IP 库」（远程库）存在：首次使用时自动注册到索引，
+// 之后每次打开都确保它还在。官方库数据由远程刷新维护，不允许删除/重命名。
+func (m *Manager) ensureOfficial() error {
+	list, err := m.readIndex()
+	if err != nil {
+		return err
+	}
+	for _, info := range list {
+		if info.ID == OfficialID {
+			return nil
+		}
+	}
+	list = append(list, Info{ID: OfficialID, Name: "官方 IP 库", File: "官方IP库.jsonl", Type: "official"})
+	return m.writeIndex(list)
 }
 
 // migrateLegacy 保证默认库存在：把旧版 data/ipdb.jsonl 迁移为「默认库」，
@@ -268,8 +291,11 @@ func nextID(list []Info) string {
 	return fmt.Sprintf("lib-%d", max+1)
 }
 
-// Rename 修改库显示名（文件与 ID 不变）。
+// Rename 修改库显示名（文件与 ID 不变）。官方远程库名称固定。
 func (m *Manager) Rename(id, name string) error {
+	if id == OfficialID {
+		return fmt.Errorf("官方 IP 库为远程库，名称固定")
+	}
 	list, err := m.readIndex()
 	if err != nil {
 		return err
@@ -291,6 +317,9 @@ func (m *Manager) Rename(id, name string) error {
 func (m *Manager) Delete(id string) error {
 	if id == DefaultID {
 		return fmt.Errorf("默认库不允许删除")
+	}
+	if id == OfficialID {
+		return fmt.Errorf("官方 IP 库为远程库，不允许删除（数据由远程刷新自动更新）")
 	}
 	list, err := m.readIndex()
 	if err != nil {
