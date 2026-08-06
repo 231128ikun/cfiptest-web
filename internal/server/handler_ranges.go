@@ -55,6 +55,8 @@ func (s *Server) handleOfficialRanges(w http.ResponseWriter, r *http.Request) {
 	out.Estimate["nPerSubnet"], _ = engine.CountCIDRs(out.IPv4, engine.SampleNPerSubnet, n)
 	out.Estimate["all"], _ = engine.CountCIDRs(out.IPv4, engine.SampleAll, 0)
 	out.Estimate["ipv6OnePerSubnet"], _ = engine.CountCIDRs(out.IPv6, engine.SampleOnePerSubnet, 1)
+	out.Estimate["ipv6NPerSubnet"], _ = engine.CountCIDRs(out.IPv6, engine.SampleNPerSubnet, n)
+	out.Estimate["ipv6All"], _ = engine.CountCIDRs(out.IPv6, engine.SampleAll, 0)
 	writeJSON(w, http.StatusOK, out)
 }
 
