@@ -72,8 +72,8 @@ func CountCIDR(cidr string, mode SampleMode, n int) (int, error) {
 		return (1 << (24 - ones)) * perSubnet, nil
 	}
 
-	// IPv6：每个网段固定抽样若干个（见 ExpandCIDR 说明）
-	return ipv6SampleCount(mode, n), nil
+	// IPv6：按 /64 子网抽样（见 ipv6SampleCount 说明）
+	return ipv6SampleCount(mode, n, ones), nil
 }
 
 // CountCIDRs 汇总多个网段的抽样数量。无法解析的网段被跳过并计入 skipped。
@@ -92,8 +92,9 @@ func CountCIDRs(cidrs []string, mode SampleMode, n int) (total int, skipped []st
 // ExpandCIDR 把一个 CIDR 网段按抽样模式展开为待测 Target 列表。
 //
 // IPv4：遍历网段内每个 /24 子网，各随机取若干个末段。
-// IPv6：网段通常极大（/32 有 2^96 个地址），无法穷举，因此对整段
-// 随机抽取固定数量的地址——这与 CFST 的处理方式一致。
+// IPv6：以 /64 为抽样单元（对应 IPv4 的 /24）。前缀短于 /64 时随机抽
+// 至多 1024 个不同的 /64 子网、每个子网取 N 个；前缀不低于 /64 时
+// 网段不足一个 /64，仅在自身范围内取 N 个。
 func ExpandCIDR(cidr string, mode SampleMode, n int, port int) ([]Target, error) {
 	_, ipNet, err := net.ParseCIDR(strings.TrimSpace(cidr))
 	if err != nil {
@@ -206,22 +207,44 @@ func ipv4At(base net.IP, offset int) string {
 		strconv.Itoa(int(v&0xff))
 }
 
-// ipv6SampleCount 返回一个 IPv6 网段抽样的地址数。
+// ipv6SampleCount 返回一个 IPv6 网段按模式抽样后产出的地址数。
+// 前缀短于 /64：抽 min(2^(64-ones), 1024) 个 /64 子网，各取 N 个；
+// 前缀不低于 /64：网段不足一个 /64，仅取 N 个（受可用地址数约束）。
 //
-// IPv6 网段无法按 /24 划分子网穷举，故采用固定采样数：
-// 默认 1 个，指定 N 时取 N（上限 4096，避免用户误填天文数字），
-// "全部"模式对 IPv6 无意义，退化为一个较大的固定值。
-func ipv6SampleCount(mode SampleMode, n int) int {
-	const ipv6Cap = 4096
+// IPv6 以 /64 为抽样单元（对应 IPv4 的 /24）：同一 /64 内的地址通常路由到
+// 同一机房，每段抽 N 个即可代表。官方 IPv6 段多为 /29~/48，内含 2^16~2^35 个
+// /64 子网，全测没有意义，因此每个网段最多抽 ipv6MaxSubnets 个不同的 /64 子网，
+// 把规模控制在 IPv4 官方段（约 6 千个）同一量级。
+const (
+	ipv6SubnetBits    = 64 // 抽样单元前缀长度（对应 IPv4 的 /24）
+	ipv6MaxSubnetBits = 10 // 最多抽 2^10 = 1024 个 /64 子网
+	ipv6MaxSubnets    = 1 << ipv6MaxSubnetBits
+	ipv6PerSubnetCap  = 256 // 每个 /64 内最多抽取的地址数
+)
+
+// ipv6SubnetCount 返回网段内 /64 子网的个数；前缀短于 /64 时上限 1024。
+func ipv6SubnetCount(ones int) int {
+	if ones >= ipv6SubnetBits {
+		return 1
+	}
+	host := ipv6SubnetBits - ones
+	if host > ipv6MaxSubnetBits {
+		return ipv6MaxSubnets
+	}
+	return 1 << host
+}
+
+// ipv6PerSubnetCount 返回每个 /64 子网内应抽取的地址数。
+func ipv6PerSubnetCount(mode SampleMode, n int) int {
 	switch mode {
 	case SampleAll:
-		return 256
+		return ipv6PerSubnetCap
 	case SampleNPerSubnet:
 		if n < 1 {
 			return 1
 		}
-		if n > ipv6Cap {
-			return ipv6Cap
+		if n > ipv6PerSubnetCap {
+			return ipv6PerSubnetCap
 		}
 		return n
 	default:
@@ -229,26 +252,59 @@ func ipv6SampleCount(mode SampleMode, n int) int {
 	}
 }
 
-// expandIPv6 在网段的可变位范围内随机抽取地址。
+// ipv6SampleCount 计算单个网段的抽样数量（见上方注释）。
+func ipv6SampleCount(mode SampleMode, n int, ones int) int {
+	perSubnet := ipv6PerSubnetCount(mode, n)
+	if ones < ipv6SubnetBits {
+		return ipv6SubnetCount(ones) * perSubnet
+	}
+	host := 128 - ones
+	if host < 8 && perSubnet > 1<<host {
+		return 1 << host
+	}
+	return perSubnet
+}
+
+// expandIPv6 展开一个 IPv6 网段：
+// 前缀短于 /64 时，随机抽至多 1024 个不同的 /64 子网，每个子网内随机取 N 个主机；
+// 前缀不低于 /64 时，直接在网段可用主机范围内随机取 N 个。
 func expandIPv6(ipNet *net.IPNet, mode SampleMode, n int, port int) []Target {
-	count := ipv6SampleCount(mode, n)
-	ones, bits := ipNet.Mask.Size()
-	hostBits := bits - ones
+	ones, _ := ipNet.Mask.Size()
+	perSubnet := ipv6PerSubnetCount(mode, n)
 
 	base := ipNet.IP.Mask(ipNet.Mask).To16()
 	if base == nil {
 		return nil
 	}
 
-	// 主机位为 0 时网段只含一个地址（/128）
-	if hostBits == 0 {
-		return []Target{{IP: base.String(), Port: port}}
+	if ones < ipv6SubnetBits {
+		subnets := ipv6SubnetCount(ones)
+		targets := make([]Target, 0, subnets*perSubnet)
+		seen := make(map[uint64]struct{}, subnets)
+		// 网段极大时抽中重复 /64 的概率可忽略；尝试次数给足余量，
+		// 即使极端情况下抽不满也直接返回，避免死循环。
+		for len(seen) < subnets && len(seen) < (subnets+32)*64 {
+			idx := rand.Uint64() & ipv6SubnetMask(ones)
+			if _, dup := seen[idx]; dup {
+				continue
+			}
+			seen[idx] = struct{}{}
+			for i := 0; i < perSubnet; i++ {
+				targets = append(targets, Target{IP: ipv6AtSubnet(base, idx, ones), Port: port})
+			}
+		}
+		return targets
 	}
 
-	seen := make(map[string]struct{}, count)
-	targets := make([]Target, 0, count)
-	// 抽样可能撞重复，给足尝试次数后就此收手（网段太小时天然取不满 count）
-	for attempt := 0; len(targets) < count && attempt < count*4+16; attempt++ {
+	// 网段不足一个 /64：可用主机位可能不足 N 个，先截断再抽样
+	hostBits := 128 - ones
+	if hostBits < 8 && perSubnet > 1<<hostBits {
+		perSubnet = 1 << hostBits
+	}
+	seen := make(map[string]struct{}, perSubnet)
+	targets := make([]Target, 0, perSubnet)
+	// 抽样可能撞重复，给足尝试次数后就此收手（网段太小时天然取不满）
+	for attempt := 0; len(targets) < perSubnet && attempt < perSubnet*4+16; attempt++ {
 		ip := randomIPv6In(base, hostBits)
 		s := ip.String()
 		if _, dup := seen[s]; dup {
@@ -258,6 +314,37 @@ func expandIPv6(ipNet *net.IPNet, mode SampleMode, n int, port int) []Target {
 		targets = append(targets, Target{IP: s, Port: port})
 	}
 	return targets
+}
+
+// ipv6SubnetMask 返回 2^(64-ones)-1，用于把随机数限定在网段内 /64 的序号范围。
+func ipv6SubnetMask(ones int) uint64 {
+	bits := 64 - ones
+	if bits >= 64 {
+		return ^uint64(0)
+	}
+	return 1<<bits - 1
+}
+
+// ipv6AtSubnet 返回 base 网段内第 idx 个 /64 子网中的随机主机地址。
+func ipv6AtSubnet(base net.IP, idx uint64, ones int) string {
+	ip := make(net.IP, net.IPv6len)
+	copy(ip, base)
+
+	// 子网序号 idx（< 2^(64-ones)）逐位写入 bits [ones, 64)；
+	// base 在该区间的位全为零，因此直接 OR 不会覆盖网络前缀。
+	for b := 0; b < 64-ones; b++ {
+		if idx&(1<<uint(b)) != 0 {
+			addrBit := ones + b
+			ip[addrBit/8] |= 1 << uint(addrBit%8)
+		}
+	}
+	// 主机位（bits 64..127，后 8 字节）随机
+	var h uint64 = rand.Uint64()
+	for i := 15; i >= 8; i-- {
+		ip[i] = byte(h)
+		h >>= 8
+	}
+	return ip.String()
 }
 
 // randomIPv6In 在 base 的低 hostBits 位上填随机值。
