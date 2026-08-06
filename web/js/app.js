@@ -1,4 +1,4 @@
-﻿// app.js —— 主流程：候选准备 → 规则执行 → 结果整理 → 格式导出
+// app.js —— 主流程：候选准备 → 规则执行 → 结果整理 → 格式导出
 
 import { getInputStats, smartFilter, parseFilterExpression, importCSVText } from './input.js';
 import * as api from './api.js';
@@ -341,11 +341,11 @@ async function fetchRanges(refresh = false) {
 }
 
 function renderRangesEstimate() {
-    const { family, sampleMode, sampleN, protocol, port } = officialSettings();
+    const { family, sampleMode, protocol, port } = officialSettings();
     const hint = $('sample-hint');
     hint.textContent = family === 'ipv4'
         ? `IPv4 按每个 /24 抽样，避免直接检测百万级地址；当前使用 ${protocol.toUpperCase()} 端口 ${port}。`
-        : `IPv6 网段无法穷举，将在每个官方网段内抽样；当前使用 ${protocol.toUpperCase()} 端口 ${port}。`;
+        : `IPv6 无法穷举全部地址（每个 /64 子网有 2^64 个地址），按每个 /64 子网抽样，每子网最多 256 个、最多覆盖 1024 个子网；当前使用 ${protocol.toUpperCase()} 端口 ${port}。`;
     $('official-port-summary').textContent = `${protocol.toUpperCase()} · ${port}`;
     if (!officialRanges) return;
     let count;
@@ -354,8 +354,9 @@ function renderRangesEstimate() {
         else if (sampleMode === 'n') count = officialRanges.estimate?.nPerSubnet;
         else count = officialRanges.estimate?.all;
     } else {
-        const segments = officialRanges.ipv6.length;
-        count = segments * (sampleMode === 'one' ? 1 : sampleMode === 'n' ? sampleN : 256);
+        if (sampleMode === 'one') count = officialRanges.estimate?.ipv6OnePerSubnet;
+        else if (sampleMode === 'n') count = officialRanges.estimate?.ipv6NPerSubnet;
+        else count = officialRanges.estimate?.ipv6All;
     }
     const warning = sampleMode === 'all' && family === 'ipv4' ? '，数量过大，不建议直接执行' : '';
     $('ranges-estimate').textContent = `预计生成 ${Number(count || 0).toLocaleString()} 个候选${warning}`;
@@ -493,9 +494,6 @@ function readNumberField(id, { min = -Infinity, max = Infinity, integer = false,
 function normalizeRuleFields({ notify = false } = {}) {
     const rules = [
         ['lat-concurrency', { min: 1, max: 1000, integer: true }],
-        ['lat-probes', { min: 1, max: 10, integer: true }],
-        ['lat-http-probes', { min: 1, max: 10, integer: true }],
-        ['lat-timeout', { min: 200, max: 10000, integer: true }],
         ['lat-maxlatency', { min: 0, max: 10000, integer: true, optional: true }],
         ['spd-concurrency', { min: 1, max: 100, integer: true }],
         ['spd-duration', { min: 1, max: 30, integer: true }],
@@ -518,9 +516,6 @@ function latencyOptions() {
     normalizeRuleFields();
     return {
         maxConcurrency: readNumberField('lat-concurrency', { min: 1, max: 1000, integer: true, optional: true }),
-        probeCount: readNumberField('lat-probes', { min: 1, max: 10, integer: true, optional: true }),
-        httpProbeCount: readNumberField('lat-http-probes', { min: 1, max: 10, integer: true, optional: true }),
-        timeoutMs: readNumberField('lat-timeout', { min: 200, max: 10000, integer: true, optional: true }),
         maxLatencyMs: readNumberField('lat-maxlatency', { min: 0, max: 10000, integer: true, optional: true }) || 0,
         // 启用速度规则时，统一数量限制只在最终测速阶段生效。
         maxResults: speedEnabled() ? 0 : ruleMaxResults(),
@@ -559,12 +554,9 @@ function updateDefaultPortHint() {
 }
 
 function resetRules() {
-    const lat = defaults?.latency || { maxConcurrency: 100, timeoutMs: 1000, maxLatencyMs: 0, enableTLS: true, enableIPAPI: false };
+    const lat = defaults?.latency || { maxConcurrency: 100, timeoutMs: 3000, maxLatencyMs: 0, enableTLS: true, enableIPAPI: false };
     const spd = defaults?.speed || { maxConcurrency: 5, durationSec: 5, minSpeedKBs: 0, downloadURL: 'speed.cloudflare.com/__down?bytes=500000000' };
     $('lat-concurrency').value = lat.maxConcurrency;
-    $('lat-probes').value = lat.probeCount || 4;
-    $('lat-http-probes').value = lat.httpProbeCount || 1;
-    $('lat-timeout').value = lat.timeoutMs;
     $('lat-maxlatency').value = lat.maxLatencyMs > 0 ? lat.maxLatencyMs : '';
     $('lat-tls').checked = lat.enableTLS;
     $('lat-ipapi').checked = lat.enableIPAPI;
@@ -682,7 +674,7 @@ function bindRulesAndRun() {
         $(id).addEventListener('input', previewBadgeThresholdsFromUI);
         $(id).addEventListener('change', applyBadgeThresholdsFromUI);
     });
-    ['lat-concurrency', 'lat-probes', 'lat-http-probes', 'lat-timeout', 'lat-maxlatency', 'spd-concurrency', 'spd-duration', 'spd-minspeed', 'rule-maxresults']
+    ['lat-concurrency', 'lat-maxlatency', 'spd-concurrency', 'spd-duration', 'spd-minspeed', 'rule-maxresults']
         .forEach(id => $(id).addEventListener('change', () => normalizeRuleFields({ notify: true })));
     $('lat-tls').addEventListener('change', () => {
         $('spd-tls').checked = $('lat-tls').checked;
@@ -988,9 +980,6 @@ function applySavedSettings(settings = {}) {
     const lat = rules.latency || {};
     const spd = rules.speed || {};
     if (lat.maxConcurrency) $('lat-concurrency').value = lat.maxConcurrency;
-    if (lat.probeCount) $('lat-probes').value = lat.probeCount;
-    if (lat.httpProbeCount) $('lat-http-probes').value = lat.httpProbeCount;
-    if (lat.timeoutMs) $('lat-timeout').value = lat.timeoutMs;
     $('lat-maxlatency').value = Number(lat.maxLatencyMs) > 0 ? lat.maxLatencyMs : '';
     if (lat.enableTLS != null) $('lat-tls').checked = lat.enableTLS;
     if (lat.enableIPAPI != null) $('lat-ipapi').checked = lat.enableIPAPI;
@@ -1468,10 +1457,17 @@ function bindPageNav() {
     $('btn-help').addEventListener('click', () => { $('help-overlay').hidden = false; });
     $('btn-help-close').addEventListener('click', () => { $('help-overlay').hidden = true; });
     $('help-overlay').addEventListener('click', e => { if (e.target === $('help-overlay')) $('help-overlay').hidden = true; });
-    $('btn-stop').addEventListener('change', async () => {
-        const sw = $('btn-stop');
-        if (sw.checked) { sw.checked = false; return; } // 开关仅用于关闭，不允许反向开启
-        if (!window.confirm('确定要停止服务并退出程序吗？')) { sw.checked = true; return; }
+    $('btn-stop-power').addEventListener('click', () => {
+        const confirmBtn = $('btn-exit-confirm');
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = '确认退出';
+        $('exit-overlay').hidden = false;
+    });
+    $('btn-exit-cancel').addEventListener('click', () => { $('exit-overlay').hidden = true; });
+    $('exit-overlay').addEventListener('click', e => { if (e.target === $('exit-overlay')) $('exit-overlay').hidden = true; });
+    $('btn-exit-confirm').addEventListener('click', async () => {
+        $('btn-exit-confirm').disabled = true;
+        $('btn-exit-confirm').textContent = '正在退出…';
         try {
             await fetch('/api/shutdown', { method: 'POST' });
         } catch { /* 服务已随请求断开 */ }
