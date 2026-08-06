@@ -27,9 +27,15 @@ func TestCountCIDR(t *testing.T) {
 		// 全取
 		{"1.2.3.0/24", SampleAll, 0, 256},
 		{"1.2.0.0/16", SampleAll, 0, 65536},
-		// IPv6
-		{"2606:4700::/32", SampleOnePerSubnet, 1, 1},
-		{"2606:4700::/32", SampleNPerSubnet, 8, 8},
+		// IPv6：/64 为抽样单元；前缀短于 /64 时最多抽 1024 个 /64 子网
+		{"2606:4700::/32", SampleOnePerSubnet, 1, 1024},
+		{"2606:4700::/32", SampleNPerSubnet, 8, 8192},
+		{"2606:4700::/48", SampleNPerSubnet, 2, 2048},
+		// 前缀不低于 /64：网段不足一个 /64，只取 N 个
+		{"2606:4700::/64", SampleOnePerSubnet, 1, 1},
+		{"2606:4700::/64", SampleNPerSubnet, 8, 8},
+		{"2606:4700::/126", SampleNPerSubnet, 10, 4},
+		{"2606:4700::1/128", SampleNPerSubnet, 10, 1},
 	}
 
 	for _, tc := range tests {
@@ -142,8 +148,8 @@ func TestExpandCIDRSmallSubnet(t *testing.T) {
 }
 
 func TestExpandCIDRIPv6(t *testing.T) {
-	_, ipNet, _ := net.ParseCIDR("2606:4700::/32")
-	targets, err := ExpandCIDR("2606:4700::/32", SampleNPerSubnet, 16, 2053)
+	_, ipNet, _ := net.ParseCIDR("2606:4700::/64")
+	targets, err := ExpandCIDR("2606:4700::/64", SampleNPerSubnet, 16, 2053)
 	if err != nil {
 		t.Fatalf("展开失败: %v", err)
 	}
@@ -160,7 +166,7 @@ func TestExpandCIDRIPv6(t *testing.T) {
 			t.Errorf("IPv6 段产出了 IPv4 地址: %q", tg.IP)
 		}
 		if !ipNet.Contains(ip) {
-			t.Errorf("IP %q 落在 2606:4700::/32 之外", tg.IP)
+			t.Errorf("IP %q 落在 2606:4700::/64 之外", tg.IP)
 		}
 		if tg.Port != 2053 {
 			t.Errorf("端口 = %d，期望 2053", tg.Port)
@@ -172,6 +178,33 @@ func TestExpandCIDRIPv6(t *testing.T) {
 	}
 }
 
+func TestExpandCIDRIPv6Subnets(t *testing.T) {
+	// /56 = 256 个 /64 子网，每段取 1 个：应得 256 个且 /64 前缀各不相同
+	_, ipNet, _ := net.ParseCIDR("2606:4700:0:0::/56")
+	targets, err := ExpandCIDR("2606:4700:0:0::/56", SampleOnePerSubnet, 1, 443)
+	if err != nil {
+		t.Fatalf("展开失败: %v", err)
+	}
+	if len(targets) != 256 {
+		t.Fatalf("得到 %d 个目标，期望 256", len(targets))
+	}
+	seen := make(map[string]struct{}, 256)
+	for _, tg := range targets {
+		ip := net.ParseIP(tg.IP)
+		if ip == nil || ip.To4() != nil {
+			t.Fatalf("产出了非法 IPv6: %q", tg.IP)
+		}
+		if !ipNet.Contains(ip) {
+			t.Errorf("IP %q 落在 2606:4700::/56 之外", tg.IP)
+		}
+		b := ip.To16()
+		prefix := net.IP(append([]byte(nil), b[:8]...)).String()
+		seen[prefix] = struct{}{}
+	}
+	if len(seen) != 256 {
+		t.Errorf("覆盖了 %d 个不同的 /64 子网，期望 256", len(seen))
+	}
+}
 func TestExpandCIDRIPv6Single(t *testing.T) {
 	targets, err := ExpandCIDR("2606:4700::1/128", SampleOnePerSubnet, 1, 443)
 	if err != nil {
