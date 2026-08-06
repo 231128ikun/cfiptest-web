@@ -74,7 +74,7 @@ export function initLibrary({ toast }) {
         }).join('');
     }
 
-    const FIELD_PARAM = { country: 'country', city: 'city', dc: 'dc', asn: 'asn', port: 'port' };
+    const FIELD_PARAM = { country: 'country', city: 'city', dc: 'dc', asn: 'asn', port: 'port', status: 'status' };
 
     function currentFilterParams() {
         const params = {};
@@ -99,7 +99,6 @@ export function initLibrary({ toast }) {
         try {
             const data = await api.fetchAutoLibrary({
                 lib: state.current.id,
-                status: $('lib-status').value,
                 q: $('lib-q').value.trim(),
                 offset: state.page * PAGE_SIZE,
                 limit: PAGE_SIZE,
@@ -139,7 +138,7 @@ export function initLibrary({ toast }) {
         const sel = $('lib-field-value');
         if (!field) {
             sel.disabled = true;
-            sel.innerHTML = '<option value="">选择取值…</option>';
+            sel.innerHTML = '<option value="">全部取值</option>';
             return;
         }
         const map = {
@@ -150,11 +149,19 @@ export function initLibrary({ toast }) {
             port: stats?.byPort,
         }[field] || {};
         const current = sel.value;
-        const keys = Object.keys(map).sort();
-        sel.disabled = keys.length === 0;
-        sel.innerHTML = ['<option value="">全部</option>']
-            .concat(keys.map(k => `<option value="${escapeHTML(k)}">${escapeHTML(k)}（${map[k]}）</option>`))
-            .join('');
+        if (field === 'status') {
+            const label = { active: '有效', new: '未测' }; // 有效 / 未测
+            sel.disabled = false;
+            sel.innerHTML = ['<option value="">全部取值</option>']
+                .concat(['active', 'new'].map(k => `<option value="${k}">${label[k]}（${stats?.[k] ?? 0}）</option>`))
+                .join('');
+        } else {
+            const keys = Object.keys(map).sort();
+            sel.disabled = keys.length === 0;
+            sel.innerHTML = ['<option value="">全部取值</option>']
+                .concat(keys.map(k => `<option value="${escapeHTML(k)}">${escapeHTML(k)}（${map[k]}）</option>`))
+                .join('');
+        }
         sel.value = current;
     }
 
@@ -338,7 +345,7 @@ export function initLibrary({ toast }) {
 
     /** 分页拉取当前筛选条件下的全部条目（单页上限 2000）。 */
     async function fetchAllFiltered() {
-        const params = { lib: state.current.id, status: $('lib-status').value, q: $('lib-q').value.trim(), limit: PAGE_SIZE };
+        const params = { lib: state.current.id, q: $('lib-q').value.trim(), limit: PAGE_SIZE };
         Object.assign(params, currentFilterParams());
         const all = [];
         for (let offset = 0; ; offset += PAGE_SIZE) {
@@ -409,7 +416,6 @@ export function initLibrary({ toast }) {
     $('lib-delete').addEventListener('click', deleteCurrent);
     $('lib-field').addEventListener('change', () => { renderFieldValueOptions(state.stats?.[state.current?.id]); state.page = 0; loadEntries(); });
     $('lib-field-value').addEventListener('change', () => { state.page = 0; loadEntries(); });
-    $('lib-status').addEventListener('change', () => { state.page = 0; loadEntries(); });
     // 搜索输入防抖 300ms，避免每次按键都打一次后端
     $('lib-q').addEventListener('input', () => {
         clearTimeout(qTimer);

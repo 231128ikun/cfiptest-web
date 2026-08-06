@@ -996,7 +996,7 @@ function applySavedSettings(settings = {}) {
         $('export-format').value = settings.exportFormat;
     }
     $('log-enable').checked = settings.debugLog === true;
-    $('log-level').value = settings.logLevel || 'all';
+    $('log-level').value = settings.logLevel === 'all' ? 'debug' : (settings.logLevel || 'debug');
     $('log-level').disabled = !$('log-enable').checked;
     debugLogStatus($('log-enable').checked);
     if (Array.isArray(settings.savedTemplates)) {
@@ -1503,7 +1503,7 @@ function debugLogStatus(enabled, message = '') {
     if (!status) return;
     status.classList.toggle('is-enabled', enabled);
     status.classList.toggle('is-error', Boolean(message));
-    const levelLabel = $('log-level').value === 'all' ? '全部' : ($('log-level').value || '全部');
+    const levelLabel = $('log-level').value || 'debug';
     status.textContent = message || (enabled
         ? `调试日志已开启：请求、任务与错误写入 data/logs/app.log（级别：${levelLabel}）。`
         : '调试日志已关闭：不记录不显示，磁盘上也不保留日志文件。');

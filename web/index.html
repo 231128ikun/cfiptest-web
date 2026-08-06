@@ -500,21 +500,17 @@
                 <div class="lib-main">
                     <div class="lib-toolbar">
                         <div class="lib-filter-controls">
-                            <input type="text" id="lib-q" placeholder="搜索 IP / 国家 / 城市 / 数据中心 / ASN">
-                            <select id="lib-status" aria-label="按状态筛选">
-                                <option value="">全部状态</option>
-                                <option value="active">有效</option>
-                                <option value="new">未测</option>
-                            </select>
+                            <input type="text" id="lib-q" placeholder="搜索 IP / 国家 / 城市 / ASN…">
                             <select id="lib-field" aria-label="筛选字段">
-                                <option value="">筛选字段：不筛选</option>
+                                <option value="">全部字段</option>
                                 <option value="country">国家</option>
                                 <option value="city">城市</option>
                                 <option value="dc">数据中心</option>
                                 <option value="asn">ASN</option>
                                 <option value="port">端口</option>
+                                <option value="status">状态</option>
                             </select>
-                            <select id="lib-field-value" aria-label="字段取值（含统计）" disabled><option value="">选择取值…</option></select>
+                            <select id="lib-field-value" aria-label="字段取值（含统计）" disabled><option value="">全部取值</option></select>
                         </div>
                         <div class="lib-manage-actions" aria-label="当前库操作">
                             <div class="lib-action-group">
@@ -617,9 +613,8 @@
                 </div>
                 <div class="page-actions">
                     <label class="toggle" title="总开关：关闭时停止记录并清空日志文件"><input type="checkbox" id="log-enable"><span class="toggle-track"></span><span class="toggle-label">记录调试日志</span></label>
-                    <label title="一般保持「全部」即可，便于分析排查">级别<select id="log-level">
-                        <option value="all">全部</option>
-                        <option value="debug">debug</option>
+                    <label title="debug 显示全部级别（含 info/warn/error），便于分析排查">级别<select id="log-level">
+                        <option value="debug" selected>debug</option>
                         <option value="info">info</option>
                         <option value="warn">warn</option>
                         <option value="error">error</option>
