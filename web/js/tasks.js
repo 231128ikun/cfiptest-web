@@ -1,4 +1,4 @@
-﻿// tasks.js —— 自动维护页：任务卡片网格 + 编辑弹窗（规则编辑器）+ 一键维护
+// tasks.js —— 自动维护页：任务卡片网格 + 编辑弹窗（规则编辑器）+ 一键维护
 import { escapeHTML } from './columns.js';
 import { loadSavedTemplates, fetchSettingsTemplates as fetchSettingsTpls, persistTemplates, templateOptionFor, templateContentFor, renderTemplateSelect } from './templates.js';
 import * as api from './api.js';
@@ -107,11 +107,6 @@ export function initTasks({ toast }) {
                 return conds || '任意';
             }).join('；');
             const limit = task.limit ? `总数 ≤ ${task.limit}` : '不限总数';
-            const detectCap = task.maxCandidates == null
-                ? '单次检测 ≤ 200'
-                : task.maxCandidates > 0
-                    ? `单次检测 ≤ ${task.maxCandidates}`
-                    : '单次检测不限';
             const speed = task.speedEnabled ? '启用测速' : '仅延迟筛选';
             const libraryName = task.librarySource === 'official'
                 ? `官方 IP 段（${task.libraryFamily || 'ipv4'}）`
@@ -142,7 +137,7 @@ export function initTasks({ toast }) {
                     <div class="task-meta-row"><span class="task-meta-label">规则</span><span class="task-meta-value">${escapeHTML(ruleSummary || '任意')}</span></div>
                     <div class="task-meta-row"><span class="task-meta-label">维护来源</span><span class="task-meta-value">${escapeHTML(libraryName)}</span></div>
                     <div class="task-meta-row"><span class="task-meta-label">输出</span><span class="task-meta-value task-output-path">${escapeHTML(outputPath)}</span></div>
-                    <div class="task-card-flags"><span>${limit}</span><span>${detectCap}</span><span>${outputSort}</span><span>${speed}</span><span class="${task.schedule?.enabled ? 'is-scheduled' : ''}">${escapeHTML(schedule)}</span></div>
+                    <div class="task-card-flags"><span>${limit}</span><span>${outputSort}</span><span>${speed}</span><span class="${task.schedule?.enabled ? 'is-scheduled' : ''}">${escapeHTML(schedule)}</span></div>
                 </div>
                 <div class="task-card-actions">
                     <button type="button" class="small task-edit" data-i="${i}">编辑配置</button>
@@ -179,6 +174,20 @@ export function initTasks({ toast }) {
         return templateContentFor(optionValue, state.savedTemplates);
     }
 
+    function updateTplCustomVisibility() {
+        $('task-tpl-custom').hidden = $('task-tpl-select').value !== 'custom';
+        $('task-tpl-save').hidden = $('task-tpl-select').value !== 'custom';
+    }
+
+    function updateTaskSampleHint() {
+        const el = $('task-sample-n-hint');
+        if (!el) return;
+        const n = Math.min(256, Math.max(1, parseInt($('task-library-sample-n').value, 10) || 1));
+        el.textContent = $('task-library-family').value === 'ipv6'
+            ? `IPv6 无法穷举全部地址（每个 /64 子网有 2^64 个地址），按每个 /64 子网抽样，N 最大 256、最多覆盖 1024 个子网；当前 N=${n}。`
+            : `每个 /24 网段抽样 N 个，N 最大 256（即该网段全部地址）；当前 N=${n}。`;
+    }
+
     async function saveCurrentTemplate() {
         const tpl = $('task-tpl-custom').value.trim();
         if (!tpl) { toast('模板为空'); return; }
@@ -193,6 +202,7 @@ export function initTasks({ toast }) {
         }
         renderTplSelect(`saved:${state.savedTemplates.length - 1}`);
         $('task-tpl-custom').value = tpl;
+        updateTplCustomVisibility();
         toast('模板已保存');
     }
 
@@ -227,9 +237,6 @@ export function initTasks({ toast }) {
         document.querySelectorAll('[data-task-init]').forEach(panel => {
             panel.hidden = panel.dataset.taskInit !== initMode;
         });
-        const sampleN = $('task-library-sample-mode').value === 'n';
-        $('task-library-sample-n-wrap').hidden = !sampleN;
-        $('task-library-sample-n').disabled = !sampleN;
     }
     function fillForm(task) {
         $('task-name').value = task.name || '';
@@ -238,8 +245,8 @@ export function initTasks({ toast }) {
         $('task-library-source').value = ['official', 'local', 'remote'].includes(source) ? source : 'local';
         $('task-library-url').value = task.libraryUrl || '';
         $('task-library-family').value = task.libraryFamily === 'ipv6' ? 'ipv6' : 'ipv4';
-        $('task-library-sample-mode').value = ['one', 'n', 'all'].includes(task.librarySampleMode) ? task.librarySampleMode : 'one';
-        $('task-library-sample-n').value = Number(task.librarySampleN) > 0 ? task.librarySampleN : 2;
+        updateTaskSampleHint();
+        $('task-library-sample-n').value = Number(task.librarySampleN) > 0 ? task.librarySampleN : 1;
         $('task-library-protocol').value = task.libraryProtocol === 'http' ? 'http' : 'https';
         updateTaskLibraryPorts(task.libraryPort);
         const input = task.input || { mode: 'none' };
@@ -251,14 +258,7 @@ export function initTasks({ toast }) {
         $('task-output').value = task.output?.path || '';
         $('task-format').value = task.output?.format === 'csv' ? 'csv' : 'txt';
         $('task-sort').value = task.output?.sort || 'latencyAsc';
-        $('task-limit').value = task.limit || 0;
-        $('task-max-candidates').value = Number.isFinite(task.maxCandidates) ? Math.max(0, task.maxCandidates) : 200;
-        $('task-lat-concurrency').value = task.latencyConcurrency > 0 ? task.latencyConcurrency : '';
-        $('task-lat-timeout').value = task.latencyTimeoutMs > 0 ? task.latencyTimeoutMs : '';
-        $('task-lat-probes').value = task.latencyProbes > 0 ? task.latencyProbes : '';
-        $('task-lat-http-probes').value = task.latencyHTTPProbes > 0 ? task.latencyHTTPProbes : '';
-        $('task-spd-concurrency').value = task.speedConcurrency > 0 ? task.speedConcurrency : '';
-        $('task-spd-duration').value = task.speedDurationSec > 0 ? task.speedDurationSec : '';
+        $('task-limit').value = task.limit > 0 ? task.limit : 200;
         $('task-speed').checked = Boolean(task.speedEnabled);
         $('task-schedule-enabled').checked = Boolean(task.schedule?.enabled);
         $('task-schedule-cron').value = task.schedule?.cron || '0 3 * * *';
@@ -266,6 +266,7 @@ export function initTasks({ toast }) {
         const tpl = task.output?.template || '{ip}:{port}#{emoji}{country}';
         $('task-tpl-custom').value = tpl;
         renderTplSelect(tplOptionFor(tpl));
+        updateTplCustomVisibility();
         renderRules(task.rules || []);
         $('task-form-status').textContent = '';
     }
@@ -316,7 +317,7 @@ export function initTasks({ toast }) {
         task.libraryPort = undefined;
         if (source === 'official') {
             task.libraryFamily = $('task-library-family').value;
-            task.librarySampleMode = $('task-library-sample-mode').value;
+            task.librarySampleMode = 'n';
             task.librarySampleN = Number($('task-library-sample-n').value) || 1;
             task.libraryProtocol = $('task-library-protocol').value;
             task.libraryPort = Number($('task-library-port').value) || undefined;
@@ -335,17 +336,17 @@ export function initTasks({ toast }) {
             template: $('task-tpl-custom').value.trim(),
             sort: $('task-sort').value,
         };
-        task.limit = Number($('task-limit').value) > 0 ? Number($('task-limit').value) : 0;
-        const maxCandidatesRaw = $('task-max-candidates').value.trim();
-        task.maxCandidates = maxCandidatesRaw === '' ? 200 : Math.max(0, Number(maxCandidatesRaw) || 0);
+        const limitRaw = $('task-limit').value.trim();
+        task.limit = limitRaw === '' ? 200 : Math.max(0, Number(limitRaw) || 0);
         task.speedEnabled = $('task-speed').checked;
-        const taskConcurrency = id => { const v = Number($(id).value); return Number.isFinite(v) && v > 0 ? v : undefined; };
-        task.latencyConcurrency = taskConcurrency('task-lat-concurrency');
-        task.latencyTimeoutMs = taskConcurrency('task-lat-timeout');
-        task.latencyProbes = taskConcurrency('task-lat-probes');
-        task.latencyHTTPProbes = taskConcurrency('task-lat-http-probes');
-        task.speedConcurrency = taskConcurrency('task-spd-concurrency');
-        task.speedDurationSec = taskConcurrency('task-spd-duration');
+        // 检测参数统一走设置页全局默认；旧任务残留的任务级覆盖一并清除。
+        delete task.maxCandidates;
+        delete task.latencyConcurrency;
+        delete task.latencyTimeoutMs;
+        delete task.latencyProbes;
+        delete task.latencyHTTPProbes;
+        delete task.speedConcurrency;
+        delete task.speedDurationSec;
         task.schedule = {
             enabled: $('task-schedule-enabled').checked,
             cron: $('task-schedule-cron').value.trim() || '0 3 * * *',
@@ -483,8 +484,9 @@ export function initTasks({ toast }) {
     // ---- 事件 ----
     $('task-input-mode').addEventListener('change', updateTaskSourceUI);
     $('task-library-source').addEventListener('change', updateTaskSourceUI);
-    $('task-library-sample-mode').addEventListener('change', updateTaskSourceUI);
     $('task-library-protocol').addEventListener('change', () => updateTaskLibraryPorts());
+    $('task-library-family').addEventListener('change', updateTaskSampleHint);
+    $('task-library-sample-n').addEventListener('input', updateTaskSampleHint);
     $('task-init-upload').addEventListener('change', async event => {
         const file = event.target.files?.[0];
         if (!file) return;
@@ -525,13 +527,13 @@ export function initTasks({ toast }) {
     });
     $('btn-task-new').addEventListener('click', () => {
         const task = {
-            name: '新任务', enabled: true, librarySource: 'official',
+            name: '新任务', enabled: true, librarySource: 'local',
             libraryId: state.libraries[0]?.id || 'default',
-            libraryFamily: 'ipv4', librarySampleMode: 'one', librarySampleN: 2,
+            libraryFamily: 'ipv4', librarySampleMode: 'n', librarySampleN: 1,
             libraryProtocol: 'https', libraryPort: 443,
             input: { mode: 'none' },
             output: { format: 'txt', template: '{ip}:{port}#{emoji}{country}' },
-            limit: 0, maxCandidates: 200, speedEnabled: false, schedule: { enabled: false, cron: '0 3 * * *' },
+            limit: 200, speedEnabled: false, schedule: { enabled: false, cron: '0 3 * * *' },
             rules: [{ name: '规则 1', conditions: [{ field: 'country', values: [] }], limit: 0 }],
         };
         openEditor(task);
@@ -558,7 +560,8 @@ export function initTasks({ toast }) {
         updateScheduleUI();
         $('task-schedule-cron').focus();
     }));
-    $('task-tpl-select').addEventListener('change', e => { const tpl = tplFor(e.target.value); if (tpl) $('task-tpl-custom').value = tpl; });
+    $('task-tpl-select').addEventListener('change', e => { const tpl = tplFor(e.target.value); if (tpl) $('task-tpl-custom').value = tpl; updateTplCustomVisibility(); });
+    $('task-tpl-custom').addEventListener('input', () => { if ($('task-tpl-select').value !== 'custom') $('task-tpl-select').value = 'custom'; });
     $('task-tpl-save').addEventListener('click', saveCurrentTemplate);
     $('task-rule-add').addEventListener('click', () => {
         const t = currentTask();
