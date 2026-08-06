@@ -131,7 +131,6 @@ export function initLibrary({ toast }) {
                     </td>`;
                     row.querySelector('#lib-empty-import')?.addEventListener('click', openImportModal);
                 }
-            }
             });
         }        updateActionStates();
     }
