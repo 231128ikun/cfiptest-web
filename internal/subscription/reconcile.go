@@ -41,7 +41,7 @@ type ProgressFunc func(p Progress) error
 
 // RunOptions 控制编排运行的行为；零值使用默认值。
 type RunOptions struct {
-	LatencyTimeoutMs     int             // 单连接延迟超时（ms），默认 1000
+	LatencyTimeoutMs     int             // 单连接延迟超时（ms），默认 3000
 	LatencyProbes        int             // TCP 探测次数，默认 4；成功探测取平均
 	LatencyHTTPProbes    int             // HTTP(trace) 校验次数，默认 1
 	LatencyHTTPTimeoutMs int             // HTTP(trace) 校验单请求超时（ms），默认 3000；0 = 用 LatencyTimeoutMs
@@ -62,7 +62,7 @@ type RunOptions struct {
 
 func (o RunOptions) withDefaults() RunOptions {
 	if o.LatencyTimeoutMs <= 0 {
-		o.LatencyTimeoutMs = 1000
+		o.LatencyTimeoutMs = 3000
 	}
 	if o.LatencyProbes <= 0 {
 		o.LatencyProbes = 4
