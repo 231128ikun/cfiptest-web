@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -14,17 +14,17 @@
             <div class="brand-block">
                 <div class="brand-mark" aria-hidden="true">IP</div>
                 <div><h1>IP 优选工作台</h1><p>导入候选、设置规则、检测并导出</p></div>
+                <button type="button" id="btn-help" class="help-btn" title="使用说明" aria-label="使用说明">?</button>
             </div>
             <div class="header-status">
                 <span class="local-badge">本地运行</span>
                 <span class="version" id="app-version">版本号：加载中…</span>
                 <span id="res-status" class="res-status">资源加载中…</span>
                 <span class="header-divider" aria-hidden="true"></span>
-                <label class="toggle stop-toggle" title="停止服务并退出程序">
-                    <input type="checkbox" id="btn-stop" checked aria-label="停止服务并退出程序">
-                    <span class="toggle-track"></span>
-                </label>
-                <button type="button" id="btn-help" class="help-btn" title="使用说明" aria-label="使用说明">?</button>
+                <button type="button" id="btn-stop-power" class="power-btn" title="退出程序" aria-label="退出程序">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+                </button>
+                
             </div>
         </div>
     </header>
@@ -145,8 +145,7 @@
                         <div class="field-row">
                             <span class="field-name">抽样方式</span>
                             <label class="radio"><input type="radio" name="sample-mode" value="one" checked> 每段取 1 个</label>
-                            <label class="radio"><input type="radio" name="sample-mode" value="n"> 每段取 <input type="number" id="sample-n" min="1" max="256" value="2"> 个</label>
-                            <label class="radio"><input type="radio" name="sample-mode" value="all"> 全部</label>
+                            <label class="radio"><input type="radio" name="sample-mode" value="n"> 每段取 <input type="number" id="sample-n" min="1" max="256" value="1"> 个</label>
                         </div>
                         <div class="field-row official-endpoint-row">
                             <span class="field-name">检测端点</span>
@@ -183,9 +182,6 @@
                     <label class="rule-line"><span>TLS</span><input type="checkbox" id="lat-tls" checked></label>
                     <label class="rule-line"><span>检测 IPS 类型</span><input type="checkbox" id="lat-ipapi" title="调用外部接口识别被测 IP 的地址类型（IPv4/IPv6）"></label>
                     <label class="rule-line"><span>延迟并发数</span><input type="number" id="lat-concurrency" min="1" max="1000" step="1"><em>个</em></label>
-                    <label class="rule-line"><span>TCP 探测次数</span><input type="number" id="lat-probes" min="1" max="10" step="1"><em>次</em></label>
-                    <label class="rule-line"><span>HTTP 校验次数</span><input type="number" id="lat-http-probes" min="1" max="10" step="1"><em>次</em></label>
-                    <label class="rule-line"><span>单 IP 超时</span><input type="number" id="lat-timeout" min="200" max="10000" step="100"><em>ms</em></label>
                     <label class="rule-line"><span>最大允许延迟</span><input type="number" id="lat-maxlatency" min="0" max="10000" placeholder="不限制"><em>ms</em></label>
                 </div>
 
@@ -228,8 +224,10 @@
             <div class="result-toolbar">
                 <div class="result-filter-group">
                     <input type="text" id="result-filter" placeholder="筛选 IP、国家、城市、数据中心、ASN" aria-label="结果筛选">
-                    <input type="number" id="result-max-latency" min="0" placeholder="延迟上限 ms" aria-label="延迟上限">
-                    <input type="number" id="result-min-speed" min="0" placeholder="最低速度 kB/s" aria-label="最低速度">
+                    <div class="result-filter-limits">
+                        <input type="number" id="result-max-latency" min="0" placeholder="延迟上限 ms" aria-label="延迟上限">
+                        <input type="number" id="result-min-speed" min="0" placeholder="最低速度 kB/s" aria-label="最低速度">
+                    </div>
                 </div>
                 <div class="result-view-controls">
                     <span class="sort-bar"><label for="sort-key">排序</label><select id="sort-key"></select><button id="btn-sort-dir" class="small">▲ 升序</button></span>
@@ -404,8 +402,8 @@
                             </section>
                             <div class="task-form-row task-source-heading">
                                 <label>维护来源<select id="task-library-source">
-                                    <option value="official">官方 IP 段（本地缓存）</option>
                                     <option value="local">本地 IP 库</option>
+                                    <option value="official">官方 IP 段（本地缓存）</option>
                                     <option value="remote">远程 URL 库</option>
                                 </select></label>
                                 <label>初始化<select id="task-input-mode">
@@ -422,10 +420,10 @@
                             </div>
                             <div class="task-source-panel task-official-source" id="task-source-official" data-task-source="official" hidden>
                                 <label>地址类型<select id="task-library-family"><option value="ipv4">IPv4</option><option value="ipv6">IPv6</option></select></label>
-                                <label>抽样<select id="task-library-sample-mode"><option value="one">每段 1 个</option><option value="n">每段 N 个</option><option value="all">全部</option></select></label>
-                                <label id="task-library-sample-n-wrap">每段数量<input type="number" id="task-library-sample-n" min="1" max="256" value="2"></label>
+                                <label >每段抽样 N<input type="number" id="task-library-sample-n" min="1" max="256" value="1"></label>
                                 <label>协议<select id="task-library-protocol"><option value="https">HTTPS</option><option value="http">HTTP</option></select></label>
                                 <label>端口<select id="task-library-port"></select></label>
+                                <span class="hint task-source-wide" id="task-sample-n-hint">每个 /24 网段抽样 N 个，N 最大 256（即该网段全部地址）；当前 N=1。</span>
                                 <span class="hint task-source-wide">官方 IP 段优先读取本地缓存/内置兜底数据，必要时自动更新；作为候选，失效不删除。</span>
                             </div>
                             <div class="task-source-panel" id="task-source-remote" data-task-source="remote" hidden>
@@ -447,37 +445,27 @@
                                 <span class="hint">可选：拉取该 URL 的基础 IP 导入本地 IP 库，自动补全 https。</span>
                             </div>
                             <p class="task-source-note">维护来源决定候选 IP 从哪里来；初始化（可选）把基础数据导入本地 IP 库。</p>
-                            <div class="task-form-row">
-                                <label>输出文件<input type="text" id="task-output" placeholder="留空：文件来源回写原文件，其它来源写入 out/任务名.txt"></label>
+                            <div class="task-form-row task-output-row">
+                                <label>输出位置<input type="text" id="task-output" placeholder="留空：文件来源回写原文件，其它来源写入 out/任务名.txt"></label>
                                 <label>输出格式<select id="task-format"><option value="txt">txt</option><option value="csv">csv</option></select></label>
-                                <label title="输出文件内条目的排列顺序；速度排序时未测速条目排在最后">输出排序<select id="task-sort"><option value="latencyAsc">延迟升序（默认）</option><option value="latencyDesc">延迟降序</option><option value="speedDesc">速度降序</option><option value="speedAsc">速度升序</option><option value="ipAsc">IP 地址升序</option></select></label>
-                                <label>总数限制<span class="input-with-unit"><input type="number" id="task-limit" min="0" placeholder="0 = 不限"> <span class="unit">条</span></span></label>
-                                <label title="每次运行最多检测的候选数（跨分组去重后），超出部分留待下次；0 = 不限，留空 = 默认 200">单次检测上限<span class="input-with-unit"><input type="number" id="task-max-candidates" min="0" value="200" placeholder="0 = 不限（留空默认 200）"> <span class="unit">条</span></span></label>
-                                <label class="checkbox"><input type="checkbox" id="task-speed" title="开启后各规则可选择速度范围"> 开启测速</label>
-                            </div>
-                            <div class="task-form-row task-detection-options">
-                                <label>延迟并发<input type="number" id="task-lat-concurrency" min="0" max="1000" step="1" placeholder="全局默认"></label>
-                                <label>延迟超时<span class="input-with-unit"><input type="number" id="task-lat-timeout" min="0" max="60000" step="100" placeholder="全局默认"> <span class="unit">ms</span></span></label>
-                                <label>TCP 探测次数<input type="number" id="task-lat-probes" min="0" max="10" step="1" placeholder="默认 4"></label>
-                                <label>HTTP 校验次数<input type="number" id="task-lat-http-probes" min="0" max="10" step="1" placeholder="默认 1"></label>
-                                <label>测速并发<input type="number" id="task-spd-concurrency" min="0" max="100" step="1" placeholder="全局默认"></label>
-                                <label>测速时长<span class="input-with-unit"><input type="number" id="task-spd-duration" min="0" max="120" step="1" placeholder="全局默认"> <span class="unit">秒</span></span></label>
-                            </div>
-                            <div class="threshold-note task-detection-note">任务级留空时使用设置页全局默认。延迟默认每个 IP 独立 TCP 探测 4 次，成功结果取平均，HTTP 校验 1 次；并发过高时请优先降低延迟并发。</div>
-                            <div class="task-form-row">
                                 <label class="task-template-label">输出模板
                                     <span class="auto-template-row">
                                         <select id="task-tpl-select" aria-label="选择模板"></select>
-                                        <input type="text" id="task-tpl-custom" placeholder="{ip}:{port}#{emoji}{country}">
-                                        <button type="button" id="task-tpl-save" class="small" title="保存为我的模板（与导出页共用）">存为模板</button>
+                                        <input type="text" id="task-tpl-custom" placeholder="{ip}:{port}#{emoji}{country}" hidden>
+                                        <button type="button" id="task-tpl-save" class="small" hidden title="保存为我的模板（与导出页共用）">存为模板</button>
                                     </span>
                                 </label>
+                                <label title="输出文件内条目的排列顺序；速度排序时未测速条目排在最后">输出排序<select id="task-sort"><option value="latencyAsc">延迟升序（默认）</option><option value="latencyDesc">延迟降序</option><option value="speedDesc">速度降序</option><option value="speedAsc">速度升序</option><option value="ipAsc">IP 地址升序</option></select></label>
+                                <label>总数限制<span class="input-with-unit"><input type="number" id="task-limit" min="0" placeholder="0 = 不限" value="200"> <span class="unit">条</span></span></label>
+                                <label class="checkbox"><input type="checkbox" id="task-speed" title="开启后各规则可选择速度范围"> 开启测速</label>
                             </div>
-                            <div class="task-rules-head">
-                                <span>规则（字段多值=或、多字段=交集；每个组合取前 N 条）</span>
-                                <button type="button" id="task-rule-add" class="small">+ 添加规则</button>
-                            </div>
-                            <div id="task-rules"></div>
+                            <details class="task-rules-section" open>
+                                <summary class="task-rules-summary"><span>规则 <span class="rules-help" tabindex="0" role="button" aria-label="规则用法示例"><span class="rules-help-icon">?</span><span class="rules-help-pop">每条规则 = 一组筛选条件（国家 / 城市 / 端口 / ASN 等），字段多值=或、多字段=交集，每个组合取前 N 条。<br><b>示例：</b><br>· 国家:日本,新加坡 → 日本或新加坡<br>· 国家:日本 ＋ 端口:443 → 日本且 443 端口<br>· 每个组合取前 10 条 → 每组最多保留 10 条</span></span>（可选）</span><span class="task-rules-hint">字段多值=或、多字段=交集；每个组合取前 N 条</span></summary>
+                                <div class="task-rules-body">
+                                    <button type="button" id="task-rule-add" class="small">+ 添加规则</button>
+                                    <div id="task-rules"></div>
+                                </div>
+                            </details>
                             <div class="task-form-actions">
                                 <button type="button" id="task-save" class="primary">保存任务</button>
                                 <button type="button" id="task-delete" class="danger">删除任务</button>
@@ -638,6 +626,7 @@
         </div>
     </div>
 <div class="advanced-config-grid">
+    <div class="settings-section-title">通用设置</div>
 
                     <label>IPS 检测地址 <input type="text" id="advanced-ips-url" placeholder="使用 {ip} 表示被测 IP"></label>
                     <label>测速地址 <input type="text" id="advanced-speed-url"></label>
@@ -645,10 +634,10 @@
                     <label>地理位置数据源 <textarea id="advanced-location-sources" rows="3" placeholder="每行一个地址"></textarea></label>
                     <label>ASN 数据源 <textarea id="advanced-asn-sources" rows="3" placeholder="每行一个地址"></textarea></label>
                     <div class="advanced-group">
-                        <div class="advanced-group-title">自动维护检测参数（全局默认）</div>
+                        <div class="advanced-group-title">自动维护</div>
                         <div class="advanced-inline-grid auto-maintenance-grid">
                             <label>延迟并发 <input type="number" id="auto-lat-concurrency" min="1" max="1000" step="1" placeholder="默认 50"></label>
-                            <label>延迟超时 <span class="input-with-unit"><input type="number" id="auto-lat-timeout" min="200" max="60000" step="100" placeholder="默认 1000"> <span class="unit">ms</span></span></label>
+                            <label>延迟超时 <span class="input-with-unit"><input type="number" id="auto-lat-timeout" min="200" max="60000" step="100" placeholder="默认 3000"> <span class="unit">ms</span></span></label>
                             <label>TCP 探测次数 <input type="number" id="auto-lat-probes" min="1" max="10" step="1" placeholder="默认 4"></label>
                             <label>HTTP 校验次数 <input type="number" id="auto-lat-http-probes" min="1" max="10" step="1" placeholder="默认 1"></label>
                             <label>HTTP 校验超时 <span class="input-with-unit"><input type="number" id="auto-lat-http-timeout" min="200" max="60000" step="100" placeholder="默认 3000"> <span class="unit">ms</span></span></label>
@@ -656,11 +645,11 @@
                             <label>测速并发 <input type="number" id="auto-spd-concurrency" min="1" max="100" step="1" placeholder="默认 5"></label>
                             <label>测速时长 <span class="input-with-unit"><input type="number" id="auto-spd-duration" min="1" max="120" step="1" placeholder="默认 5"> <span class="unit">秒</span></span></label>
                         </div>
+                    <label class="task-source-wide">官方 IP 段源（优先级：本地 IP 库 > 官方 IP 段 > 远程 URL）<textarea id="advanced-official-sources" rows="2" placeholder="每行一个地址"></textarea></label>
                         <div class="threshold-note">延迟会对每个 IP 独立 TCP 探测多次并对成功结果取平均，HTTP 校验 1 次、单请求超时默认 3 秒；连续失败达到阈值（默认 3 次）才从库移除，达到阈值前保留并累计。并发过高可能造成漏测或误判，建议从延迟 50 / 测速 5 开始，再按机器和网络逐步调整。</div>
                     </div>
-                    <label>官方 IP 段源 <textarea id="advanced-official-sources" rows="2" placeholder="每行一个地址"></textarea></label>
+                    <div class="settings-section-title">结果颜色阈值</div>
                     <div class="advanced-group">
-                        <div class="advanced-group-title">结果颜色阈值</div>
                         <div class="threshold-grid">
                             <div class="threshold-card latency-thresholds">
                                 <div class="threshold-card-head"><strong>延迟</strong><span>数值越低越好</span></div>
@@ -727,11 +716,20 @@
                 <p>每次维护的摘要与明细（data/runs.jsonl），可追溯。</p>
                 <h4>⑤ 设置</h4>
                 <p>全局默认检测参数、数据源与颜色阈值（data/config.json、data/settings.json）。</p>
-                <p class="help-note">提示：本程序为本地单机应用，双击 exe 即启动服务。重复启动时会自动打开已运行的实例，不会重复占用端口；需要退出时点击右上角「停止服务」，或关闭黑色控制台窗口。</p>
+                <p class="help-note">提示：本程序为本地单机应用，双击 exe 即启动服务。重复启动时会自动打开已运行的实例，不会重复占用端口；需要退出时点击右上角红色电源按钮，再点「确认退出」，或关闭黑色控制台窗口。</p>
             </div>
         </div>
     </div>
     <div id="toast" role="status" aria-live="polite"></div>
     <script type="module" src="js/app.js"></script>
+<div id="exit-overlay" class="exit-overlay" hidden>
+    <div class="exit-dialog" role="dialog" aria-modal="true" aria-label="退出程序">
+        <p class="exit-dialog-title">退出程序</p><p class="exit-dialog-text">确认要退出吗？退出后服务将停止，需要重新启动才能继续使用。</p>
+        <div class="exit-dialog-actions">
+            <button type="button" id="btn-exit-confirm" class="exit-confirm-btn danger">确认退出</button>
+            <button type="button" id="btn-exit-cancel" class="exit-confirm-cancel">取消</button>
+        </div>
+    </div>
+</div>
 </body>
 </html>
