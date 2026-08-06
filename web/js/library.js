@@ -1,4 +1,4 @@
-// library.js —— IP 库页：库列表（多库管理）+ 库内容表格 + 手动导入/导出。
+﻿// library.js —— IP 库页：库列表（多库管理）+ 库内容表格 + 手动导入/导出。
 // 表格复用工作台结果页的 ResultTable 与 columns.js 列注册表，
 // 导出复用 exporter.js 的 serialize / download，避免维护第二套渲染与导出逻辑。
 import { escapeHTML } from './columns.js';
@@ -407,7 +407,6 @@ export function initLibrary({ toast }) {
         loadEntries();
     });
     $('lib-new').addEventListener('click', createNew);
-    $('lib-new-side').addEventListener('click', createNew);
     $('lib-import').addEventListener('click', openImportModal);
     $('lib-export').addEventListener('click', openExportModal);
     $('lib-rename').addEventListener('click', renameCurrent);

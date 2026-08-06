@@ -1,4 +1,4 @@
-// iptest-web：Cloudflare IP 测速本地 Web 应用。
+﻿// iptest-web：Cloudflare IP 测速本地 Web 应用。
 //
 // 双击启动后在浏览器中使用；配置、设置和运行数据统一存放在 exe 同级 data 目录。
 package main
@@ -31,7 +31,7 @@ var webFS embed.FS
 
 // version 是当前版本号（形如 2026.07.31-22.06），随每次代码修改更新为当前时间。
 // build.bat / build.sh 直接读取此值命名产物，不再另行生成。
-var version = "2026.08.06-09.44"
+var version = "2026.08.06-10.15"
 
 func main() {
 	port := flag.Int("port", 18080, "HTTP 服务监听端口")
