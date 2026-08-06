@@ -358,14 +358,19 @@ export function initLibrary({ toast }) {
 
         $('lib-new').addEventListener('click', createNew);
 
-        // 筛选（复用工作台的文本筛选 + ResultTable 客户端筛选）
-        let qTimer = null;
-        $('lib-filter').addEventListener('input', () => {
-            clearTimeout(qTimer);
-            qTimer = setTimeout(() => {
-                table?.setFilter($('lib-filter').value);
-                renderCount();
-            }, 150);
+        // 筛选（照搬工作台第三步：文本 + 延迟上限 + 最低速度，实时客户端筛选）
+        function applyLibFilters() {
+            if (!table) return;
+            table.setFilter($('lib-filter').value);
+            table.setFilters({
+                maxLatency: parseFloat($('lib-max-latency').value) || 0,
+                minSpeed: parseFloat($('lib-min-speed').value) || 0,
+            });
+            renderCount();
+            updateActionStates();
+        }
+        ['lib-filter', 'lib-max-latency', 'lib-min-speed'].forEach(id => {
+            $(id).addEventListener('input', applyLibFilters);
         });
 
         // 排序

@@ -16,10 +16,14 @@
                 <div><h1>IP 优选工作台</h1><p>导入候选、设置规则、检测并导出</p></div>
             </div>
             <div class="header-status">
-                <span class="version" id="app-version">版本号：加载中…</span>
                 <span class="local-badge">本地运行</span>
+                <span class="version" id="app-version">版本号：加载中…</span>
                 <span id="res-status" class="res-status">资源加载中…</span>
-                <button type="button" id="btn-stop" class="stop-btn" title="停止服务并退出程序">停止服务</button>
+                <span class="header-divider" aria-hidden="true"></span>
+                <label class="toggle stop-toggle" title="停止服务并退出程序">
+                    <input type="checkbox" id="btn-stop" checked aria-label="停止服务并退出程序">
+                    <span class="toggle-track"></span>
+                </label>
                 <button type="button" id="btn-help" class="help-btn" title="使用说明" aria-label="使用说明">?</button>
             </div>
         </div>
@@ -448,7 +452,7 @@
                                 <label>输出格式<select id="task-format"><option value="txt">txt</option><option value="csv">csv</option></select></label>
                                 <label title="输出文件内条目的排列顺序；速度排序时未测速条目排在最后">输出排序<select id="task-sort"><option value="latencyAsc">延迟升序（默认）</option><option value="latencyDesc">延迟降序</option><option value="speedDesc">速度降序</option><option value="speedAsc">速度升序</option><option value="ipAsc">IP 地址升序</option></select></label>
                                 <label>总数限制<span class="input-with-unit"><input type="number" id="task-limit" min="0" placeholder="0 = 不限"> <span class="unit">条</span></span></label>
-                                <label title="每次运行最多检测的候选数（跨分组去重后），超出部分留待下次；0 = 不限，默认 200 已预填">单次检测上限<span class="input-with-unit"><input type="number" id="task-max-candidates" min="0" value="200" placeholder="0 = 不限"> <span class="unit">条</span></span></label>
+                                <label title="每次运行最多检测的候选数（跨分组去重后），超出部分留待下次；0 = 不限，留空 = 默认 200">单次检测上限<span class="input-with-unit"><input type="number" id="task-max-candidates" min="0" value="200" placeholder="0 = 不限（留空默认 200）"> <span class="unit">条</span></span></label>
                                 <label class="checkbox"><input type="checkbox" id="task-speed" title="开启后各规则可选择速度范围"> 开启测速</label>
                             </div>
                             <div class="task-form-row task-detection-options">
@@ -502,16 +506,14 @@
                 </div>
                 <div class="lib-main">
                     <div class="lib-toolbar">
-                        <div class="lib-filter-controls">
-                            <input type="text" id="lib-filter" placeholder="筛选全部字段：IP、国家、城市、ASN、状态、来源、时间…" aria-label="库筛选">
+                        <div class="lib-filter-group">
+                            <input type="text" id="lib-filter" placeholder="筛选 IP、国家、城市、数据中心、ASN、状态、来源" aria-label="库筛选">
+                            <input type="number" id="lib-max-latency" min="0" placeholder="延迟上限 ms" aria-label="延迟上限">
+                            <input type="number" id="lib-min-speed" min="0" placeholder="最低速度 kB/s" aria-label="最低速度">
                         </div>
-                        <div class="lib-manage-actions" aria-label="当前库操作">
-                            <div class="lib-action-group">
-                                <button type="button" id="lib-import">导入</button>
-                                <button type="button" id="lib-export">导出</button>
-                            </div>
-                            <div class="lib-action-sep"></div>
-                            <div class="lib-action-group lib-popover-group">
+                        <div class="lib-view-controls">
+                            <span class="sort-bar"><label for="lib-sort-key">排序</label><select id="lib-sort-key"></select><button id="btn-lib-sort-dir" class="small">▲ 升序</button></span>
+                            <div class="lib-popover-group">
                                 <button type="button" id="lib-column-toggle" aria-expanded="false" aria-controls="lib-column-box">显示字段</button>
                                 <span id="lib-column-selected-count" class="hint" aria-live="polite"></span>
                                 <div id="lib-column-box" class="lib-column-box" aria-label="显示字段">
@@ -524,8 +526,12 @@
                                     <div class="lib-column-box-foot"><span id="lib-column-save-status" class="hint" aria-live="polite"></span></div>
                                 </div>
                             </div>
+                            <button id="lib-quota-toggle" aria-expanded="false" aria-controls="lib-quota-box">自定义展示规则</button>
                             <div class="lib-action-sep"></div>
-                            <div class="lib-action-group lib-popover-group">
+                            <button type="button" id="lib-import">导入</button>
+                            <button type="button" id="lib-export">导出</button>
+                            <div class="lib-action-sep"></div>
+                            <div class="lib-popover-group">
                                 <span id="lib-selected-count" class="hint" aria-live="polite"></span>
                                 <button type="button" id="lib-more" aria-expanded="false" aria-haspopup="true">更多 ▾</button>
                                 <div id="lib-more-wrap" class="lib-more-wrap">
@@ -536,10 +542,6 @@
                                     <button type="button" id="lib-delete" class="danger">删除当前库</button>
                                 </div>
                             </div>
-                        </div>
-                        <div class="lib-sort-row">
-                            <span class="sort-bar"><label for="lib-sort-key">排序</label><select id="lib-sort-key"></select><button id="btn-lib-sort-dir" class="small">▲ 升序</button></span>
-                            <button id="lib-quota-toggle" aria-expanded="false" aria-controls="lib-quota-box">自定义展示规则</button>
                         </div>
                     </div>
                     <div class="quota-box" id="lib-quota-box">

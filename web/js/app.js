@@ -1468,8 +1468,10 @@ function bindPageNav() {
     $('btn-help').addEventListener('click', () => { $('help-overlay').hidden = false; });
     $('btn-help-close').addEventListener('click', () => { $('help-overlay').hidden = true; });
     $('help-overlay').addEventListener('click', e => { if (e.target === $('help-overlay')) $('help-overlay').hidden = true; });
-    $('btn-stop').addEventListener('click', async () => {
-        if (!window.confirm('确定要停止服务并退出程序吗？')) return;
+    $('btn-stop').addEventListener('change', async () => {
+        const sw = $('btn-stop');
+        if (sw.checked) { sw.checked = false; return; } // 开关仅用于关闭，不允许反向开启
+        if (!window.confirm('确定要停止服务并退出程序吗？')) { sw.checked = true; return; }
         try {
             await fetch('/api/shutdown', { method: 'POST' });
         } catch { /* 服务已随请求断开 */ }
@@ -1478,7 +1480,6 @@ function bindPageNav() {
         overlay.textContent = '服务已停止，现在可以关闭此页面。';
         document.body.appendChild(overlay);
     });
-
     $('sidebar-toggle').addEventListener('click', () => {
         const collapsed = sidebar.classList.toggle('collapsed');
         try { localStorage.setItem(SIDEBAR_KEY, collapsed ? '1' : '0'); } catch { /* 忽略 */ }

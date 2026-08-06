@@ -195,17 +195,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
     font-weight: 600;
 }
 .help-btn:hover { background: var(--surface-strong); color: var(--text); }
-.stop-btn {
-    padding: 4px 12px;
-    min-height: 28px;
-    border-radius: 999px;
-    border: 1px solid var(--border);
-    background: var(--glass);
-    color: var(--text-secondary);
-    font-size: 12px;
-    font-weight: 500;
-}
-.stop-btn:hover { background: rgba(220, 38, 38, .12); border-color: rgba(220, 38, 38, .45); color: #e5484d; }
+.header-divider { width: 1px; height: 18px; background: var(--border-light); flex: none; }
+.stop-toggle { display: inline-flex; align-items: center; }
+.stop-toggle .toggle-track { transition: background .2s ease, box-shadow .2s ease; }
+.stop-toggle:hover .toggle-track { box-shadow: 0 0 0 4px rgba(220, 38, 38, .14); }
 
 /* ---------- 4. 侧边栏（毛玻璃） ---------- */
 .app-shell { flex: 1; min-height: 0; display: flex; overflow: hidden; }
@@ -928,19 +921,13 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 .lib-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .lib-item { border: 1px solid var(--border-light); background: var(--surface); border-radius: var(--radius); padding: 14px 16px; cursor: pointer; transition: border-color .15s ease, box-shadow .15s ease; }
 .lib-item:hover { border-color: var(--border); }
-.lib-toolbar { display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
-.lib-toolbar input[type="text"] { min-width: 0; flex: 1; }
-.lib-filter-controls { min-width: 0; display: flex; align-items: center; gap: 8px; }
-.lib-sort-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
-.lib-sort-row .sort-bar { flex: 1 1 auto; }
-.lib-filter-controls #lib-filter { flex: 1 1 340px; max-width: none; }
-.lib-filter-controls input, .lib-filter-controls select { min-width: 0; }
-.lib-manage-actions { display: flex; justify-content: flex-end; align-items: center; gap: 6px; flex-wrap: nowrap; }
-  .lib-action-group { display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; }
-  .lib-action-group > button { flex: 0 1 auto; min-width: 0; white-space: nowrap; }
-  .lib-action-sep { width: 1px; height: 20px; background: var(--border-light); flex-shrink: 0; }
-  .lib-danger-group > button { border-color: var(--danger); color: var(--danger); }
-  .lib-danger-group > button:hover { background: var(--danger-soft); }
+.lib-toolbar { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; margin-bottom: 10px; padding: 10px 12px; border: 1px solid var(--border-light); border-radius: var(--radius-lg); background: var(--surface-soft); }
+.lib-filter-group { display: flex; flex: 1 1 420px; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.lib-filter-group > input { flex: 1 1 160px; min-width: 120px; }
+#lib-filter { flex: 2 1 320px; min-width: 220px; }
+#lib-max-latency, #lib-min-speed { flex: 0 1 150px; min-width: 120px; }
+.lib-view-controls { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+.lib-action-sep { width: 1px; height: 20px; background: var(--border-light); flex-shrink: 0; }
 .lib-new-side { width: 100%; margin-bottom: 10px; }
 .lib-popover-group { position: relative; }
 .lib-column-box, .lib-more-wrap {
@@ -1003,7 +990,7 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 
 /* ---------- 24. 响应式断点 ---------- */
 @media (max-width: 1120px) {
-    .lib-manage-actions { justify-content: flex-start; }
+    .lib-view-controls { margin-left: 0; justify-content: flex-start; }
 }
 
 @media (max-width: 1040px) {
@@ -1066,10 +1053,9 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
     .task-card-head { gap: 10px; }
     .task-card-state { align-items: flex-end; flex-direction: column; gap: 7px; }
     .task-card-toggle { padding-left: 0; border-left: 0; }
-    .lib-manage-actions, .lib-action-group { flex-wrap: wrap; }
-    .lib-action-group > button { flex: 1 1 calc(50% - 4px); }
-    .lib-filter-controls { flex-wrap: wrap; }
-    .lib-filter-controls #lib-filter { flex: 1 1 100%; max-width: none; }
+    .lib-filter-group { flex-wrap: wrap; }
+    #lib-filter { flex: 1 1 100%; max-width: none; }
+    .lib-view-controls { flex-wrap: wrap; justify-content: flex-start; }
     #log-viewer.log-viewer { height: 360px; min-height: 360px; max-height: 360px; }
     .task-file-row { grid-template-columns: 1fr; }
     .task-upload-button { width: 100%; }
@@ -1077,7 +1063,10 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 }
 
 @media (max-width: 640px) {
-    .lib-action-group > button { flex-basis: 100%; }
+    #lib-filter, #lib-max-latency, #lib-min-speed { flex: 1 1 100%; min-width: 0; }
+    .lib-view-controls { align-items: stretch; }
+    .lib-view-controls > * { width: 100%; }
+    .lib-action-sep { display: none; }
     .header-inner, .pipeline, .flow-nav-inner { padding-left: 16px; padding-right: 16px; }
     .header-inner { display: flex; flex-wrap: nowrap; }
     .brand-block, .brand-block > div:last-child { min-width: 0; }
