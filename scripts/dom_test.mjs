@@ -265,6 +265,26 @@ check('统一最大数量按速度规则状态分配到最终阶段', () => {
     assert.ok(/maxResults: ruleMaxResults\(\)/.test(speed), '统一最大数量没有作用到最终测速阶段');
 });
 
+check('设置修改后自动防抖保存，刷新不再丢', () => {
+    assert.ok(/function scheduleSettingsAutoSave/.test(appJs), '缺少设置自动保存调度');
+    assert.ok(/function scheduleConfigAutoSave/.test(appJs), '缺少配置自动保存调度');
+    assert.ok(/function flushAutoSaves/.test(appJs), '缺少自动保存冲刷');
+    assert.ok(/function bindSettingsAutoSave/.test(appJs), '缺少设置页自动保存绑定');
+    assert.ok(/function readConfigFields/.test(appJs), '缺少 config 字段读取');
+    assert.ok(/pagehide[\s\S]{0,80}flushAutoSaves\(\{ unload: true \}\)/.test(appJs), '页面卸载前没有冲刷待保存改动');
+    const rules = fnBody('function bindRulesAndRun');
+    assert.ok(/scheduleSettingsAutoSave\(\)/.test(rules), '规则字段未接入自动保存');
+    assert.ok(/scheduleConfigAutoSave\(\)/.test(rules), '数据源字段未接入 config 自动保存');
+    const settingsBody = fnBody('function bindSettingsAutoSave');
+    assert.ok(/auto-lat-concurrency/.test(settingsBody) && /auto-spd-duration/.test(settingsBody), '设置页维护参数未接入自动保存');
+    assert.ok(/advanced-trace-url/.test(settingsBody) && /advanced-official-sources/.test(settingsBody), '设置页数据源字段未接入自动保存');
+    assert.ok(/debugLog: \$\('log-enable'\)\.checked/.test(appJs), '整表保存会冲掉日志开关');
+});
+check('手动「保存到本地」按钮保留为立即保存', () => {
+    assert.ok(/btn-save-settings[\s\S]{0,80}saveLocalSettings/.test(appJs), '保存到本地按钮未绑定');
+    assert.ok(/async function saveLocalSettings/.test(appJs), '缺少 saveLocalSettings');
+    assert.ok(/readConfigFields\(\)/.test(bodyOf('async function saveLocalSettings')), '手动保存未复用 config 字段读取');
+});
 check('mobile header stays on one compact row', () => {
     assert.ok(/@media \(max-width: 640px\)[\s\S]*?\.header-inner \{ display: flex; flex-wrap: nowrap; \}/.test(css));
     assert.ok(/@media \(max-width: 640px\)[\s\S]*?\.header-status \{ flex: 0 0 auto; justify-content: flex-end; margin-left: auto; flex-wrap: nowrap; \}/.test(css));

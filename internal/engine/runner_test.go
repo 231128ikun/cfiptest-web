@@ -79,6 +79,125 @@ func TestCombinedPipelineUsesMinimumConcurrencyAndFinalLimit(t *testing.T) {
 	}
 }
 
+// TestCombinedLimitDoesNotStreamResultsEarly 有数量上限（MaxResults>0）时，
+// 延迟合格不能提前推送 EventResult——否则前端表格/导出会把所有延迟合格 IP
+// 都累积起来，最终数量超过约束。只有「延迟+测速」双达标的结果才推送，
+// result / speed 事件数都应恰好等于上限。
+func TestCombinedLimitDoesNotStreamResultsEarly(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if strings.Contains(req.URL.Path, "cdn-cgi/trace") {
+			_, _ = w.Write([]byte("ip=203.0.113.7\ncolo=NRT\nloc=JP\nuag=Mozilla/5.0\n"))
+			return
+		}
+		_, _ = w.Write(make([]byte, 32*1024))
+	}))
+	defer srv.Close()
+
+	u := strings.TrimPrefix(srv.URL, "http://")
+	host, portText, _ := net.SplitHostPort(u)
+	port, _ := strconv.Atoi(portText)
+	r := testRunner(map[string]Location{"NRT": {Country: "日本"}}, u+"/cdn-cgi/trace")
+	targets := make([]Target, 12)
+	for i := range targets {
+		targets[i] = Target{IP: host, Port: port}
+	}
+
+	latency := DefaultLatencyOptions()
+	latency.EnableTLS = false
+	latency.TimeoutMs = 2000
+	latency.MaxConcurrency = 4
+	speed := DefaultSpeedOptions()
+	speed.EnableTLS = false
+	speed.DownloadURL = u + "/down"
+	speed.MaxConcurrency = 2
+	speed.DurationSec = 1
+	speed.MaxResults = 3
+
+	var mu sync.Mutex
+	var resultEvents, speedEvents int
+	results, err := r.RunCombinedTest(context.Background(), targets, latency, speed, func(ev Event) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch ev.Type {
+		case EventResult:
+			resultEvents++
+		case EventSpeed:
+			speedEvents++
+		}
+	})
+	if !errors.Is(err, ErrResultLimitReached) {
+		t.Fatalf("err=%v", err)
+	}
+	if len(results) != 3 {
+		t.Fatalf("results=%d, want 3", len(results))
+	}
+	if resultEvents != 3 {
+		t.Errorf("result 事件=%d，期望恰好 3（有上限时不应提前推送延迟合格结果）", resultEvents)
+	}
+	if speedEvents != 3 {
+		t.Errorf("speed 事件=%d，期望 3", speedEvents)
+	}
+}
+
+// TestCombinedNoLimitStreamsResultsProgressively 无数量上限（MaxResults==0）时
+// 保持渐进式展示：每个延迟合格的 IP 都推送 result，测速完成再推送 speed 回填。
+func TestCombinedNoLimitStreamsResultsProgressively(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if strings.Contains(req.URL.Path, "cdn-cgi/trace") {
+			_, _ = w.Write([]byte("ip=203.0.113.7\ncolo=NRT\nloc=JP\nuag=Mozilla/5.0\n"))
+			return
+		}
+		_, _ = w.Write(make([]byte, 32*1024))
+	}))
+	defer srv.Close()
+
+	u := strings.TrimPrefix(srv.URL, "http://")
+	host, portText, _ := net.SplitHostPort(u)
+	port, _ := strconv.Atoi(portText)
+	r := testRunner(map[string]Location{"NRT": {Country: "日本"}}, u+"/cdn-cgi/trace")
+	const n = 4
+	targets := make([]Target, n)
+	for i := range targets {
+		targets[i] = Target{IP: host, Port: port}
+	}
+
+	latency := DefaultLatencyOptions()
+	latency.EnableTLS = false
+	latency.TimeoutMs = 2000
+	latency.MaxConcurrency = 2
+	speed := DefaultSpeedOptions()
+	speed.EnableTLS = false
+	speed.DownloadURL = u + "/down"
+	speed.MaxConcurrency = 2
+	speed.DurationSec = 1
+	speed.MaxResults = 0
+
+	var mu sync.Mutex
+	var resultEvents, speedEvents int
+	results, err := r.RunCombinedTest(context.Background(), targets, latency, speed, func(ev Event) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch ev.Type {
+		case EventResult:
+			resultEvents++
+		case EventSpeed:
+			speedEvents++
+		}
+	})
+	if err != nil {
+		t.Fatalf("MaxResults=0 不应返回错误: %v", err)
+	}
+	if len(results) != n {
+		t.Fatalf("results=%d, want %d", len(results), n)
+	}
+	if resultEvents != n {
+		t.Errorf("result 事件=%d，期望 %d（无上限时每个延迟合格 IP 都应渐进推送）", resultEvents, n)
+	}
+	if speedEvents != n {
+		t.Errorf("speed 事件=%d，期望 %d", speedEvents, n)
+	}
+}
+
 // newFakeCFServer 起一个假的 Cloudflare 边缘节点：
 // 对 /cdn-cgi/trace 返回合法 trace 文本（含 UA 回显与 colo/loc），
 // 使 testSingleIP 判定其为真实 CF 节点。

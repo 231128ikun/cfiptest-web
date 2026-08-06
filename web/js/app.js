@@ -669,20 +669,38 @@ async function refreshLibraryTargets() {
 }
 
 function bindRulesAndRun() {
-    $('spd-enable').addEventListener('change', applySpeedEnabled);
+    $('spd-enable').addEventListener('change', () => {
+        applySpeedEnabled();
+        scheduleSettingsAutoSave();
+    });
     ['badge-latency-green-end', 'badge-latency-yellow-end', 'badge-speed-red-end', 'badge-speed-yellow-end'].forEach(id => {
         $(id).addEventListener('input', previewBadgeThresholdsFromUI);
-        $(id).addEventListener('change', applyBadgeThresholdsFromUI);
+        $(id).addEventListener('change', () => {
+            applyBadgeThresholdsFromUI();
+            scheduleSettingsAutoSave();
+        });
     });
     ['lat-concurrency', 'lat-maxlatency', 'spd-concurrency', 'spd-duration', 'spd-minspeed', 'rule-maxresults']
-        .forEach(id => $(id).addEventListener('change', () => normalizeRuleFields({ notify: true })));
+        .forEach(id => {
+            // input 先防抖保存（防止输入后直接刷新丢失），change 时再归一化并重排保存
+            $(id).addEventListener('input', scheduleSettingsAutoSave);
+            $(id).addEventListener('change', () => {
+                normalizeRuleFields({ notify: true });
+                scheduleSettingsAutoSave();
+            });
+        });
     $('lat-tls').addEventListener('change', () => {
         $('spd-tls').checked = $('lat-tls').checked;
         updateDefaultPortHint();
+        scheduleSettingsAutoSave();
     });
-    $('advanced-speed-url').addEventListener('input', () => { $('spd-url').value = $('advanced-speed-url').value; });
+    $('lat-ipapi').addEventListener('change', scheduleSettingsAutoSave);
+    $('advanced-speed-url').addEventListener('input', () => {
+        $('spd-url').value = $('advanced-speed-url').value;
+        scheduleConfigAutoSave();
+    });
     $('rule-maxresults').addEventListener('input', () => { $('spd-maxresults').value = ruleMaxResults(); });
-    document.getElementById('btn-reset-rules').addEventListener('click', () => { resetRules(); toast('已恢复推荐设置'); });
+    document.getElementById('btn-reset-rules').addEventListener('click', () => { resetRules(); scheduleSettingsAutoSave(); toast('已恢复推荐设置'); });
     $('btn-save-settings').addEventListener('click', saveLocalSettings);
     $('btn-start-latency').addEventListener('click', startPipeline);
     $('btn-start-speed').addEventListener('click', () => startSupplementalSpeed(false));
@@ -696,6 +714,17 @@ function bindRulesAndRun() {
             toast(error.message);
         }
     });
+}
+
+function bindSettingsAutoSave() {
+    // 设置页：自动维护参数改动后自动落盘
+    ['auto-lat-concurrency', 'auto-lat-timeout', 'auto-lat-probes', 'auto-lat-http-probes',
+     'auto-lat-http-timeout', 'auto-lat-remove-after', 'auto-spd-concurrency', 'auto-spd-duration']
+        .forEach(id => $(id).addEventListener('change', scheduleSettingsAutoSave));
+    // 设置页：数据源 / URL 类字段改动后自动保存到 config
+    ['advanced-trace-url', 'advanced-ips-url', 'advanced-location-sources',
+     'advanced-asn-sources', 'advanced-official-sources']
+        .forEach(id => $(id).addEventListener('input', scheduleConfigAutoSave));
 }
 
 async function reconcileTaskStatus({ reconnected = false } = {}) {
@@ -795,6 +824,7 @@ function bindEvents() {
         },
     });
     window.addEventListener('beforeunload', () => eventSource?.close());
+    window.addEventListener('pagehide', () => flushAutoSaves({ unload: true }));
 }
 
 // SSE auto 事件转成侧边栏日志行
@@ -840,7 +870,8 @@ function applyColumnsFromUI() {
     renderTemplateOptions();
     scheduleExportPreview();
     $('column-selected-count').textContent = `已选 ${keys.length}/${document.querySelectorAll('#column-options input').length}`;
-    $('column-save-status').textContent = '字段有修改，尚未保存';
+    $('column-save-status').textContent = '字段有修改，将自动保存';
+    scheduleSettingsAutoSave();
 }
 
 async function saveDisplayColumns() {
@@ -895,6 +926,9 @@ function currentSettings() {
         autoRemoveAfterFailures: positiveInt('auto-lat-remove-after'),
         autoSpeedConcurrency: positiveInt('auto-spd-concurrency'),
         autoSpeedDurationSec: positiveInt('auto-spd-duration'),
+        // 日志开关/级别也随设置持久化，避免整表保存覆盖时把它们冲掉。
+        debugLog: $('log-enable').checked,
+        logLevel: $('log-level').value,
     };
 }
 
@@ -1031,10 +1065,27 @@ function applySavedSettings(settings = {}) {
     applySpeedEnabled(); updateDefaultPortHint(); regenerateOutput();
 }
 
-async function saveLocalSettings() {
-    normalizeRuleFields({ notify: true });
-    applyBadgeThresholdsFromUI();
-    const cfg = {
+// ---- 设置 / 配置自动保存（防抖） ----
+// 之前只有「保存到本地」按钮才写盘，中途改动一刷新就丢。现在规则、显示、
+// 导出、维护参数等字段修改后 600ms 自动落盘（/api/settings）；数据源与 URL
+// 类字段走 /api/config。页面卸载（刷新/关闭）前立即冲刷，避免丢失最后几步修改。
+let settingsSavePending = false;
+let configSavePending = false;
+let autoSaveTimer = null;
+const AUTO_SAVE_DELAY = 600;
+
+function scheduleSettingsAutoSave() {
+    settingsSavePending = true;
+    if (!autoSaveTimer) autoSaveTimer = setTimeout(flushAutoSaves, AUTO_SAVE_DELAY);
+}
+
+function scheduleConfigAutoSave() {
+    configSavePending = true;
+    if (!autoSaveTimer) autoSaveTimer = setTimeout(flushAutoSaves, AUTO_SAVE_DELAY);
+}
+
+function readConfigFields() {
+    return {
         ...(appConfig || {}),
         traceURL: $('advanced-trace-url').value.trim(),
         ipsTypeURL: $('advanced-ips-url').value.trim(),
@@ -1045,6 +1096,43 @@ async function saveLocalSettings() {
             officialRanges: $('advanced-official-sources').value.split(/\r?\n/).map(v => v.trim()).filter(Boolean),
         },
     };
+}
+
+function flushAutoSaves({ unload = false } = {}) {
+    if (autoSaveTimer) { clearTimeout(autoSaveTimer); autoSaveTimer = null; }
+    const init = unload ? { keepalive: true } : {};
+    if (settingsSavePending) {
+        settingsSavePending = false;
+        let settings = null;
+        try { settings = currentSettings(); } catch { settings = null; }
+        if (settings) {
+            const request = api.saveSettings(settings, init);
+            if (!unload) {
+                request.then(() => {
+                    $('settings-status').textContent = '已自动保存到 data 目录';
+                    $('column-save-status').textContent = '显示字段已自动保存';
+                }).catch(error => toast(`设置自动保存失败：${error.message}`));
+            }
+        }
+    }
+    if (configSavePending) {
+        configSavePending = false;
+        let cfg = null;
+        try { cfg = readConfigFields(); } catch { cfg = null; }
+        if (cfg) {
+            const request = api.saveConfig(cfg, init);
+            if (!unload) {
+                request.then(response => { if (response?.config) appConfig = response.config; })
+                    .catch(error => toast('配置自动保存失败：' + error.message));
+            }
+        }
+    }
+}
+
+async function saveLocalSettings() {
+    normalizeRuleFields({ notify: true });
+    applyBadgeThresholdsFromUI();
+    const cfg = readConfigFields();
     try {
         const response = await api.saveConfig(cfg);
         appConfig = response.config;
@@ -1059,7 +1147,7 @@ function clearQuotaEditors() { clearQuotaEditorsShared(); }
 function refreshQuotaEditors() { refreshQuotaEditorsShared(table); }
 
 function bindQuotaPanel() {
-    $('btn-quota-add-rule').addEventListener('click', () => addQuotaRule());
+    $('btn-quota-add-rule').addEventListener('click', () => { addQuotaRule(); scheduleSettingsAutoSave(); });
     $('btn-quota-toggle').addEventListener('click', () => {
         const box = $('quota-box');
         const open = !box.classList.contains('active');
@@ -1074,6 +1162,7 @@ function bindQuotaPanel() {
         toast(rules.length ? `已应用 ${rules.length} 条规则，当前展示 ${shown} 条` : '请至少选择一条规则的值');
         refreshButtons();
         scheduleExportPreview();
+        scheduleSettingsAutoSave();
     });
     $('btn-quota-clear').addEventListener('click', () => {
         table.clearDisplayRules();
@@ -1081,6 +1170,7 @@ function bindQuotaPanel() {
         addQuotaRule();
         refreshButtons();
         scheduleExportPreview();
+        scheduleSettingsAutoSave();
     });
 }
 
@@ -1159,7 +1249,8 @@ function bindResults() {
         renderSortOptions();
         renderTemplateOptions();
         scheduleExportPreview();
-        $('column-save-status').textContent = '已恢复默认，尚未保存';
+        $('column-save-status').textContent = '已恢复默认，将自动保存';
+        scheduleSettingsAutoSave();
     });
     $('btn-column-save').addEventListener('click', saveDisplayColumns);
 }
@@ -1331,6 +1422,7 @@ function bindExport() {
     $('export-format').addEventListener('change', () => {
         renderTemplateOptions();
         regenerateOutput();
+        scheduleSettingsAutoSave();
     });
     templates.addEventListener('change', () => {
         if (exportFormat() === 'csv') return;
@@ -1342,8 +1434,12 @@ function bindExport() {
         $('format-template').value = item.template;
         $('btn-delete-template').disabled = type !== 'saved';
         regenerateOutput();
+        scheduleSettingsAutoSave();
     });
-    $('format-template').addEventListener('input', regenerateOutput);
+    $('format-template').addEventListener('input', () => {
+        regenerateOutput();
+        scheduleSettingsAutoSave();
+    });
     const placeholders = placeholderNames();
     $('placeholder-count').textContent = `（${placeholders.length} 个）`;
     $('placeholder-help').innerHTML = placeholders.map(name => `<code data-ph="${name}">${name}</code>`).join('');
@@ -1352,29 +1448,36 @@ function bindExport() {
         if (!placeholder) return;
         $('format-template').value += placeholder;
         regenerateOutput();
+        scheduleSettingsAutoSave();
     });
     document.querySelectorAll('input[name="export-scope"]').forEach(input =>
         input.addEventListener('change', () => {
             if (!input.checked) return;
             renderTemplateOptions();
             regenerateOutput();
+            scheduleSettingsAutoSave();
         }));
     loadSavedTemplates();
     renderCustomFieldOptions();
     $('btn-custom-append').addEventListener('click', appendSelectedToCustom);
     $('btn-custom-clear').addEventListener('click', clearCustomResults);
-    $('custom-field-options').addEventListener('change', applyCustomColumnsFromUI);
+    $('custom-field-options').addEventListener('change', () => {
+        applyCustomColumnsFromUI();
+        scheduleSettingsAutoSave();
+    });
     $('btn-custom-fields-all').addEventListener('click', () => {
         customColumnKeys = CSV_COLUMNS.map(column => column.key);
         renderCustomFieldOptions();
         renderTemplateOptions();
         regenerateOutput();
+        scheduleSettingsAutoSave();
     });
     $('btn-custom-fields-default').addEventListener('click', () => {
         customColumnKeys = CSV_COLUMNS.map(column => column.key);
         renderCustomFieldOptions();
         renderTemplateOptions();
         regenerateOutput();
+        scheduleSettingsAutoSave();
     });
     $('btn-save-template').addEventListener('click', async () => {
         const name = $('template-name').value.trim();
@@ -1694,6 +1797,7 @@ async function init() {
     bindOfficialInput();
     bindResults();
     bindRulesAndRun();
+    bindSettingsAutoSave();
     bindExport();
     bindEvents();
     renderRawSummary();

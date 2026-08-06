@@ -325,7 +325,9 @@ loop:
 // RunCombinedTest 执行「延迟 → 测速」流水线：每个 IP 先测延迟，延迟合格再测速。
 // 并发模型：取 min(延迟并发, 测速并发) 作为总并发，每个 worker 串行完成 延迟 → 测速 → 判定，
 // 而不是先并发测完全部延迟再并发测速——这样整体约束（如最终保留前 N 个）才能生效。
-// 事件：延迟合格时发 EventResult；测速完成时发 EventSpeed（速度回填）；
+// 事件：无数量上限（MaxResults==0）时，延迟合格先发 EventResult，测速完成再发 EventSpeed（速度回填）；
+// 有数量上限（MaxResults>0）时不再提前发 EventResult，只在「延迟+测速」双达标并入结果后
+// 一次性推送 EventResult+EventSpeed，保证表格/导出数量不会超过约束。
 // 最终只有测速达标的 IP 进入返回结果。MaxResults 作用于最终达标结果。
 func (r *Runner) RunCombinedTest(ctx context.Context, targets []Target, latency LatencyOptions, speed SpeedOptions, cb EventCallback) ([]Result, error) {
 	if latency.MaxConcurrency < 1 {
@@ -382,7 +384,12 @@ func (r *Runner) RunCombinedTest(ctx context.Context, targets []Target, latency 
 			cb(Event{Type: EventTargetDone, Target: &target})
 			return
 		}
-		cb(Event{Type: EventResult, Result: res})
+		// 无数量上限时保持渐进式展示：延迟合格立即推送 result，速度再回填；
+		// 有上限时延迟结果必须等测速双达标后才能推送，否则表格/导出会超过约束。
+		streamLatencyResult := speed.MaxResults == 0
+		if streamLatencyResult {
+			cb(Event{Type: EventResult, Result: res})
+		}
 
 		speedVal := testSingleSpeed(runCtx, target, speed)
 		if speedVal <= 0 {
@@ -390,7 +397,9 @@ func (r *Runner) RunCombinedTest(ctx context.Context, targets []Target, latency 
 				return
 			}
 			res.DownloadSpeedKBs = -1
-			cb(Event{Type: EventSpeed, Result: res})
+			if streamLatencyResult {
+				cb(Event{Type: EventSpeed, Result: res})
+			}
 			completedNormally = true
 			cb(Event{Type: EventTargetDone, Target: &target})
 			return
@@ -413,6 +422,10 @@ func (r *Runner) RunCombinedTest(ctx context.Context, targets []Target, latency 
 		n := len(results)
 		mu.Unlock()
 		atomic.AddInt64(&validCount, 1)
+		if !streamLatencyResult {
+			// 约束模式：此前没有推送过该 IP 的 result，达标后补发 result+speed
+			cb(Event{Type: EventResult, Result: res})
+		}
 		cb(Event{Type: EventSpeed, Result: res})
 		completedNormally = true
 		cb(Event{Type: EventTargetDone, Target: &target})

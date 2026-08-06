@@ -1,7 +1,7 @@
 // api.js —— 后端 API 客户端：fetch 封装 + SSE 事件订阅
 
-async function postJSON(url, body, method = 'POST') {
-    const options = { method, headers: { 'Content-Type': 'application/json' } };
+async function postJSON(url, body, method = 'POST', init = {}) {
+    const options = { method, headers: { 'Content-Type': 'application/json' }, ...init };
     if (method !== 'GET') options.body = JSON.stringify(body); // GET 带 body 会被浏览器拒绝
     const resp = await fetch(url, options);
     const data = await resp.json().catch(() => ({}));
@@ -17,8 +17,8 @@ export async function fetchConfig() {
     return resp.json();
 }
 
-export function saveConfig(config) { return postJSON('/api/config', config, 'PUT'); }
-export function saveSettings(settings) { return postJSON('/api/settings', settings, 'PUT'); }
+export function saveConfig(config, init = {}) { return postJSON('/api/config', config, 'PUT', init); }
+export function saveSettings(settings, init = {}) { return postJSON('/api/settings', settings, 'PUT', init); }
 
 /** 合并补丁保存设置：先取当前完整设置再合并补丁，避免覆盖其他设置项（模板、日志等共存于 settings.json）。 */
 export async function saveSettingsPatch(patch) {
