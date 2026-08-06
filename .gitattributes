@@ -3,12 +3,17 @@
 .gitattributes text eol=lf
 .gitignore text eol=lf
 *.go text eol=lf
+go.mod text eol=lf
+go.sum text eol=lf
 *.js text eol=lf
 *.mjs text eol=lf
 *.css text eol=lf
 *.html text eol=lf
 *.md text eol=lf
 *.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.txt text eol=lf
 *.sh text eol=lf
 *.bat text eol=crlf
 
