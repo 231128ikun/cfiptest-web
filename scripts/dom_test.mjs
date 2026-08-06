@@ -12,6 +12,7 @@ import { readFileSync } from 'node:fs';
 const html = readFileSync(new URL('../web/index.html', import.meta.url), 'utf8');
 const appJs = readFileSync(new URL('../web/js/app.js', import.meta.url), 'utf8');
 const tasksJs = readFileSync(new URL('../web/js/tasks.js', import.meta.url), 'utf8');
+const quotaRulesJs = readFileSync(new URL('../web/js/quota-rules.js', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../web/css/style.css', import.meta.url), 'utf8');
 
 let pass = 0;
@@ -37,13 +38,15 @@ check('tasks.js 引用的每个 id 都在 index.html 里存在', () => {
     const missing = [...new Set([...tasksJs.matchAll(/\$\('([^']+)'\)/g)].map(m => m[1]))].filter(id => !idSet.has(id));
     assert.deepEqual(missing, [], `这些 id 会取到 null：${missing.join(', ')}`);
 });
-check('自动维护并发配置已接线（设置页全局默认 + 任务级覆盖）', () => {
+check('检测参数统一在设置页控制，任务级覆盖已移除', () => {
     assert.ok(/id="auto-lat-concurrency"/.test(html) && /id="auto-spd-concurrency"/.test(html), '设置页缺少自动维护并发输入');
+    assert.ok(/id="auto-lat-timeout"/.test(html) && /id="auto-lat-probes"/.test(html) && /id="auto-lat-http-probes"/.test(html), '设置页缺少超时/探测次数输入');
     assert.ok(/autoLatencyConcurrency: positiveInt\('auto-lat-concurrency'\)/.test(appJs), '设置页并发未写入保存对象');
     assert.ok(/\$\(\'auto-lat-concurrency\'\)\.value = settings\.autoLatencyConcurrency/.test(appJs), '设置页并发未回填');
-    assert.ok(/id="task-lat-concurrency"/.test(html) && /id="task-spd-concurrency"/.test(html), '任务弹窗缺少并发输入');
-    assert.ok(/task\.latencyConcurrency = taskConcurrency\('task-lat-concurrency'\)/.test(tasksJs), '任务并发未收集');
-    assert.ok(/task\.latencyConcurrency > 0 \? task\.latencyConcurrency : ''/.test(tasksJs), '任务并发未回填表单');
+    assert.equal(/id="task-lat-concurrency"/.test(html), false, '任务弹窗不应再有任务级并发输入');
+    assert.equal(/id="task-lat-timeout"/.test(html), false, '任务弹窗不应再有任务级超时输入');
+    assert.equal(/taskConcurrency\(/.test(tasksJs), false, '任务表单不应再收集任务级检测参数');
+    assert.equal(/task-max-candidates|maxCandidatesRaw|task\.maxCandidates = /.test(tasksJs), false, '任务表单不应再收集单次检测上限');
 });
 check('引用面不是空的（正则失效时这条会先炸）', () => {
     assert.ok(referencedIds.length > 60, `只解析出 ${referencedIds.length} 个引用，正则可能已失配`);
@@ -113,8 +116,8 @@ check('分组取前 N 已改名为自定义展示规则', () => {
     assert.equal(/分组取前 N/.test(html), false);
 });
 check('前 N 输入留空即显示无限制，不再附加注释', () => {
-    assert.ok(/placeholder="无限制"/.test(appJs));
-    assert.equal(/0 表示不限制/.test(appJs), false);
+    assert.ok(/placeholder="无限制"/.test(quotaRulesJs));
+    assert.equal(/0 表示不限制/.test(quotaRulesJs), false);
 });
 check('结果区右上角不再展示导出范围摘要', () => {
     assert.equal(/id="export-count"/.test(html), false);
@@ -174,7 +177,7 @@ check('反代模式输入框与候选区高度固定且对齐', () => {
 });
 check('结果筛选关键词更长、延迟与速度更窄', () => {
     assert.ok(/#result-filter \{ flex: 2 1 320px; min-width: 220px; \}/.test(css));
-    assert.ok(/#result-max-latency, #result-min-speed \{ flex: 0 1 150px; min-width: 120px; \}/.test(css));
+    assert.ok(/#result-max-latency, #result-min-speed \{ flex: 1 1 140px; min-width: 120px; max-width: 200px; \}/.test(css));
 });
 check('IPS 检测地址在本地配置中可见', () => {
     assert.ok(/id="advanced-ips-url"/.test(html));
@@ -222,8 +225,8 @@ check('.mode-tab 在静态标记里存在', () => {
     assert.ok(/class="mode-tab/.test(html), 'mode-tabs 的按钮绑定会一个都连不上');
 });
 check('.quota-condition 由自定义展示规则编辑器生成', () => {
-    assert.ok(/className = 'quota-condition'/.test(appJs), '组合规则缺少条件编辑行');
-    assert.ok(/picker\.getSelectedInOrder\(\)/.test(appJs), '显示规则没有按选择顺序读取多选值');
+    assert.ok(/className = 'quota-condition'/.test(quotaRulesJs), '组合规则缺少条件编辑行');
+    assert.ok(/picker\.getSelectedInOrder\(\)/.test(quotaRulesJs), '显示规则没有按选择顺序读取多选值');
 });
 
 console.log('初次检测是否继续测速:');
