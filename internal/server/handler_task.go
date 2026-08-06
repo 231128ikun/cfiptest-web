@@ -189,14 +189,17 @@ func (s *Server) handleStartLatency(w http.ResponseWriter, r *http.Request) {
 	speedDefaults := s.speedDefaults
 	s.configMu.RUnlock()
 	opts := req.Options.apply(latencyDefaults)
-	targets = engine.ResolveDefaultPorts(targets, opts.EnableTLS)
+	var targetKeys []string
+	targets, targetKeys = engine.ResolveDefaultPortsWithKeys(targets, opts.EnableTLS)
+	for i := range targets {
+		targets[i].Key = targetKeys[i]
+	}
 	s.log.Log("info", "任务 %s 开始: targets=%d tls=%v continueSpeed=%v", taskID, len(targets), opts.EnableTLS, req.EnableSpeed)
+	emit := func(ev engine.Event) { s.broadcastTaskEvent(taskID, ev) }
 	go func() {
 		defer s.finishTask(taskID)
 		if !req.EnableSpeed {
-			_, err := s.runner.RunLatencyTest(ctx, targets, opts, func(ev engine.Event) {
-				s.broadcastTaskEvent(taskID, ev)
-			})
+			_, err := s.runner.RunLatencyTest(ctx, targets, opts, emit)
 			if isTaskFailure(err) {
 				s.broadcastTaskEvent(taskID, engine.Event{Type: engine.EventError, Message: err.Error()})
 			}
@@ -205,9 +208,7 @@ func (s *Server) handleStartLatency(w http.ResponseWriter, r *http.Request) {
 
 		speedOpts := req.SpeedOptions.apply(speedDefaults)
 		speedOpts.EnableTLS = opts.EnableTLS
-		if _, err := s.runner.RunCombinedTest(ctx, targets, opts, speedOpts, func(ev engine.Event) {
-			s.broadcastTaskEvent(taskID, ev)
-		}); isTaskFailure(err) {
+		if _, err := s.runner.RunCombinedTest(ctx, targets, opts, speedOpts, emit); isTaskFailure(err) {
 			s.broadcastTaskEvent(taskID, engine.Event{Type: engine.EventError, Message: err.Error()})
 		}
 	}()
@@ -236,18 +237,20 @@ func (s *Server) handleStartSpeed(w http.ResponseWriter, r *http.Request) {
 	speedDefaults := s.speedDefaults
 	s.configMu.RUnlock()
 	opts := req.Options.apply(speedDefaults)
-	req.Targets = engine.ResolveDefaultPorts(req.Targets, opts.EnableTLS)
-	s.log.Log("info", "任务 %s 开始: targets=%d supplementalSpeed=true tls=%v", taskID, len(req.Targets), opts.EnableTLS)
+	speedTargets, speedKeys := engine.ResolveDefaultPortsWithKeys(req.Targets, opts.EnableTLS)
+	for i := range speedTargets {
+		speedTargets[i].Key = speedKeys[i]
+	}
+	s.log.Log("info", "任务 %s 开始: targets=%d supplementalSpeed=true tls=%v", taskID, len(speedTargets), opts.EnableTLS)
+	speedEmit := func(ev engine.Event) { s.broadcastTaskEvent(taskID, ev) }
 	go func() {
 		defer s.finishTask(taskID)
-		if err := s.runner.RunSpeedTest(ctx, req.Targets, opts, func(ev engine.Event) {
-			s.broadcastTaskEvent(taskID, ev)
-		}); isTaskFailure(err) {
+		if err := s.runner.RunSpeedTest(ctx, speedTargets, opts, speedEmit); isTaskFailure(err) {
 			s.broadcastTaskEvent(taskID, engine.Event{Type: engine.EventError, Message: err.Error()})
 		}
 	}()
 
-	writeJSON(w, http.StatusOK, taskResponse{TaskID: taskID, Status: "running", TotalTargets: len(req.Targets)})
+	writeJSON(w, http.StatusOK, taskResponse{TaskID: taskID, Status: "running", TotalTargets: len(speedTargets)})
 }
 
 func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {

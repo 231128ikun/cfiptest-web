@@ -1,16 +1,16 @@
-// app.js —— 主流程：候选准备 → 规则执行 → 结果整理 → 格式导出
+﻿// app.js —— 主流程：候选准备 → 规则执行 → 结果整理 → 格式导出
 
 import { getInputStats, smartFilter, parseFilterExpression, importCSVText } from './input.js';
 import * as api from './api.js';
 import { store, setMode, parseLines, targetToLine, entryKey } from './store.js';
 import { ResultTable, CSV_COLUMNS } from './table.js';
-import { ALL_COLUMNS, TABLE_COLUMNS, GROUP_COLUMNS, DEFAULT_BADGE_THRESHOLDS, csvValue, escapeHTML, normalizeBadgeThresholds, setBadgeThresholds } from './columns.js';
-import { createMultiSelect } from './multiselect.js';
+import { ALL_COLUMNS, TABLE_COLUMNS, DEFAULT_BADGE_THRESHOLDS, csvValue, escapeHTML, normalizeBadgeThresholds, setBadgeThresholds } from './columns.js';
 import { PRESETS, placeholderNames } from './composer.js';
 import { download, copyToClipboard, serialize as serializeExport } from './exporter.js';
 import { boundedNumber } from './validation.js';
 import { initTasks } from './tasks.js';
 import { initLibrary } from './library.js';
+import { addQuotaRule as addQuotaRuleShared, readQuotaRules as readQuotaRulesShared, clearQuotaEditors as clearQuotaEditorsShared, refreshQuotaEditors as refreshQuotaEditorsShared } from './quota-rules.js';
 import { SAVED_TEMPLATE_KEY, loadSavedTemplates as loadTemplatesFromStorage, templateOptionsHTML } from './templates.js';
 
 const $ = id => document.getElementById(id);
@@ -28,13 +28,19 @@ let filterMode = 'keep';
 let sourceInputText = '';
 let showingFilteredInput = false;
 let appConfig = null;
-let quotaRuleSeq = 0;
-const quotaRuleEditors = new Map();
+// quota rules are now in shared module quota-rules.js
+
 let officialEstimateTimer = null;
 let exportPreviewTimer = null;
 let savedTemplates = [];
 let customResults = []; // 自定义导出列表，默认空，仅手动加入或勾选追加
 let customColumnKeys = CSV_COLUMNS.map(column => column.key); // 自定义 CSV 字段，默认全部
+// 候选漏斗：本批快照键、剩余数量与所属模式（模式说明见 startPipeline）
+let batchKeys = null;          // Set<string>：本批开始时快照的候选键，续跑/暂停后清空
+let batchRemaining = 0;        // 本批剩余未检测数量（含进行中）
+let batchTotal = 0;            // 本批总数量（服务端解析后）
+let batchMode = null;          // 'proxy' | 'official' | 'speed' | null
+let renderCandidatesScheduled = false; // rAF 节流：高频 target_done 时避免反复拼接大数组
 let officialRangesLoading = false;
 const LOG_LEVEL_RANK = { debug: 0, info: 1, warn: 2, error: 3 };
 let lastLogRawLines = []; // store raw log lines for client-side level filtering
@@ -76,6 +82,48 @@ function activeCandidates() {
     return store.mode === 'official' ? officialCandidates : proxyCandidates;
 }
 
+// 从指定候选数组按原始键移除一条（target_done 事件使用）
+function removeCandidateByKey(list, key) {
+    const idx = list.findIndex(t => entryKey(t) === key);
+    if (idx === -1) return false;
+    list.splice(idx, 1);
+    return true;
+}
+
+// 高频 target_done 时只改数组，渲染合并到下一帧，避免每事件都 join 几千行
+function renderCandidatesThrottled() {
+    if (renderCandidatesScheduled) return;
+    renderCandidatesScheduled = true;
+    requestAnimationFrame(() => {
+        renderCandidatesScheduled = false;
+        renderCandidates();
+    });
+}
+
+function updateRunButton() {
+    const running = currentTaskId !== null;
+    const active = activeCandidates();
+    const btn = $('btn-start-latency');
+    btn.disabled = running || active.length === 0;
+    if (running) {
+        btn.textContent = '检测中…';
+    } else if (batchRemaining > 0 && batchKeys) {
+        btn.textContent = '继续检测';
+    } else {
+        btn.textContent = '开始检测';
+    }
+}
+
+function updateBatchStatus() {
+    const el = $('batch-status');
+    if (!el) return;
+    const active = batchRemaining > 0 && batchKeys && activeCandidates().length > 0;
+    el.hidden = !active;
+    if (active) {
+        $('batch-progress').textContent = `${batchTotal - batchRemaining}/${batchTotal}`;
+    }
+}
+
 function renderCandidates() {
     $('ip-candidates').value = proxyCandidates.map(targetToLine).join('\n');
     $('official-candidates').value = officialCandidates.map(targetToLine).join('\n');
@@ -84,7 +132,8 @@ function renderCandidates() {
     const active = activeCandidates();
     $('candidate-count').textContent = `${active.length} 条`;
     $('run-target-count').textContent = active.length;
-    $('btn-start-latency').disabled = currentTaskId !== null || active.length === 0;
+    updateRunButton();
+    updateBatchStatus();
 
     const stats = getInputStats(proxyCandidates.map(targetToLine));
     $('stat-v4').textContent = stats.v4;
@@ -185,6 +234,7 @@ function bindProxyInput() {
     });
     $('btn-add-paste').addEventListener('click', addProxySelectionToCandidates);
     $('btn-candidates-clear').addEventListener('click', () => {
+        if (currentTaskId) { toast('请先暂停检测'); return; }
         proxyCandidates = [];
         renderCandidates();
     });
@@ -312,6 +362,7 @@ function renderRangesEstimate() {
 }
 
 async function generateOfficialCandidates() {
+    if (currentTaskId) { toast('请先暂停检测'); return; }
     if (!officialRanges) { await fetchRanges(); }
     if (!officialRanges) return;
     const settings = officialSettings();
@@ -349,6 +400,7 @@ function bindOfficialInput() {
     });
     $('btn-add-ranges').addEventListener('click', generateOfficialCandidates);
     $('btn-official-clear').addEventListener('click', () => {
+        if (currentTaskId) { toast('请先暂停检测'); return; }
         officialCandidates = [];
         renderCandidates();
     });
@@ -532,10 +584,12 @@ function resetRules() {
 function setRunning(running, type = null) {
     currentTaskType = running ? type : null;
     if (!running) currentTaskId = null;
-    $('btn-start-latency').disabled = running || activeCandidates().length === 0;
+    updateRunButton();
+    updateBatchStatus();
+    if (table) $('btn-clear-results').disabled = running || table.results.length === 0;
     $('btn-start-speed').disabled = running || table.getSelectedResults().length === 0;
     $('btn-speed-filtered').disabled = running || table.getAllResults().length === 0;
-    $('btn-stop').disabled = !running;
+    $('btn-task-stop').disabled = !running;
     $('progress-wrap').classList.toggle('active', running);
 }
 
@@ -553,10 +607,8 @@ async function startPipeline() {
     normalizeRuleFields({ notify: true });
     const targets = activeCandidates();
     if (!targets.length) { toast('候选区为空'); return; }
-    table.clear();
-    customResults = [];
-    scheduleExportPreview();
-    $('result-count').textContent = '';
+    // 候选漏斗：只在本批开始时快照；结果不清空，暂停/续跑后从剩余候选继续
+    const keys = new Set(targets.map(entryKey));
     $('progress-fill').style.width = '0%';
     try {
         const response = await api.startLatencyTest(targets, latencyOptions(), {
@@ -564,6 +616,10 @@ async function startPipeline() {
             speedOptions: speedOptions(),
         });
         currentTaskId = response.taskId;
+        batchKeys = keys;
+        batchMode = store.mode;
+        batchTotal = response.totalTargets;
+        batchRemaining = keys.size;
         setRunning(true, 'pipeline');
         $('progress-label').textContent = `${speedEnabled() ? '延迟+测速' : '延迟检测'} 0/${response.totalTargets}`;
     } catch (error) {
@@ -640,7 +696,7 @@ function bindRulesAndRun() {
     $('btn-start-speed').addEventListener('click', () => startSupplementalSpeed(false));
     $('btn-speed-filtered').addEventListener('click', () => startSupplementalSpeed(true));
 
-    $('btn-stop').addEventListener('click', async () => {
+    $('btn-task-stop').addEventListener('click', async () => {
         try {
             await api.stopTask(currentTaskId);
             toast('已发送停止指令');
@@ -697,6 +753,13 @@ function bindEvents() {
             scheduleExportPreview();
         },
         onProgress: updateProgress,
+        onTargetDone: target => {
+            const key = target?.key || entryKey(target) || `${target.ip}|${target.port || 0}`;
+            const list = batchMode === 'official' ? officialCandidates : proxyCandidates;
+            const removed = removeCandidateByKey(list, key);
+            if (removed && batchRemaining > 0) batchRemaining--;
+            renderCandidatesThrottled();
+        },
         onSpeed: result => {
             table.updateSpeed(result);
             scheduleExportPreview();
@@ -704,8 +767,23 @@ function bindEvents() {
         onAuto: message => { tasksPage?.onAuto(message); sideLogFromAuto(message); },
         onDone: (message, reason) => {
             if (tasksPage?.isAutoRunning()) { tasksPage.onDone(message, reason); return; }
+            const isPipeline = currentTaskType === 'pipeline';
             setRunning(false);
-            $('progress-label').textContent = reason === 'limit' ? '已达到最大数量' : reason === 'stopped' ? '已停止' : '已完成';
+            if (isPipeline && reason === 'completed') {
+                // 本批全部测完，漏斗收尾；运行期间新补充的候选保留，可继续检测
+                const leftover = activeCandidates().length;
+                batchKeys = null;
+                batchMode = null;
+                batchRemaining = 0;
+                $('progress-label').textContent = leftover > 0 ? `已完成，候选剩余 ${leftover} 条` : '已完成';
+            } else if (isPipeline && reason === 'limit') {
+                // 达到最大结果数：剩余候选未测完，保留漏斗，可点“继续检测”
+                $('progress-label').textContent = batchRemaining > 0 ? `已达到最大数量，候选剩余 ${batchRemaining} 条` : '已达到最大数量';
+            } else if (isPipeline && reason === 'stopped') {
+                $('progress-label').textContent = batchRemaining > 0 ? `已暂停，候选剩余 ${batchRemaining} 条` : '已停止';
+            } else {
+                $('progress-label').textContent = reason === 'limit' ? '已达到最大数量' : reason === 'stopped' ? '已停止' : '已完成';
+            }
             $('progress-pct').textContent = reason === 'stopped' ? $('progress-pct').textContent : '100%';
             if (reason !== 'stopped') {
                 $('progress-wrap').setAttribute('aria-valuenow', '100');
@@ -799,72 +877,12 @@ function applyResultFilters() {
     scheduleExportPreview();
 }
 
-function quotaItems(dimension) {
-    return table.getGroupStats(dimension, { filtered: true }).map(item => ({
-        value: String(item.name),
-        label: item.emoji ? `${item.emoji} ${item.name}` : String(item.name),
-        count: item.count,
-    }));
-}
 
-function addQuotaRule(seed = {}) {
-    const id = `quota-rule-${++quotaRuleSeq}`;
-    const row = document.createElement('div');
-    row.className = 'quota-rule';
-    row.dataset.id = id;
-    row.innerHTML = `<div class="quota-rule-head"><strong>规则 ${quotaRuleSeq}</strong><span class="hint">每个值取前</span><input class="quota-rule-limit" type="number" min="0" value="${Number(seed.limit) || ''}" placeholder="无限制"><span class="hint">个</span><button class="small quota-rule-add-condition" type="button">添加限制字段</button><button class="small quota-rule-remove" type="button">删除规则</button></div><div class="quota-conditions"></div>`;
-    $('quota-rules').appendChild(row);
-    const conditions = [];
-    function addCondition(condition = {}) {
-        const line = document.createElement('div');
-        line.className = 'quota-condition';
-        line.innerHTML = `<span class="quota-condition-role"></span><select>${GROUP_COLUMNS.map(item => `<option value="${item.key}">${item.label}</option>`).join('')}</select><span class="quota-rule-picker"></span><button class="small quota-condition-remove" type="button">删除</button>`;
-        row.querySelector('.quota-conditions').appendChild(line);
-        const dimension = line.querySelector('select');
-        dimension.value = condition.field || condition.dimension || seed.dimension || 'country';
-        const picker = createMultiSelect(line.querySelector('.quota-rule-picker'), { placeholder: '选择一个或多个值' });
-        const refill = values => {
-            const selected = (values || picker.getSelectedInOrder()).map(String);
-            const items = quotaItems(dimension.value);
-            const known = new Set(items.map(item => item.value));
-            selected.filter(value => !known.has(value)).forEach(value => items.push({ value, label: value, count: 0 }));
-            picker.setItems(items); picker.setSelected(selected);
-        };
-        refill(condition.values || seed.values || []);
-        dimension.addEventListener('change', () => refill([]));
-        line.querySelector('.quota-condition-remove').addEventListener('click', () => {
-            picker.destroy();
-            const idx = conditions.findIndex(item => item.line === line);
-            if (idx >= 0) conditions.splice(idx, 1);
-            line.remove();
-            updateRoles();
-        });
-        conditions.push({ line, picker });
-        updateRoles();
-    }
-    function updateRoles() {
-        conditions.forEach((item, index) => {
-            item.line.querySelector('.quota-condition-role').textContent = index === 0 ? '分组字段' : '限制字段';
-            item.line.querySelector('.quota-condition-remove').disabled = index === 0 && conditions.length === 1;
-        });
-    }
-    const initial = Array.isArray(seed.conditions) && seed.conditions.length ? seed.conditions : [{ field: seed.dimension || 'country', values: seed.values || [] }];
-    initial.forEach(addCondition);
-    row.querySelector('.quota-rule-add-condition').addEventListener('click', () => addCondition());
-    row.querySelector('.quota-rule-remove').addEventListener('click', () => {
-        conditions.forEach(item => item.picker.destroy());
-        quotaRuleEditors.delete(id);
-        row.remove();
-    });
-    quotaRuleEditors.set(id, { row, conditions });
-}
 
-function readQuotaRules() {
-    return [...quotaRuleEditors.values()].map(({ row, conditions }) => ({
-        conditions: conditions.map(({ line, picker }) => ({ field: line.querySelector('select').value, values: picker.getSelectedInOrder() })).filter(condition => condition.values.length),
-        limit: Number(row.querySelector('.quota-rule-limit').value) || 0,
-    })).filter(rule => rule.conditions.length);
-}
+function addQuotaRule(seed = {}) { addQuotaRuleShared(document.getElementById('quota-rules'), table, seed); }
+
+function readQuotaRules() { return readQuotaRulesShared(); }
+
 
 function currentSettings() {
     return {
@@ -1047,30 +1065,16 @@ async function saveLocalSettings() {
     } catch (error) { toast(error.message); }
 }
 
-function clearQuotaEditors() {
-    for (const { conditions } of quotaRuleEditors.values()) conditions.forEach(item => item.picker.destroy());
-    quotaRuleEditors.clear();
-    $('quota-rules').innerHTML = '';
-}
+function clearQuotaEditors() { clearQuotaEditorsShared(); }
 
-function refreshQuotaEditors() {
-    for (const { conditions } of quotaRuleEditors.values()) {
-        conditions.forEach(({ line, picker }) => {
-            const selected = picker.getSelectedInOrder();
-            const items = quotaItems(line.querySelector('select').value);
-            const known = new Set(items.map(item => item.value));
-            selected.filter(value => !known.has(value)).forEach(value => items.push({ value, label: value, count: 0 }));
-            picker.setItems(items); picker.setSelected(selected);
-        });
-    }
-}
+function refreshQuotaEditors() { refreshQuotaEditorsShared(table); }
 
 function bindQuotaPanel() {
     $('btn-quota-add-rule').addEventListener('click', () => addQuotaRule());
     $('btn-quota-toggle').addEventListener('click', () => {
         const box = $('quota-box');
         const open = !box.classList.contains('active');
-        if (open && !quotaRuleEditors.size) addQuotaRule();
+        if (open && document.querySelectorAll('#quota-rules .quota-rule').length === 0) addQuotaRule();
         box.classList.toggle('active', open);
         $('btn-quota-toggle').classList.toggle('active', open);
         $('btn-quota-toggle').setAttribute('aria-expanded', String(open));
@@ -1100,6 +1104,7 @@ function syncColumnToggle() {
 function refreshButtons() {
     if (!table) return;
     const running = currentTaskId !== null;
+    $('btn-clear-results').disabled = running || table.results.length === 0;
     $('btn-start-speed').disabled = running || table.getSelectedResults().length === 0;
     $('btn-speed-filtered').disabled = running || table.getAllResults().length === 0;
     $('btn-custom-append').disabled = running || table.getSelectedResultsInDisplayOrder().length === 0;
@@ -1110,6 +1115,17 @@ function bindResults() {
     renderColumnOptions();
     renderSortOptions();
     bindQuotaPanel();
+
+    $('btn-clear-results').addEventListener('click', () => {
+        if (currentTaskId) { toast('请先暂停检测'); return; }
+        if (!table.results.length) return;
+        if (!confirm('确定清空全部检测结果？')) return;
+        table.clear();
+        customResults = [];
+        $('result-count').textContent = '';
+        regenerateOutput();
+        toast('已清空检测结果');
+    });
 
     $('result-filter').addEventListener('input', applyResultFilters);
     $('result-max-latency').addEventListener('input', applyResultFilters);
@@ -1452,6 +1468,16 @@ function bindPageNav() {
     $('btn-help').addEventListener('click', () => { $('help-overlay').hidden = false; });
     $('btn-help-close').addEventListener('click', () => { $('help-overlay').hidden = true; });
     $('help-overlay').addEventListener('click', e => { if (e.target === $('help-overlay')) $('help-overlay').hidden = true; });
+    $('btn-stop').addEventListener('click', async () => {
+        if (!window.confirm('确定要停止服务并退出程序吗？')) return;
+        try {
+            await fetch('/api/shutdown', { method: 'POST' });
+        } catch { /* 服务已随请求断开 */ }
+        const overlay = document.createElement('div');
+        overlay.className = 'shutdown-overlay';
+        overlay.textContent = '服务已停止，现在可以关闭此页面。';
+        document.body.appendChild(overlay);
+    });
 
     $('sidebar-toggle').addEventListener('click', () => {
         const collapsed = sidebar.classList.toggle('collapsed');

@@ -1,4 +1,4 @@
-// tasks.js —— 自动维护页：任务卡片网格 + 编辑弹窗（规则编辑器）+ 一键维护
+﻿// tasks.js —— 自动维护页：任务卡片网格 + 编辑弹窗（规则编辑器）+ 一键维护
 import { escapeHTML } from './columns.js';
 import { loadSavedTemplates, fetchSettingsTemplates as fetchSettingsTpls, persistTemplates, templateOptionFor, templateContentFor, renderTemplateSelect } from './templates.js';
 import * as api from './api.js';
@@ -51,7 +51,8 @@ export function initTasks({ toast }) {
         tasks: [],
         libraries: [],
         libNames: {},
-        selected: -1, // 当前编辑的任务下标；-1 = 新建草稿
+        selected: -1, // 当前编辑的任务下标；-1 = 未选择
+        draft: null, // 新建草稿（保存前暂存于此，可立即交互）
         savedTemplates: [],
         running: false,
         runQueue: [],
@@ -60,6 +61,7 @@ export function initTasks({ toast }) {
     };
 
     function currentTask() {
+        if (state.draft) return state.draft;
         return state.selected >= 0 && state.selected < state.tasks.length ? state.tasks[state.selected] : null;
     }
 
@@ -105,7 +107,11 @@ export function initTasks({ toast }) {
                 return conds || '任意';
             }).join('；');
             const limit = task.limit ? `总数 ≤ ${task.limit}` : '不限总数';
-            const detectCap = `单次检测 ≤ ${task.maxCandidates > 0 ? task.maxCandidates : 200}`;
+            const detectCap = task.maxCandidates == null
+                ? '单次检测 ≤ 200'
+                : task.maxCandidates > 0
+                    ? `单次检测 ≤ ${task.maxCandidates}`
+                    : '单次检测不限';
             const speed = task.speedEnabled ? '启用测速' : '仅延迟筛选';
             const libraryName = task.librarySource === 'official'
                 ? `官方 IP 段（${task.libraryFamily || 'ipv4'}）`
@@ -113,6 +119,7 @@ export function initTasks({ toast }) {
                     ? '远程 URL 库'
                     : (state.libNames[task.libraryId] || task.libraryId || '默认库');
             const outputPath = task.output?.path || '未设置';
+            const outputSort = ({ latencyAsc: '延迟升序', latencyDesc: '延迟降序', speedDesc: '速度降序', speedAsc: '速度升序', ipAsc: 'IP 升序' })[task.output?.sort] || '延迟升序';
             const schedule = scheduleLabel(task.schedule);
             const pendingKey = task.id || String(i);
             const isPending = state.pendingEnabled.has(pendingKey);
@@ -135,7 +142,7 @@ export function initTasks({ toast }) {
                     <div class="task-meta-row"><span class="task-meta-label">规则</span><span class="task-meta-value">${escapeHTML(ruleSummary || '任意')}</span></div>
                     <div class="task-meta-row"><span class="task-meta-label">维护来源</span><span class="task-meta-value">${escapeHTML(libraryName)}</span></div>
                     <div class="task-meta-row"><span class="task-meta-label">输出</span><span class="task-meta-value task-output-path">${escapeHTML(outputPath)}</span></div>
-                    <div class="task-card-flags"><span>${limit}</span><span>${detectCap}</span><span>${speed}</span><span class="${task.schedule?.enabled ? 'is-scheduled' : ''}">${escapeHTML(schedule)}</span></div>
+                    <div class="task-card-flags"><span>${limit}</span><span>${detectCap}</span><span>${outputSort}</span><span>${speed}</span><span class="${task.schedule?.enabled ? 'is-scheduled' : ''}">${escapeHTML(schedule)}</span></div>
                 </div>
                 <div class="task-card-actions">
                     <button type="button" class="small task-edit" data-i="${i}">编辑配置</button>
@@ -191,6 +198,7 @@ export function initTasks({ toast }) {
 
     // ---- 编辑弹窗 ----
     function openEditor(task) {
+        state.draft = state.tasks.includes(task) ? null : task;
         state.selected = state.tasks.indexOf(task);
         $('task-editor-overlay').hidden = false;
         fillForm(task);
@@ -199,6 +207,7 @@ export function initTasks({ toast }) {
     function closeEditor() {
         $('task-editor-overlay').hidden = true;
         state.selected = -1;
+        state.draft = null;
         renderTaskGrid();
     }
 
@@ -241,8 +250,9 @@ export function initTasks({ toast }) {
         $('task-init-file-status').textContent = input.file ? `已保存：${input.file}` : '文件会保存到 data/inputs，定时维护可重复读取。';
         $('task-output').value = task.output?.path || '';
         $('task-format').value = task.output?.format === 'csv' ? 'csv' : 'txt';
+        $('task-sort').value = task.output?.sort || 'latencyAsc';
         $('task-limit').value = task.limit || 0;
-        $('task-max-candidates').value = task.maxCandidates > 0 ? task.maxCandidates : '';
+        $('task-max-candidates').value = Number.isFinite(task.maxCandidates) ? Math.max(0, task.maxCandidates) : 200;
         $('task-lat-concurrency').value = task.latencyConcurrency > 0 ? task.latencyConcurrency : '';
         $('task-lat-timeout').value = task.latencyTimeoutMs > 0 ? task.latencyTimeoutMs : '';
         $('task-lat-probes').value = task.latencyProbes > 0 ? task.latencyProbes : '';
@@ -323,9 +333,11 @@ export function initTasks({ toast }) {
             path: $('task-output').value.trim() || undefined,
             format: $('task-format').value,
             template: $('task-tpl-custom').value.trim(),
+            sort: $('task-sort').value,
         };
         task.limit = Number($('task-limit').value) > 0 ? Number($('task-limit').value) : 0;
-        task.maxCandidates = Number($('task-max-candidates').value) > 0 ? Number($('task-max-candidates').value) : undefined;
+        const maxCandidatesRaw = $('task-max-candidates').value.trim();
+        task.maxCandidates = maxCandidatesRaw === '' ? 200 : Math.max(0, Number(maxCandidatesRaw) || 0);
         task.speedEnabled = $('task-speed').checked;
         const taskConcurrency = id => { const v = Number($(id).value); return Number.isFinite(v) && v > 0 ? v : undefined; };
         task.latencyConcurrency = taskConcurrency('task-lat-concurrency');
@@ -390,6 +402,11 @@ export function initTasks({ toast }) {
     async function deleteTask() {
         const task = currentTask();
         if (!task) return;
+        if (state.draft) {
+            closeEditor();
+            toast('已放弃新建任务');
+            return;
+        }
         if (!confirm(`确认删除任务「${task.name}」？`)) return;
         state.tasks = state.tasks.filter(t => t !== task);
         try {

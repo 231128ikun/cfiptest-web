@@ -20,15 +20,16 @@ import (
 // Server 是应用层 HTTP 服务器。
 // 单机单用户模型：任意时刻只允许一个活跃任务；SSE 订阅者共享同一条事件总线。
 type Server struct {
-	runner      *engine.Runner
-	assets      fs.FS
-	mux         *http.ServeMux
-	version     string
-	cfg         config.Config
-	dataDir     string
-	configMu    sync.RWMutex
-	rangesMu    sync.Mutex
-	rangesCache *officialRangesResponse
+	runner          *engine.Runner
+	assets          fs.FS
+	mux             *http.ServeMux
+	version         string
+	cfg             config.Config
+	dataDir         string
+	shutdownHandler func()
+	configMu        sync.RWMutex
+	rangesMu        sync.Mutex
+	rangesCache     *officialRangesResponse
 
 	// 参数默认值：内置默认值叠加本地 data/config.json 的覆盖结果。
 	// 前端 /api/config 读它做表单初值，请求里缺省的字段也回落到它。
@@ -99,6 +100,12 @@ func (s *Server) Handler() http.Handler {
 		s.mux.ServeHTTP(w, r)
 	}))
 }
+
+// SetShutdownHandler 注册「停止服务」回调（页面按钮触发后优雅退出进程）。
+func (s *Server) SetShutdownHandler(fn func()) {
+	s.shutdownHandler = fn
+}
+
 func isLocalHost(hostport string) bool {
 	host := hostport
 	if parsedHost, _, err := net.SplitHostPort(hostport); err == nil {
@@ -139,6 +146,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/auto/output", s.handleAutoOutput)
 	s.mux.HandleFunc("GET /api/log", s.handleLogGet)
 	s.mux.HandleFunc("POST /api/log/clear", s.handleLogClear)
+	s.mux.HandleFunc("POST /api/shutdown", s.handleShutdown)
 }
 
 // broadcast 将事件推送给所有 SSE 订阅者（engine 回调入口）。

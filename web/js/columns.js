@@ -127,12 +127,12 @@ export const ALL_COLUMNS = [
     { key: 'kex', label: '密钥交换', inTable: false, inCSV: true },
     { key: 'timestamp', label: '时间戳', inTable: false, inCSV: true },
     // ---- IP 库管理页额外字段：仅在库页表格/导出出现，不参与工作台结果表与 CSV ----
-    { key: 'countryCode', label: '国家代码', inTable: false, inCSV: false, sortable: true },
-    { key: 'status', label: '状态', inTable: false, inCSV: false, sortable: true },
-    { key: 'firstSeenAt', label: '首次入库', inTable: false, inCSV: false, sortable: true },
-    { key: 'lastCheckedAt', label: '上次检测', inTable: false, inCSV: false, sortable: true },
-    { key: 'checks', label: '检测次数', inTable: false, inCSV: false, sortable: true, type: 'number' },
-    { key: 'source', label: '来源', inTable: false, inCSV: false, sortable: true },
+    { key: 'countryCode', label: '国家代码', inTable: false, inCSV: false, sortable: true, groupable: true, },
+    { key: 'status', label: '状态', inTable: false, inCSV: false, sortable: true, groupable: true, },
+    { key: 'firstSeenAt', label: '首次入库', inTable: false, inCSV: false, sortable: true, groupable: true, },
+    { key: 'lastCheckedAt', label: '上次检测', inTable: false, inCSV: false, sortable: true, groupable: true, },
+    { key: 'checks', label: '检测次数', inTable: false, inCSV: false, sortable: true, type: 'number', groupable: true, },
+    { key: 'source', label: '来源', inTable: false, inCSV: false, sortable: true, groupable: true, },
 ];
 
 /**

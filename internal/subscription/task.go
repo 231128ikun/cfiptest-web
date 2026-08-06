@@ -60,6 +60,7 @@ type TaskOutput struct {
 	Path     string `json:"path,omitempty"`     // 相对 data 目录；空 = 回写输入文件
 	Format   string `json:"format,omitempty"`   // txt | csv
 	Template string `json:"template,omitempty"` // 占位符模板
+	Sort     string `json:"sort,omitempty"`     // 输出排序：latencyAsc（默认）| latencyDesc | speedDesc | speedAsc | ipAsc
 }
 
 // TaskSchedule 描述程序运行期间的自动维护计划。Cron 使用标准 5 段格式：分 时 日 月 周。
@@ -84,7 +85,7 @@ type Task struct {
 	Input              TaskInput    `json:"input"`
 	Output             TaskOutput   `json:"output"`
 	Limit              int          `json:"limit"`                        // 总数限制（合并去重后取前 N）；0=不限
-	MaxCandidates      int          `json:"maxCandidates,omitempty"`      // 单次运行检测候选数上限（跨分组去重后）；0 = 默认 200
+	MaxCandidates      int          `json:"maxCandidates,omitempty"`      // 单次运行检测候选数上限（跨分组去重后）；0 = 不限（默认 200 由前端预填）
 	SpeedEnabled       bool         `json:"speedEnabled"`                 // 顶部测速总开关；关 = 规则速度字段无效
 	LatencyConcurrency int          `json:"latencyConcurrency,omitempty"` // 延迟并发；0 = 用设置页全局默认
 	SpeedConcurrency   int          `json:"speedConcurrency,omitempty"`   // 测速并发；0 = 用设置页全局默认
@@ -309,6 +310,22 @@ func (t *Task) Validate() error {
 	}
 	if t.Output.Template == "" {
 		t.Output.Template = DefaultTemplate
+	}
+	switch strings.ToLower(strings.TrimSpace(t.Output.Sort)) {
+	case "latencyasc":
+		t.Output.Sort = OutputSortLatencyAsc
+	case "latencydesc":
+		t.Output.Sort = OutputSortLatencyDesc
+	case "speeddesc":
+		t.Output.Sort = OutputSortSpeedDesc
+	case "speedasc":
+		t.Output.Sort = OutputSortSpeedAsc
+	case "ipasc":
+		t.Output.Sort = OutputSortIPAsc
+	case "":
+		t.Output.Sort = OutputSortLatencyAsc
+	default:
+		return fmt.Errorf("任务 %q 输出排序仅支持 latencyAsc/latencyDesc/speedDesc/speedAsc/ipAsc", t.Name)
 	}
 	return nil
 }

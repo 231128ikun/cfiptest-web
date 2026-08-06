@@ -14,6 +14,10 @@ import (
 type Target struct {
 	IP   string `json:"ip"`
 	Port int    `json:"port"`
+
+	// Key 是可选的前端候选原始键（例如"1.2.3.4|0"），仅由 server 层在发起
+	// 任务时补充，用于把 target_done 事件精确对应回前端候选列表。
+	Key string `json:"key,omitempty"`
 }
 
 // String 返回 ip:port 形式；IPv6 自动加方括号，与前端 store.js 的
@@ -25,27 +29,41 @@ func (t Target) String() string {
 	return net.JoinHostPort(t.IP, strconv.Itoa(t.Port))
 }
 
-// ResolveDefaultPorts 返回一份可执行目标：用户未指定端口（Port=0）时，
+// ResolveDefaultPortsWithKeys 返回一份可执行目标：目标未指定端口（Port=0）时，
 // TLS 使用 443，非 TLS 使用 80；显式端口始终原样保留。
-func ResolveDefaultPorts(targets []Target, enableTLS bool) []Target {
+//
+// 返回值第二个切片是为每个可执行目标附带的原始候选键（`ip|port`，端口按用户
+// 输入原样，未指定为 0）。同一个目标因 0 端口与显式端口解析到同地址时按先到
+// 者去重，前端可用该键把 target_done 事件精确对应回自己的候选列表。
+func ResolveDefaultPortsWithKeys(targets []Target, enableTLS bool) ([]Target, []string) {
 	defaultPort := 80
 	if enableTLS {
 		defaultPort = 443
 	}
 	out := make([]Target, 0, len(targets))
+	keys := make([]string, 0, len(targets))
 	seen := make(map[string]struct{}, len(targets))
 	for _, target := range targets {
+		key := target.IP + "|" + strconv.Itoa(target.Port)
 		if target.Port == 0 {
 			target.Port = defaultPort
 		}
-		key := target.IP + "|" + strconv.Itoa(target.Port)
-		if _, duplicate := seen[key]; duplicate {
+		resolvedKey := target.IP + "|" + strconv.Itoa(target.Port)
+		if _, duplicate := seen[resolvedKey]; duplicate {
 			continue
 		}
-		seen[key] = struct{}{}
+		seen[resolvedKey] = struct{}{}
 		out = append(out, target)
+		keys = append(keys, key)
 	}
-	return out
+	return out, keys
+}
+
+// ResolveDefaultPorts 返回一份可执行目标，等价于 ResolveDefaultPortsWithKeys
+// 的第一个返回值；无需原始键的调用方使用。
+func ResolveDefaultPorts(targets []Target, enableTLS bool) []Target {
+	resolved, _ := ResolveDefaultPortsWithKeys(targets, enableTLS)
+	return resolved
 }
 
 // Result 表示一个 IP 的完整测试结果，通过 SSE 以 JSON 推送给前端。
@@ -148,12 +166,13 @@ func DefaultSpeedOptions() SpeedOptions {
 type EventType string
 
 const (
-	EventResult   EventType = "result"   // 单条有效或最终结果
-	EventProgress EventType = "progress" // 进度更新
-	EventSpeed    EventType = "speed"    // 测速阶段单条速度更新
-	EventDone     EventType = "done"     // 阶段完成
-	EventError    EventType = "error"    // 错误/取消
-	EventAuto     EventType = "auto"     // 自动化编排进度/日志（Message 为 JSON 文本）
+	EventResult     EventType = "result"      // 单条有效或最终结果
+	EventProgress   EventType = "progress"    // 进度更新
+	EventSpeed      EventType = "speed"       // 测速阶段单条速度更新
+	EventTargetDone EventType = "target_done" // 单个目标已完整检测，可从候选队列移除
+	EventDone       EventType = "done"        // 阶段完成
+	EventError      EventType = "error"       // 错误/取消
+	EventAuto       EventType = "auto"        // 自动化编排进度/日志（Message 为 JSON 文本）
 )
 
 // DoneReason 说明一个阶段为何结束。
@@ -171,11 +190,13 @@ const (
 
 // Event 是流式回调的统一事件载体，直接序列化为 SSE data。
 type Event struct {
-	Type     EventType  `json:"type"`
-	Result   *Result    `json:"result,omitempty"`
-	Progress *Progress  `json:"progress,omitempty"`
-	Message  string     `json:"message,omitempty"`
-	Reason   DoneReason `json:"reason,omitempty"` // 仅 EventDone 携带
+	Type       EventType  `json:"type"`
+	Result     *Result    `json:"result,omitempty"`
+	Target     *Target    `json:"target,omitempty"`
+	TargetKeys []string   `json:"targetKeys,omitempty"` // server 补充的原始候选键，可同时覆盖默认端口别名
+	Progress   *Progress  `json:"progress,omitempty"`
+	Message    string     `json:"message,omitempty"`
+	Reason     DoneReason `json:"reason,omitempty"` // 仅 EventDone 携带
 }
 
 // Progress 表示一次进度快照。

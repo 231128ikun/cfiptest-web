@@ -375,3 +375,140 @@ func TestSpeedMaxResultsStopsEarly(t *testing.T) {
 		t.Errorf("结束原因 = %q，期望 %q", reason, DoneLimit)
 	}
 }
+
+// TestLatencyInvalidTargetEmitsTargetDone 无效目标（连接/校验失败）也要发
+// target_done：前端的候选漏斗按「是否完整检测过」移除，而不是按「是否有有效结果」。
+func TestLatencyInvalidTargetEmitsTargetDone(t *testing.T) {
+	// 找一个必定连接失败的端口：先监听拿一个空闲端口，再立即关闭。
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("无法占端口: %v", err)
+	}
+	addr := l.Addr().String()
+	_ = l.Close()
+	host, portText, _ := net.SplitHostPort(addr)
+	port, _ := strconv.Atoi(portText)
+
+	r := testRunner(map[string]Location{}, "http://"+addr+"/cdn-cgi/trace")
+	target := Target{IP: host, Port: port}
+	opts := latencyTestOpts()
+	opts.MaxConcurrency = 1
+
+	var doneTargets []Target
+	_, err = r.RunLatencyTest(context.Background(), []Target{target}, opts, func(ev Event) {
+		if ev.Type == EventTargetDone && ev.Target != nil {
+			doneTargets = append(doneTargets, *ev.Target)
+		}
+	})
+	if err != nil {
+		t.Fatalf("无效目标不应让任务报错: %v", err)
+	}
+	if len(doneTargets) != 1 {
+		t.Fatalf("target_done 次数 = %d，期望 1", len(doneTargets))
+	}
+	if doneTargets[0] != target {
+		t.Errorf("target_done 回传 = %+v，期望 %+v", doneTargets[0], target)
+	}
+}
+
+// TestLatencyTargetDoneCarriesKey 有效目标每个都发 target_done，
+// 且事件携带前端原始候选键（端口 0 在解析阶段被补成 443，键仍为 ip|0）。
+func TestLatencyTargetDoneCarriesKey(t *testing.T) {
+	r, realTargets := fakeCFRunner(t, 1)
+	// 端口 0 的候选在 server 层被解析成 443，但目标键必须是原始键 ip|0
+	target := Target{IP: realTargets[0].IP, Port: realTargets[0].Port, Key: realTargets[0].IP + "|0"}
+	opts := latencyTestOpts()
+	opts.MaxConcurrency = 1
+
+	var keys []string
+	results, err := r.RunLatencyTest(context.Background(), []Target{target}, opts, func(ev Event) {
+		if ev.Type == EventTargetDone && ev.Target != nil {
+			keys = append(keys, ev.Target.Key)
+		}
+	})
+	if err != nil {
+		t.Fatalf("有效目标不应报错: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("有效结果 = %d，期望 1", len(results))
+	}
+	if len(keys) != 1 || keys[0] != target.Key {
+		t.Fatalf("target_done keys = %v，期望 [%s]", keys, target.Key)
+	}
+}
+
+// TestLatencyPreCancelledDoesNotEmitTargetDone 开跑前就取消：没有目标真正
+// 完成，不能把任何候选从漏斗里移除。
+func TestLatencyPreCancelledDoesNotEmitTargetDone(t *testing.T) {
+	r, targets := fakeCFRunner(t, 20)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	var doneCount int
+	_, _ = r.RunLatencyTest(ctx, targets, latencyTestOpts(), func(ev Event) {
+		if ev.Type == EventTargetDone {
+			doneCount++
+		}
+	})
+	if doneCount != 0 {
+		t.Fatalf("预取消仍发 %d 个 target_done，期望 0", doneCount)
+	}
+}
+
+// TestCombinedStopDoesNotConsumeInflightTarget 组合任务测速阶段被打断时，
+// 该目标虽然已发出延迟 EventResult，但未完整完成，不应发 target_done——
+// 前端把它留在候选列表，下次续跑会用结果表里的延迟结果做 upsert。
+func TestCombinedStopDoesNotConsumeInflightTarget(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if strings.Contains(req.URL.Path, "cdn-cgi/trace") {
+			_, _ = w.Write([]byte("ip=203.0.113.7\ncolo=NRT\nloc=JP\nuag=Mozilla/5.0\n"))
+			return
+		}
+		// 测速阶段慢速响应：取消时请求尚未结束
+		time.Sleep(800 * time.Millisecond)
+		_, _ = w.Write(make([]byte, 1024))
+	}))
+	defer srv.Close()
+
+	u := strings.TrimPrefix(srv.URL, "http://")
+	host, portStr, _ := net.SplitHostPort(u)
+	port, _ := strconv.Atoi(portStr)
+
+	targets := make([]Target, 5)
+	for i := range targets {
+		targets[i] = Target{IP: host, Port: port, Key: host + "|" + portStr}
+	}
+
+	latency := DefaultLatencyOptions()
+	latency.EnableTLS = false
+	latency.TimeoutMs = 2000
+	latency.MaxConcurrency = 1
+	speed := DefaultSpeedOptions()
+	speed.EnableTLS = false
+	speed.DownloadURL = u + "/down"
+	speed.MaxConcurrency = 1
+	speed.DurationSec = 3
+	speed.MinSpeedKBs = 0
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var resultEvents, doneEvents int
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		cancel()
+	}()
+	r := testRunner(map[string]Location{"NRT": {Iata: "NRT", Country: "日本"}}, u+"/cdn-cgi/trace")
+	_, _ = r.RunCombinedTest(ctx, targets, latency, speed, func(ev Event) {
+		switch ev.Type {
+		case EventResult:
+			resultEvents++
+		case EventTargetDone:
+			doneEvents++
+		}
+	})
+	if resultEvents == 0 {
+		t.Fatal("应至少发出一个 latency result（测速被打断前延迟已完成）")
+	}
+	if doneEvents != 0 {
+		t.Fatalf("被打断的目标不应从漏斗移除，target_done = %d，期望 0", doneEvents)
+	}
+}

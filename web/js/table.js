@@ -17,8 +17,9 @@ export class ResultTable {
         this.columns = columns;
         this.results = [];             // 全部结果（原始顺序 = 到达顺序）
         this.selectedKeys = new Set(); // 唯一的勾选集合 "ip|port"
-        this.sortKey = 'tcpLatencyMs';
-        this.sortAsc = true;
+        this.sortKey = opts.sortKey ?? 'tcpLatencyMs';
+        this.sortAsc = opts.sortAsc ?? true;
+        this.searchFields = opts.searchFields || ['ip', 'port', 'country', 'cityZh', 'city', 'dataCenter', 'asnOrg', 'emoji'];
         this.emptyText = opts.emptyText ?? '暂无结果 —— 请先运行延迟测试';
         this.noMatchText = opts.noMatchText ?? '没有匹配过滤条件的结果';
         this.filterText = '';
@@ -144,6 +145,15 @@ export class ResultTable {
         box.indeterminate = selected > 0 && selected < visible.length;
     }
 
+    /** Batch-replace results (library full load); single repaint. */
+    setResults(results) {
+        this.results = Array.isArray(results) ? [...results] : [];
+        this.selectedKeys.clear();
+        this.displayRules = null;
+        this._invalidate();
+        this.render();
+    }
+
     /** 清空所有结果（新任务开始时调用） */
     clear() {
         this.results = [];
@@ -154,7 +164,15 @@ export class ResultTable {
     }
 
     /** SSE result 事件：追加一条 */
+    /** SSE result 事件：续跑时结果累积，重复 ip:port 直接更新原行 */
     appendResult(result) {
+        const found = this.results.find(x => ResultTable.keyOf(x) === ResultTable.keyOf(result));
+        if (found) {
+            found.downloadSpeedKBs = result.downloadSpeedKBs ?? found.downloadSpeedKBs;
+            this._invalidate();
+            this.render();
+            return;
+        }
         this.results.push(result);
         this._invalidate();
         this.render();
@@ -182,10 +200,10 @@ export class ResultTable {
     }
 
     /** 动态设置展示列；勾选列始终保留。 */
-    setColumns(keys) {
+    setColumns(keys, resolver = columnByKey) {
         const unique = [...new Set(Array.isArray(keys) ? keys : [])];
         const wanted = ['_sel', ...unique.filter(k => k !== '_sel')];
-        const columns = wanted.map(columnByKey).filter(Boolean);
+        const columns = wanted.map(resolver).filter(Boolean);
         if (columns.length < 2) return;
         this.columns = columns;
         this._buildSkeleton();
@@ -272,8 +290,7 @@ export class ResultTable {
         let rows = this._sortedResults();
         if (this.filterText) {
             rows = rows.filter(r =>
-                [r.ip, r.port, r.country, r.cityZh, r.city, r.dataCenter, r.asnOrg, r.emoji]
-                    .some(v => String(v ?? '').toLowerCase().includes(this.filterText)));
+                this.searchFields.some(field => String(r[field] ?? '').toLowerCase().includes(this.filterText)));
         }
         const { country, maxLatency, minSpeed } = this.filters;
         if (country) rows = rows.filter(r => r.country === country || r.locCode === country);

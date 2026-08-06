@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableDelayedExpansion
 
-for /f "delims=" %%i in ('findstr /c:"var version" main.go') do set "LINE=%%i"
+for /f "delims=" %%i in ('findstr /c:"var version =" main.go') do set "LINE=%%i"
 set "VER=!LINE:*"=!"
 set "VER=!VER:"=!"
 if not defined VER (
@@ -19,4 +19,5 @@ if errorlevel 1 (
     echo Build failed.
     exit /b 1
 )
+copy /y stop-iptest-web.bat "%OUTDIR%\" >nul 2>&1
 echo Build complete: %OUTDIR%\%OUTPUT%

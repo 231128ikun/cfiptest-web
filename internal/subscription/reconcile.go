@@ -3,6 +3,7 @@ package subscription
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"sort"
@@ -52,7 +53,7 @@ type RunOptions struct {
 	SlackFactor          int             // 每组候选倍数：count*SlackFactor + SlackExtra，默认 3
 	SlackExtra           int             // 默认 10
 	MaxPerGroup          int             // 每组候选硬上限，默认 200
-	MaxCandidates        int             // 单次运行延迟检测候选总数上限（跨分组去重后），默认 200；0 = 默认
+	MaxCandidates        int             // 单次运行延迟检测候选总数上限（跨分组去重后）；0 = 不限
 	InputTargets         []engine.Target `json:"-"`                  // 服务端已解析的初始化来源目标（远程 URL），不参与 JSON
 	InputSource          string          `json:"-"`                  // 初始化来源标签，用于进度日志
 	RemoteLibrary        bool            `json:"-"`                  // 维护来源为远程库（官方/URL）：失效不删本地库、结果不落盘
@@ -98,9 +99,6 @@ func (o RunOptions) withDefaults() RunOptions {
 	}
 	if o.MaxPerGroup <= 0 {
 		o.MaxPerGroup = 200
-	}
-	if o.MaxCandidates <= 0 {
-		o.MaxCandidates = 200
 	}
 	return o
 }
@@ -182,11 +180,11 @@ func RunTask(ctx context.Context, t Tester, lib *library.Store, task Task, opts 
 			opts.Protocol = "https"
 		}
 	}
-	// 任务级「单次检测上限」：请求/全局覆盖优先，task 值兜底（0 = 引擎默认 200）。
+	// 任务级「单次检测上限」：请求/全局覆盖优先，task 值兜底（0 = 不限）。
 	if opts.MaxCandidates <= 0 && task.MaxCandidates > 0 {
 		opts.MaxCandidates = task.MaxCandidates
 	}
-	output := Output{Path: task.Output.Path, Format: task.Output.Format, Template: task.Output.Template}
+	output := Output{Path: task.Output.Path, Format: task.Output.Format, Template: task.Output.Template, Sort: task.Output.Sort}
 	report, err := runCore(ctx, t, lib, groups, inputPath, output, task.SpeedEnabled, task.Limit, opts, prog)
 	if err != nil {
 		return report, err
@@ -202,7 +200,7 @@ func RunTask(ctx context.Context, t Tester, lib *library.Store, task Task, opts 
 //	1.5 候选按单次检测上限截断（未检测条目保留，不判失效）；
 //	2. 批量延迟检测：失败者从库移除，通过者回写元数据/延迟/状态；
 //	3. 需要测速的分组对短名单批量测速：失败不判死，只标记 SpeedValid=false；
-//	4. 按分组配额取最新结果，合并去重；若设了总数限制则按延迟升序截断；
+//	4. 按分组配额取最新结果，合并去重，再按输出排序方式排序；若设了总数限制则截断；
 //	5. 渲染并原子写出输出文件。
 //
 // ctx 取消时保存已完成的库更新并返回部分报告（带 context 错误）。
@@ -277,13 +275,17 @@ func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, 
 			c.groups[gi] = g
 		}
 	}
-	// 单次检测上限（跨分组去重后）：超出部分本轮不检测、不从库删除，留待后续轮次。
+	// 单次检测上限（跨分组去重后，0 = 不限）：超出部分本轮不检测、不从库删除，留待后续轮次。
 	capNote := ""
-	if len(order) > opts.MaxCandidates {
+	if opts.MaxCandidates > 0 && len(order) > opts.MaxCandidates {
 		capNote = fmt.Sprintf("，超上限 %d 条留待下次", len(order)-opts.MaxCandidates)
 		order = order[:opts.MaxCandidates]
 	}
-	_ = prog(Progress{Stage: "gather", Tested: len(order), Log: fmt.Sprintf("收集候选 %d 条（单次上限 %d%s）", len(order), opts.MaxCandidates, capNote)})
+	capLabel := "不限"
+	if opts.MaxCandidates > 0 {
+		capLabel = strconv.Itoa(opts.MaxCandidates)
+	}
+	_ = prog(Progress{Stage: "gather", Tested: len(order), Log: fmt.Sprintf("收集候选 %d 条（单次上限 %s%s）", len(order), capLabel, capNote)})
 
 	// 解析未指定端口（HTTPS 默认 443，HTTP 默认 80），并让候选键跟随端口修正，
 	// 否则按旧键（端口 0）找不到检测结果会被误判为失效。
@@ -512,14 +514,9 @@ func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, 
 		}
 	}
 
-	// 总数限制：合并去重后按延迟升序截断
+	// 输出排序（默认延迟升序；速度排序时未测速条目排最后），排序后再应用总数限制截断
+	sortOutput(output, out.Sort)
 	if totalLimit > 0 && len(output) > totalLimit {
-		sort.SliceStable(output, func(i, j int) bool {
-			if output[i].TCPLatencyMs != output[j].TCPLatencyMs {
-				return output[i].TCPLatencyMs < output[j].TCPLatencyMs
-			}
-			return output[i].Key() < output[j].Key()
-		})
 		output = output[:totalLimit]
 	}
 
@@ -757,6 +754,65 @@ func effectiveSpeed(e library.Entry) float64 {
 		return e.DownloadSpeedKBs
 	}
 	return e.SpeedKBs
+}
+
+// sortOutput 按输出排序方式对最终结果排序。
+// 延迟/IP 排序：TCPLatencyMs 或 IP 地址；速度排序时无有效测速值的条目一律排最后。
+func sortOutput(entries []library.Entry, sortKey string) {
+	speedDesc := sortKey == OutputSortSpeedDesc
+	sort.SliceStable(entries, func(i, j int) bool {
+		a, b := entries[i], entries[j]
+		switch sortKey {
+		case OutputSortLatencyDesc:
+			if a.TCPLatencyMs != b.TCPLatencyMs {
+				return a.TCPLatencyMs > b.TCPLatencyMs
+			}
+		case OutputSortSpeedDesc, OutputSortSpeedAsc:
+			if a.SpeedValid != b.SpeedValid {
+				return a.SpeedValid // 有效测速结果排前面
+			}
+			if a.SpeedValid {
+				sa, sb := effectiveSpeed(a), effectiveSpeed(b)
+				if sa != sb {
+					if speedDesc {
+						return sa > sb
+					}
+					return sa < sb
+				}
+			}
+			if a.TCPLatencyMs != b.TCPLatencyMs {
+				return a.TCPLatencyMs < b.TCPLatencyMs
+			}
+		case OutputSortIPAsc:
+			if cmp := compareIP(a.IP, b.IP); cmp != 0 {
+				return cmp < 0
+			}
+			if a.Port != b.Port {
+				return a.Port < b.Port
+			}
+		default: // latencyAsc（含旧任务空值）
+			if a.TCPLatencyMs != b.TCPLatencyMs {
+				return a.TCPLatencyMs < b.TCPLatencyMs
+			}
+		}
+		return a.Key() < b.Key()
+	})
+}
+
+// compareIP 按 IP 地址数值比较；无法解析的字符串排后面。
+func compareIP(x, y string) int {
+	ax, aerr := netip.ParseAddr(x)
+	ay, yerr := netip.ParseAddr(y)
+	switch {
+	case aerr == nil && yerr == nil:
+		return ax.Compare(ay)
+	case aerr == nil:
+		return -1
+	case yerr == nil:
+		return 1
+	default:
+		return strings.Compare(x, y)
+	}
 }
 
 func sourceForInput(source string) string {

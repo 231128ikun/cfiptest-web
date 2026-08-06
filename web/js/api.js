@@ -120,7 +120,7 @@ export async function fetchTaskStatus() {
 
 /**
  * 订阅 SSE 事件流。
- * handlers: { onResult, onProgress, onSpeed, onAuto, onDone, onError, onOpen }
+ * handlers: { onResult, onProgress, onSpeed, onTargetDone, onAuto, onDone, onError, onOpen }
  * onDone 收到 (message, reason)，reason ∈ completed | limit | stopped：
  * 后两者是正常收工，界面不该按错误处理。
  * 返回 EventSource（可 close()）。
@@ -141,6 +141,7 @@ export function subscribeEvents(handlers) {
     es.addEventListener('result', e => handlers.onResult?.(JSON.parse(e.data).result));
     es.addEventListener('progress', e => handlers.onProgress?.(JSON.parse(e.data).progress));
     es.addEventListener('speed', e => handlers.onSpeed?.(JSON.parse(e.data).result));
+    es.addEventListener('target_done', e => handlers.onTargetDone?.(JSON.parse(e.data).target));
     es.addEventListener('auto', e => handlers.onAuto?.(JSON.parse(e.data).message));
     es.addEventListener('done', e => {
         const data = JSON.parse(e.data);

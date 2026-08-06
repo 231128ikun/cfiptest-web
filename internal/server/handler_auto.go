@@ -246,7 +246,14 @@ func (s *Server) handleLibraryGet(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if q != "" {
-			line := strings.ToLower(e.IP + "|" + e.Country + "|" + e.CityZh + "|" + e.DataCenter + "|" + e.ASNOrg)
+			// 全文搜索：IP、端口、国家/代码、城市/区域（中英）、数据中心、出口 IP、协议/版本字段、ASN 编号/名称、状态等。
+			line := strings.ToLower(strings.Join([]string{
+				e.IP, strconv.Itoa(e.Port), e.Country, e.CountryCode,
+				e.City, e.CityZh, e.Region, e.RegionZh, e.DataCenter, e.LocCode,
+				e.OutboundIP, e.IPType, e.VisitScheme, e.TLSVersion, e.SNI,
+				e.HTTPVersion, e.WARP, e.Gateway, e.IPSType,
+				strconv.FormatUint(uint64(e.ASN), 10), e.ASNOrg, e.Status,
+			}, "|"))
 			if !strings.Contains(line, q) {
 				continue
 			}

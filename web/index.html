@@ -19,6 +19,7 @@
                 <span class="version" id="app-version">版本号：加载中…</span>
                 <span class="local-badge">本地运行</span>
                 <span id="res-status" class="res-status">资源加载中…</span>
+                <button type="button" id="btn-stop" class="stop-btn" title="停止服务并退出程序">停止服务</button>
                 <button type="button" id="btn-help" class="help-btn" title="使用说明" aria-label="使用说明">?</button>
             </div>
         </div>
@@ -211,8 +212,9 @@
 
             <div class="run-strip result-run-strip">
                 <div><span>当前候选</span><strong id="run-target-count">0</strong></div>
+                <div class="batch-status" id="batch-status" hidden><span>本批进度</span><strong id="batch-progress">0/0</strong></div>
                 <button id="btn-start-latency" class="primary run-button">开始检测</button>
-                <button id="btn-stop" class="danger" disabled>停止</button>
+                <button id="btn-task-stop" class="danger" disabled>暂停检测</button>
             </div>
             <div class="progress-wrap" id="progress-wrap" role="progressbar" aria-label="检测进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="0%">
                 <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
@@ -229,6 +231,7 @@
                     <span class="sort-bar"><label for="sort-key">排序</label><select id="sort-key"></select><button id="btn-sort-dir" class="small">▲ 升序</button></span>
                     <button id="btn-column-toggle" aria-expanded="false" aria-controls="column-box">显示字段</button>
                     <button id="btn-quota-toggle" aria-expanded="false" aria-controls="quota-box">自定义展示规则</button>
+                    <button id="btn-clear-results" class="small" disabled>清空检测结果</button>
                 </div>
             </div>
 
@@ -443,8 +446,9 @@
                             <div class="task-form-row">
                                 <label>输出文件<input type="text" id="task-output" placeholder="留空：文件来源回写原文件，其它来源写入 out/任务名.txt"></label>
                                 <label>输出格式<select id="task-format"><option value="txt">txt</option><option value="csv">csv</option></select></label>
+                                <label title="输出文件内条目的排列顺序；速度排序时未测速条目排在最后">输出排序<select id="task-sort"><option value="latencyAsc">延迟升序（默认）</option><option value="latencyDesc">延迟降序</option><option value="speedDesc">速度降序</option><option value="speedAsc">速度升序</option><option value="ipAsc">IP 地址升序</option></select></label>
                                 <label>总数限制<span class="input-with-unit"><input type="number" id="task-limit" min="0" placeholder="0 = 不限"> <span class="unit">条</span></span></label>
-                                <label title="每次运行最多检测的候选数（跨分组去重后），超出部分留待下次；0 = 默认 200">单次检测上限<span class="input-with-unit"><input type="number" id="task-max-candidates" min="0" placeholder="0 = 默认 200"> <span class="unit">条</span></span></label>
+                                <label title="每次运行最多检测的候选数（跨分组去重后），超出部分留待下次；0 = 不限，默认 200 已预填">单次检测上限<span class="input-with-unit"><input type="number" id="task-max-candidates" min="0" value="200" placeholder="0 = 不限"> <span class="unit">条</span></span></label>
                                 <label class="checkbox"><input type="checkbox" id="task-speed" title="开启后各规则可选择速度范围"> 开启测速</label>
                             </div>
                             <div class="task-form-row task-detection-options">
@@ -499,17 +503,7 @@
                 <div class="lib-main">
                     <div class="lib-toolbar">
                         <div class="lib-filter-controls">
-                            <input type="text" id="lib-q" placeholder="搜索 IP / 国家 / 城市 / ASN…">
-                            <select id="lib-field" aria-label="筛选字段">
-                                <option value="">全部字段</option>
-                                <option value="country">国家</option>
-                                <option value="city">城市</option>
-                                <option value="dc">数据中心</option>
-                                <option value="asn">ASN</option>
-                                <option value="port">端口</option>
-                                <option value="status">状态</option>
-                            </select>
-                            <select id="lib-field-value" aria-label="字段取值（含统计）" disabled><option value="">全部取值</option></select>
+                            <input type="text" id="lib-filter" placeholder="筛选全部字段：IP、国家、城市、ASN、状态、来源、时间…" aria-label="库筛选">
                         </div>
                         <div class="lib-manage-actions" aria-label="当前库操作">
                             <div class="lib-action-group">
@@ -543,14 +537,22 @@
                                 </div>
                             </div>
                         </div>
+                        <div class="lib-sort-row">
+                            <span class="sort-bar"><label for="lib-sort-key">排序</label><select id="lib-sort-key"></select><button id="btn-lib-sort-dir" class="small">▲ 升序</button></span>
+                            <button id="lib-quota-toggle" aria-expanded="false" aria-controls="lib-quota-box">自定义展示规则</button>
+                        </div>
                     </div>
-                    <div id="lib-stats" class="lib-stats"></div>
+                    <div class="quota-box" id="lib-quota-box">
+                        <div class="quota-title">自定义展示规则</div>
+                        <div class="quota-controls">
+                            <span>选择分组字段与取值顺序，导出和表格都按该顺序排列；多条规则自动合并并去重。</span>
+                            <button id="btn-lib-quota-add-rule" class="small">添加规则</button>
+                        </div>
+                        <div class="quota-rules" id="lib-quota-rules"></div>
+                        <button id="btn-lib-quota-apply" class="small primary">应用规则</button>
+                        <button id="btn-lib-quota-clear" class="small">清除规则</button>
+                    </div>
                     <div id="lib-table-container" class="lib-table-container"></div>
-                    <div id="lib-pager" class="lib-pager" hidden>
-                        <button type="button" id="lib-page-prev" class="secondary-button" disabled>上一页</button>
-                        <span id="lib-page-info" class="hint"></span>
-                        <button type="button" id="lib-page-next" class="secondary-button" disabled>下一页</button>
-                    </div>
                     <div id="lib-count" class="hint"></div>
                 </div>
             </div>
@@ -723,7 +725,7 @@
                 <p>每次维护的摘要与明细（data/runs.jsonl），可追溯。</p>
                 <h4>⑤ 设置</h4>
                 <p>全局默认检测参数、数据源与颜色阈值（data/config.json、data/settings.json）。</p>
-                <p class="help-note">提示：本程序为本地单机应用，双击 exe 即启动服务；关闭黑色控制台窗口会停止服务。</p>
+                <p class="help-note">提示：本程序为本地单机应用，双击 exe 即启动服务。重复启动时会自动打开已运行的实例，不会重复占用端口；需要退出时点击右上角「停止服务」，或关闭黑色控制台窗口。</p>
             </div>
         </div>
     </div>

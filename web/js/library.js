@@ -1,17 +1,20 @@
 ﻿// library.js —— IP 库页：库列表（多库管理）+ 库内容表格 + 手动导入/导出。
 // 表格复用工作台结果页的 ResultTable 与 columns.js 列注册表，
-// 导出复用 exporter.js 的 serialize / download，避免维护第二套渲染与导出逻辑。
+// 筛选/排序/自定义展示规则与工作台完全共用同一套逻辑，一次性加载全量数据。
 import { escapeHTML } from './columns.js';
 import { parseCSVEntries } from './input.js';
 import { LIBRARY_COLUMNS, LIBRARY_CSV_COLUMNS } from './columns.js';
 import { ResultTable } from './table.js';
 import { download, downloadAsCSV, serialize } from './exporter.js';
 import { PRESETS } from './composer.js';
+import { addQuotaRule, readQuotaRules, clearQuotaEditors } from './quota-rules.js';
 import * as api from './api.js';
 
 const $ = id => document.getElementById(id);
-const PAGE_SIZE = 500; // 前端分页每页条数（后端单页上限 2000）
 const LIB_COLUMNS_KEY = 'iptest.library.columns';
+
+/** Library column defs by key: keeps library-specific rendering when setColumns rebuilds. */
+const LIB_COL_BY_KEY = new Map(LIBRARY_COLUMNS.map(c => [c.key, c]));
 
 /** 库页默认显示列（其余字段可在「显示字段」里勾选）。 */
 const LIB_DEFAULT_VISIBLE = ['ip', 'port', 'dataCenter', 'country', 'cityZh', 'status', 'tcpLatencyMs', 'downloadSpeedKBs', 'lastCheckedAt', 'checks', 'source'];
@@ -32,15 +35,11 @@ export function initLibrary({ toast }) {
     const state = {
         libraries: [],
         current: null, // Info
-        entries: [],
-        total: 0,
-        stats: null,
-        page: 0,
+        allEntries: [],   // 全量数据（一次性加载）
         loading: false,
         columnKeys: loadSavedColumnKeys() ?? [...LIB_DEFAULT_VISIBLE],
     };
     let table = null;
-    let qTimer = null;
     let pendingImport = null; // { entries, invalid, total }
 
     async function loadLibraries() {
@@ -49,10 +48,9 @@ export function initLibrary({ toast }) {
             state.libraries = data.libraries || [];
             if (!state.current || !state.libraries.some(l => l.id === state.current.id)) {
                 state.current = state.libraries[0] || null;
-                state.page = 0;
             }
             renderLibList();
-            await loadEntries();
+            await loadAllEntries();
         } catch (error) {
             toast(`加载 IP 库失败：${error.message}`);
         }
@@ -65,8 +63,8 @@ export function initLibrary({ toast }) {
             return;
         }
         wrap.innerHTML = state.libraries.map(l => {
-            const st = state.stats?.[l.id];
-            const detail = st ? `${st.total} 条（有效 ${st.active} / 未测 ${st.new}）` : '加载中…';
+            const total = state.allEntries.length && l.id === state.current?.id ? state.allEntries.length : null;
+            const detail = total != null ? `${total} 条` : '点击切换查看';
             return `<div class="lib-item ${l.id === state.current?.id ? 'selected' : ''}" data-id="${escapeHTML(l.id)}">
                 <div class="lib-item-name">${escapeHTML(l.name)}</div>
                 <div class="lib-item-stats">${detail}</div>
@@ -74,95 +72,36 @@ export function initLibrary({ toast }) {
         }).join('');
     }
 
-    const FIELD_PARAM = { country: 'country', city: 'city', dc: 'dc', asn: 'asn', port: 'port', status: 'status' };
-
-    function currentFilterParams() {
-        const params = {};
-        const field = $('lib-field').value;
-        const fieldValue = $('lib-field-value').value;
-        if (field && fieldValue) params[FIELD_PARAM[field] || field] = fieldValue;
-        return params;
-    }
-
-    async function loadEntries() {
+    /** 一次性加载当前库的全部数据。 */
+    async function loadAllEntries() {
         if (!state.current) {
-            state.entries = [];
-            state.total = 0;
+            state.allEntries = [];
             renderTable();
             renderCount();
-            renderPager();
             return;
         }
         state.loading = true;
         renderCount();
-        renderPager();
         try {
-            const data = await api.fetchAutoLibrary({
-                lib: state.current.id,
-                q: $('lib-q').value.trim(),
-                offset: state.page * PAGE_SIZE,
-                limit: PAGE_SIZE,
-                ...currentFilterParams(),
-            });
-            state.entries = data.entries || [];
-            state.total = data.total || 0;
-            // 当前页越界（如删除条目后）时自动回退一页
-            const pages = Math.max(1, Math.ceil(state.total / PAGE_SIZE));
-            if (state.page >= pages) {
-                state.page = Math.max(0, pages - 1);
-                return loadEntries();
+            // 分页拉取全量（单页上限 2000）
+            const all = [];
+            for (let offset = 0; ; offset += 2000) {
+                const data = await api.fetchAutoLibrary({ lib: state.current.id, offset, limit: 2000 });
+                all.push(...(data.entries || []));
+                if (!data.entries?.length) break; // guard against server total inconsistency
+                if (all.length >= (data.total || 0)) break;
             }
-            state.stats = { ...(state.stats || {}), [state.current.id]: data.stats };
-            renderLibList();
-            renderStats();
-            renderFieldValueOptions(data.stats);
+            state.allEntries = all;
             renderTable();
+            renderSortOptions();
+            renderLibList();
+            renderCount();
         } catch (error) {
-            toast(`加载库内容失败：${error.message}`);
+            toast(`加载库数据失败：${error.message}`);
         } finally {
             state.loading = false;
             renderCount();
-            renderPager();
         }
-    }
-
-    function renderStats() {
-        const st = state.current ? state.stats?.[state.current.id] : null;
-        $('lib-stats').textContent = st
-            ? `${escapeHTML(state.current.name)}：共 ${st.total} 条 · 有效 ${st.active} · 未测 ${st.new} · 已测速 ${st.speedValid}`
-            : '';
-    }
-
-    function renderFieldValueOptions(stats) {
-        const field = $('lib-field').value;
-        const sel = $('lib-field-value');
-        if (!field) {
-            sel.disabled = true;
-            sel.innerHTML = '<option value="">全部取值</option>';
-            return;
-        }
-        const map = {
-            country: stats?.byCountry,
-            city: stats?.byCity,
-            dc: stats?.byDC,
-            asn: stats?.byASN,
-            port: stats?.byPort,
-        }[field] || {};
-        const current = sel.value;
-        if (field === 'status') {
-            const label = { active: '有效', new: '未测' }; // 有效 / 未测
-            sel.disabled = false;
-            sel.innerHTML = ['<option value="">全部取值</option>']
-                .concat(['active', 'new'].map(k => `<option value="${k}">${label[k]}（${stats?.[k] ?? 0}）</option>`))
-                .join('');
-        } else {
-            const keys = Object.keys(map).sort();
-            sel.disabled = keys.length === 0;
-            sel.innerHTML = ['<option value="">全部取值</option>']
-                .concat(keys.map(k => `<option value="${escapeHTML(k)}">${escapeHTML(k)}（${map[k]}）</option>`))
-                .join('');
-        }
-        sel.value = current;
     }
 
     function renderTable() {
@@ -170,50 +109,68 @@ export function initLibrary({ toast }) {
             table = new ResultTable($('lib-table-container'), LIBRARY_COLUMNS, {
                 emptyText: '当前库为空 —— 点击「导入」添加 IP 数据',
                 noMatchText: '没有匹配当前筛选的条目',
+                sortKey: '',
+                searchFields: ['ip', 'port', 'country', 'countryCode', 'cityZh', 'city', 'region', 'regionZh', 'dataCenter', 'locCode', 'asn', 'asnOrg', 'ipType', 'ipsType', 'status', 'source', 'firstSeenAt', 'lastCheckedAt', 'checks', 'outboundIP', 'visitScheme', 'tlsVersion', 'sni', 'httpVersion', 'warp', 'gateway', 'rbi', 'kex', 'timestamp'],
             });
             table.container.addEventListener('selectionchange', updateActionStates);
-            table.setColumns(state.columnKeys);
+            table.setColumns(state.columnKeys, k => LIB_COL_BY_KEY.get(k));
             table.container.querySelector('table')?.classList.add('library-results');
         }
-        table.clear();
-        state.entries.forEach(e => table.appendResult(e));
-        if (!state.entries.length) {
-            const row = table.tbody?.querySelector('.empty-row');
-            if (row) {
-                const isEmpty = state.total === 0;
-                row.innerHTML = `<td colspan="${table.columns.length}">
-                    <div class="lib-empty-state">
-                        <strong>${isEmpty ? '当前库为空' : '没有匹配当前筛选的条目'}</strong>
-                        <span>${isEmpty ? '点击下方按钮，导入第一批 IP 数据' : '试试调整搜索或筛选条件'}</span>
-                        ${isEmpty ? '<button type="button" id="lib-empty-import" class="secondary-button">导入 IP 数据</button>' : ''}
-                    </div>
-                </td>`;
-                row.querySelector('#lib-empty-import')?.addEventListener('click', openImportModal);
+        table.setResults(state.allEntries);
+        if (!state.allEntries.length) {
+            // table.render() 通过 rAF 重绘，空行要等重绘后再替换
+            requestAnimationFrame(() => {
+                const row = table.tbody?.querySelector('.empty-row');
+                if (row) {
+                    row.innerHTML = `<td colspan="${table.columns.length}">
+                        <div class="lib-empty-state">
+                            <strong>当前库为空</strong>
+                            <span>点击下方按钮，导入第一批 IP 数据</span>
+                            <button type="button" id="lib-empty-import" class="secondary-button">导入 IP 数据</button>
+                        </div>
+                    </td>`;
+                    row.querySelector('#lib-empty-import')?.addEventListener('click', openImportModal);
+                }
             }
-        }
-        updateActionStates();
+            });
+        }        updateActionStates();
+    }
+
+    /** 渲染排序下拉框（复用工作台的排序控件模式）。 */
+    function renderSortOptions() {
+        if (!table) return;
+        const sortable = LIBRARY_COLUMNS.filter(c => c.sortable && c.key !== '_sel');
+        $('lib-sort-key').innerHTML = '<option value="">默认排序</option>'
+            + sortable.map(c => `<option value="${c.key}">${escapeHTML(c.label)}</option>`).join('');
+        $('lib-sort-key').value = table.sortKey;
     }
 
     function renderCount() {
+        const visible = table ? table._visibleResults().length : 0;
+        const total = state.allEntries.length;
         $('lib-count').textContent = state.loading
             ? '加载中…'
-            : state.current ? `共 ${state.total} 条，当前显示 ${state.entries.length} 条` : '';
+            : state.current ? (visible === total ? `共 ${total} 条` : `共 ${total} 条，匹配 ${visible} 条`) : '';
     }
 
-    function renderPager() {
-        const pager = $('lib-pager');
-        if (!state.current) { pager.hidden = true; return; }
-        const pages = Math.max(1, Math.ceil(state.total / PAGE_SIZE));
-        pager.hidden = pages <= 1 && !state.loading;
-        $('lib-page-info').textContent = `第 ${state.page + 1} / ${pages} 页 · 每页 ${PAGE_SIZE} 条`;
-        $('lib-page-prev').disabled = state.loading || state.page <= 0;
-        $('lib-page-next').disabled = state.loading || state.page >= pages - 1;
+    function renderColumnOptions() {
+        const choices = LIBRARY_COLUMNS.filter(c => c.key !== '_sel');
+        $('lib-column-options').innerHTML = choices.map(c => `
+            <label class="checkbox"><input type="checkbox" data-key="${c.key}" ${state.columnKeys.includes(c.key) ? 'checked' : ''}> ${escapeHTML(c.label)}</label>`).join('');
+        $('lib-column-selected-count').textContent = `已选 ${state.columnKeys.length}/${choices.length}`;
     }
 
-    /** 根据当前库/数据/勾选状态统一刷新按钮可用性，避免危险操作误触。 */
+    function applyColumnKeys(keys) {
+        if (!keys.length) { toast('至少保留一个显示字段'); renderColumnOptions(); return; }
+        state.columnKeys = keys;
+        table?.setColumns(keys, k => LIB_COL_BY_KEY.get(k));
+        renderColumnOptions();
+    }
+
+    /** 根据当前库/数据/勾选状态统一刷新按钮可用性。 */
     function updateActionStates() {
         const hasLib = !!state.current;
-        const hasEntries = state.total > 0;
+        const hasEntries = state.allEntries.length > 0;
         $('lib-import').disabled = !hasLib;
         $('lib-export').disabled = !hasLib;
         $('lib-rename').disabled = !hasLib;
@@ -222,6 +179,7 @@ export function initLibrary({ toast }) {
         const n = table ? table.getSelectedResults().length : 0;
         $('lib-remove-selected').disabled = n === 0;
         $('lib-selected-count').textContent = n ? `已选 ${n} 条` : '';
+        renderCount();
     }
 
     async function removeSelected() {
@@ -231,7 +189,7 @@ export function initLibrary({ toast }) {
         try {
             const result = await api.removeAutoLibrary(state.current.id, keys);
             toast(`已移除 ${result.removed} 条`);
-            await loadEntries();
+            await loadAllEntries();
         } catch (error) {
             toast(`移除失败：${error.message}`);
         }
@@ -244,7 +202,7 @@ export function initLibrary({ toast }) {
             await api.clearLibrary(state.current.id);
             toast('库已清空');
             window.dispatchEvent(new CustomEvent('library-changed'));
-            await loadEntries();
+            await loadAllEntries();
         } catch (error) {
             toast(`清空失败：${error.message}`);
         }
@@ -331,7 +289,7 @@ export function initLibrary({ toast }) {
             $('lib-import-modal').hidden = true;
             pendingImport = null;
             window.dispatchEvent(new CustomEvent('library-changed'));
-            await loadEntries();
+            await loadAllEntries();
         } catch (error) {
             toast(`导入失败：${error.message}`);
         }
@@ -343,24 +301,12 @@ export function initLibrary({ toast }) {
         $('lib-export-modal').hidden = false;
     }
 
-    /** 分页拉取当前筛选条件下的全部条目（单页上限 2000）。 */
-    async function fetchAllFiltered() {
-        const params = { lib: state.current.id, q: $('lib-q').value.trim(), limit: PAGE_SIZE };
-        Object.assign(params, currentFilterParams());
-        const all = [];
-        for (let offset = 0; ; offset += PAGE_SIZE) {
-            const data = await api.fetchAutoLibrary({ ...params, offset });
-            all.push(...(data.entries || []));
-            if (all.length >= (data.total || 0)) break;
-        }
-        return all;
-    }
-
     async function confirmExport() {
         if (!state.current) return;
         const format = document.querySelector('input[name="lib-export-format"]:checked')?.value || 'txt';
         try {
-            const rows = await fetchAllFiltered();
+            // 导出当前筛选可见的结果（复用工作台的筛选逻辑）
+            const rows = table ? table.getAllResults() : state.allEntries;
             if (!rows.length) { toast('当前筛选没有可导出的条目'); return; }
             const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
             const base = `${state.current.name}-${stamp}`;
@@ -377,145 +323,189 @@ export function initLibrary({ toast }) {
         }
     }
 
-    // ---- 显示字段（列选择器，localStorage 持久化）----
-    function renderColumnOptions() {
-        const choices = LIBRARY_COLUMNS.filter(c => c.key !== '_sel');
-        $('lib-column-options').innerHTML = choices.map(c =>
-            `<label class="checkbox"><input type="checkbox" data-key="${c.key}" ${state.columnKeys.includes(c.key) ? 'checked' : ''}> ${escapeHTML(c.label)}</label>`
-        ).join('');
-        $('lib-column-selected-count').textContent = `已选 ${state.columnKeys.length}/${choices.length}`;
+    // ---- 自定义展示规则（复用共享模块）----
+    function applyQuotaRules() {
+        if (!table) return;
+        const rules = readQuotaRules();
+        const shown = table.applyDisplayRules(rules);
+        toast(rules.length ? `已应用 ${rules.length} 条规则，当前展示 ${shown} 条` : '请至少选择一条规则的值');
+        renderCount();
     }
 
-    function applyColumnKeys(keys) {
-        const unique = [...new Set(keys)];
-        if (!unique.length) { toast('至少保留一个显示字段'); renderColumnOptions(); return; }
-        state.columnKeys = unique;
-        try { localStorage.setItem(LIB_COLUMNS_KEY, JSON.stringify(unique)); } catch { /* 忽略存储失败 */ }
-        table?.setColumns(unique);
-        table?.container.querySelector('table')?.classList.add('library-results');
-        renderColumnOptions();
-        $('lib-column-save-status').textContent = '已更新';
+    function clearQuotaRules() {
+        if (!table) return;
+        table.clearDisplayRules();
+        clearQuotaEditors();
+        addQuotaRule($('lib-quota-rules'), table);
+        renderCount();
     }
 
-    // 事件绑定
-    $('lib-list').addEventListener('click', e => {
-        const item = e.target.closest('.lib-item');
-        if (!item) return;
-        state.current = state.libraries.find(l => l.id === item.dataset.id) || null;
-        state.page = 0;
-        renderLibList();
-        loadEntries();
-    });
-    $('lib-new').addEventListener('click', createNew);
-    $('lib-import').addEventListener('click', openImportModal);
-    $('lib-export').addEventListener('click', openExportModal);
-    $('lib-rename').addEventListener('click', renameCurrent);
-    $('lib-remove-selected').addEventListener('click', removeSelected);
-    $('lib-clear').addEventListener('click', clearCurrent);
-    $('lib-delete').addEventListener('click', deleteCurrent);
-    $('lib-field').addEventListener('change', () => { renderFieldValueOptions(state.stats?.[state.current?.id]); state.page = 0; loadEntries(); });
-    $('lib-field-value').addEventListener('change', () => { state.page = 0; loadEntries(); });
-    // 搜索输入防抖 300ms，避免每次按键都打一次后端
-    $('lib-q').addEventListener('input', () => {
-        clearTimeout(qTimer);
-        qTimer = setTimeout(() => { state.page = 0; loadEntries(); }, 300);
-    });
+    // ---- 事件绑定 ----
+    function bindEvents() {
+        // 库列表切换
+        $('lib-list').addEventListener('click', e => {
+            const item = e.target.closest('.lib-item');
+            if (!item) return;
+            const lib = state.libraries.find(l => l.id === item.dataset.id);
+            if (lib && lib.id !== state.current?.id) {
+                state.current = lib;
+                // 清除展示规则
+                clearQuotaEditors();
+                if (table) table.clearDisplayRules();
+                renderLibList();
+                loadAllEntries();
+            }
+        });
 
-    // 分页
-    $('lib-page-prev').addEventListener('click', () => {
-        if (state.page > 0 && !state.loading) { state.page--; loadEntries(); }
-    });
-    $('lib-page-next').addEventListener('click', () => {
-        const pages = Math.max(1, Math.ceil(state.total / PAGE_SIZE));
-        if (state.page < pages - 1 && !state.loading) { state.page++; loadEntries(); }
-    });
+        $('lib-new').addEventListener('click', createNew);
 
-    // 显示字段
-    $('lib-column-toggle').addEventListener('click', () => {
-        const box = $('lib-column-box');
-        const active = box.classList.toggle('active');
-        $('lib-column-toggle').setAttribute('aria-expanded', String(active));
-    });
-    $('btn-lib-column-all').addEventListener('click', () => {
-        document.querySelectorAll('#lib-column-options input').forEach(i => i.checked = true);
-        applyColumnKeys([...document.querySelectorAll('#lib-column-options input:checked')].map(i => i.dataset.key));
-    });
-    $('btn-lib-column-default').addEventListener('click', () => {
-        applyColumnKeys([...LIB_DEFAULT_VISIBLE]);
-        $('lib-column-save-status').textContent = '已恢复默认';
-    });
-    $('lib-column-options').addEventListener('change', () => {
-        applyColumnKeys([...document.querySelectorAll('#lib-column-options input:checked')].map(i => i.dataset.key));
-    });
+        // 筛选（复用工作台的文本筛选 + ResultTable 客户端筛选）
+        let qTimer = null;
+        $('lib-filter').addEventListener('input', () => {
+            clearTimeout(qTimer);
+            qTimer = setTimeout(() => {
+                table?.setFilter($('lib-filter').value);
+                renderCount();
+            }, 150);
+        });
 
-    // 「更多」菜单：点击外部关闭
-    $('lib-more').addEventListener('click', e => {
-        e.stopPropagation();
-        const open = $('lib-more-wrap').classList.toggle('open');
-        $('lib-more').setAttribute('aria-expanded', String(open));
-    });
-    document.addEventListener('click', e => {
-        const moreWrap = $('lib-more-wrap');
-        const colBox = $('lib-column-box');
-        const colToggle = $('lib-column-toggle');
-        if (!moreWrap.contains(e.target)) {
-            moreWrap.classList.remove('open');
+        // 排序
+        $('lib-sort-key').addEventListener('change', () => {
+            const key = $('lib-sort-key').value;
+            if (!key) { table?.clearSort(); return; }
+            if (!table) return;
+            table.setSort(key, table.sortKey === key ? !table.sortAsc : true);
+        });
+        $('btn-lib-sort-dir').addEventListener('click', () => {
+            if (!table) return;
+            table.setSort(table.sortKey, !table.sortAsc);
+        });
+        // header click / dropdown share one sort state (workbench pattern)
+        $('lib-table-container').addEventListener('sortchange', event => {
+            $('lib-sort-key').value = event.detail.key;
+            $('btn-lib-sort-dir').textContent = event.detail.asc ? '▲ 升序' : '▼ 降序';
+            renderCount();
+        });
+
+        // 显示字段
+        $('lib-column-toggle').addEventListener('click', () => {
+            const box = $('lib-column-box');
+            const active = box.classList.toggle('active');
+            $('lib-column-toggle').setAttribute('aria-expanded', String(active));
+        });
+        $('btn-lib-column-all').addEventListener('click', () => {
+            document.querySelectorAll('#lib-column-options input').forEach(i => i.checked = true);
+            applyColumnKeys([...document.querySelectorAll('#lib-column-options input:checked')].map(i => i.dataset.key));
+        });
+        $('btn-lib-column-default').addEventListener('click', () => {
+            applyColumnKeys([...LIB_DEFAULT_VISIBLE]);
+            $('lib-column-save-status').textContent = '已恢复默认';
+        });
+        $('lib-column-options').addEventListener('change', () => {
+            applyColumnKeys([...document.querySelectorAll('#lib-column-options input:checked')].map(i => i.dataset.key));
+        });
+
+        // 自定义展示规则
+        $('lib-quota-toggle').addEventListener('click', () => {
+            const box = $('lib-quota-box');
+            const open = !box.classList.contains('active');
+            if (open && document.querySelectorAll('#lib-quota-rules .quota-rule').length === 0) {
+                addQuotaRule($('lib-quota-rules'), table);
+            }
+            box.classList.toggle('active', open);
+            $('lib-quota-toggle').classList.toggle('active', open);
+            $('lib-quota-toggle').setAttribute('aria-expanded', String(open));
+        });
+        $('btn-lib-quota-add-rule').addEventListener('click', () => {
+            addQuotaRule($('lib-quota-rules'), table);
+        });
+        $('btn-lib-quota-apply').addEventListener('click', applyQuotaRules);
+        $('btn-lib-quota-clear').addEventListener('click', clearQuotaRules);
+
+        // 「更多」菜单：点击外部关闭
+        $('lib-more').addEventListener('click', e => {
+            e.stopPropagation();
+            const open = $('lib-more-wrap').classList.toggle('open');
+            $('lib-more').setAttribute('aria-expanded', String(open));
+        });
+        document.addEventListener('click', e => {
+            const moreWrap = $('lib-more-wrap');
+            const colBox = $('lib-column-box');
+            const colToggle = $('lib-column-toggle');
+            const quotaBox = $('lib-quota-box');
+            const quotaToggle = $('lib-quota-toggle');
+            if (!moreWrap.contains(e.target)) {
+                moreWrap.classList.remove('open');
+                $('lib-more').setAttribute('aria-expanded', 'false');
+            }
+            if (colBox.classList.contains('active') && e.target !== colToggle && !colBox.contains(e.target) && !colToggle.contains(e.target)) {
+                colBox.classList.remove('active');
+                colToggle.setAttribute('aria-expanded', 'false');
+            }
+            if (quotaBox?.classList.contains('active') && e.target !== quotaToggle && !quotaBox.contains(e.target) && !quotaToggle?.contains(e.target)) {
+                quotaBox.classList.remove('active');
+                quotaToggle?.classList.remove('active');
+                quotaToggle?.setAttribute('aria-expanded', 'false');
+            }
+        });
+        $('lib-more-wrap').addEventListener('click', () => {
+            $('lib-more-wrap').classList.remove('open');
             $('lib-more').setAttribute('aria-expanded', 'false');
-        }
-        if (colBox.classList.contains('active') && e.target !== colToggle && !colBox.contains(e.target) && !colToggle.contains(e.target)) {
-            colBox.classList.remove('active');
-            colToggle.setAttribute('aria-expanded', 'false');
-        }
-    });
-    // 菜单内点击任意操作后收起「更多」菜单
-    $('lib-more-wrap').addEventListener('click', () => {
-        $('lib-more-wrap').classList.remove('open');
-        $('lib-more').setAttribute('aria-expanded', 'false');
-    });
+        });
 
-    // 导入弹窗：文件选择 + 拖拽 + 预览
-    $('lib-import-modal').addEventListener('click', e => { if (e.target === $('lib-import-modal')) $('lib-import-modal').hidden = true; });
-    $('btn-lib-import-close').addEventListener('click', () => { $('lib-import-modal').hidden = true; });
-    $('btn-lib-import-cancel').addEventListener('click', () => { $('lib-import-modal').hidden = true; });
-    $('btn-lib-import-confirm').addEventListener('click', confirmImport);
-    $('lib-import-file').addEventListener('change', async event => {
-        const file = event.target.files?.[0];
-        event.target.value = '';
-        await handleImportFile(file);
-    });
-    const dropzone = $('lib-import-dropzone');
-    if (dropzone) {
-        ['dragover', 'dragenter'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.add('dragover'); }));
-        ['dragleave', 'drop'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.remove('dragover'); }));
-        dropzone.addEventListener('drop', async e => {
-            const file = e.dataTransfer?.files?.[0];
+        // 更多菜单操作
+        $('lib-rename').addEventListener('click', renameCurrent);
+        $('lib-remove-selected').addEventListener('click', removeSelected);
+        $('lib-clear').addEventListener('click', clearCurrent);
+        $('lib-delete').addEventListener('click', deleteCurrent);
+
+        // 导入弹窗：文件选择 + 拖拽 + 预览
+        $('lib-import').addEventListener('click', openImportModal);
+        $('lib-import-modal').addEventListener('click', e => { if (e.target === $('lib-import-modal')) $('lib-import-modal').hidden = true; });
+        $('btn-lib-import-close').addEventListener('click', () => $('lib-import-modal').hidden = true);
+        $('btn-lib-import-cancel').addEventListener('click', () => $('lib-import-modal').hidden = true);
+        $('btn-lib-import-confirm').addEventListener('click', confirmImport);
+        $('lib-import-file').addEventListener('change', async event => {
+            const file = event.target.files?.[0];
+            event.target.value = '';
             await handleImportFile(file);
         });
-    }
+        const dropzone = $('lib-import-dropzone');
+        if (dropzone) {
+            ['dragover', 'dragenter'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.add('dragover'); }));
+            ['dragleave', 'drop'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.remove('dragover'); }));
+            dropzone.addEventListener('drop', async e => {
+                const file = e.dataTransfer?.files?.[0];
+                await handleImportFile(file);
+            });
+        }
 
-    // 导出弹窗
-    $('lib-export-modal').addEventListener('click', e => { if (e.target === $('lib-export-modal')) $('lib-export-modal').hidden = true; });
-    $('btn-lib-export-close').addEventListener('click', () => { $('lib-export-modal').hidden = true; });
-    $('btn-lib-export-cancel').addEventListener('click', () => { $('lib-export-modal').hidden = true; });
-    $('btn-lib-export-confirm').addEventListener('click', confirmExport);
-    document.querySelectorAll('input[name="lib-export-format"]').forEach(input =>
-        input.addEventListener('change', () => {
-            const isTxt = input.value === 'txt';
-            const section = $('lib-export-template-section');
-            if (section) section.style.display = isTxt ? '' : 'none';
-        }));
-    // 导出模板预设（复用测速工作台第三步的 PRESETS）
-    const presetSel = $('lib-export-preset');
-    if (presetSel) {
-        const group = presetSel.querySelector('optgroup');
-        if (group) group.innerHTML = PRESETS.map((preset, i) => `<option value="${i}">${preset.name}</option>`).join('');
-        presetSel.addEventListener('change', () => {
-            const preset = PRESETS[Number(presetSel.value)];
-            if (preset) $('lib-export-template').value = preset.template;
-        });
+        // 导出弹窗
+        $('lib-export').addEventListener('click', openExportModal);
+        $('lib-export-modal').addEventListener('click', e => { if (e.target === $('lib-export-modal')) $('lib-export-modal').hidden = true; });
+        $('btn-lib-export-close').addEventListener('click', () => $('lib-export-modal').hidden = true);
+        $('btn-lib-export-cancel').addEventListener('click', () => $('lib-export-modal').hidden = true);
+        $('btn-lib-export-confirm').addEventListener('click', confirmExport);
+        document.querySelectorAll('input[name="lib-export-format"]').forEach(input =>
+            input.addEventListener('change', () => {
+                const isTxt = input.value === 'txt';
+                const section = $('lib-export-template-section');
+                if (section) section.style.display = isTxt ? '' : 'none';
+            }));
+        // 导出模板预设（复用测速工作台第三步的 PRESETS）
+        const presetSel = $('lib-export-preset');
+        if (presetSel) {
+            const group = presetSel.querySelector('optgroup');
+            if (group) group.innerHTML = PRESETS.map((preset, i) => `<option value="${i}">${preset.name}</option>`).join('');
+            presetSel.addEventListener('change', () => {
+                const preset = PRESETS[Number(presetSel.value)];
+                if (preset) $('lib-export-template').value = preset.template;
+            });
+        }
     }
 
     renderColumnOptions();
+    bindEvents();
     loadLibraries();
     return { refresh: loadLibraries };
 }

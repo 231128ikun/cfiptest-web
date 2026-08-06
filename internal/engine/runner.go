@@ -140,9 +140,13 @@ loop:
 
 		wg.Add(1)
 		go func(target Target) {
+			completedNormally := false
 			defer func() {
 				<-sem
 				wg.Done()
+				if !completedNormally {
+					return
+				}
 				n := atomic.AddInt64(&completed, 1)
 				cb(Event{Type: EventProgress, Progress: &Progress{
 					Completed: int(n),
@@ -152,13 +156,22 @@ loop:
 			}()
 
 			res := r.testSingleIP(runCtx, target, opts)
+			// testSingleIP 的 nil 同时表示「无效」和「被取消」。只有上下文仍正常时，
+			// 才能确认该候选已经完整检查，可以从前端候选漏斗中移除。
+			if runCtx.Err() != nil {
+				return
+			}
 			if res == nil {
+				completedNormally = true
+				cb(Event{Type: EventTargetDone, Target: &target})
 				return
 			}
 			var n int64
 			for {
 				current := atomic.LoadInt64(&validCount)
 				if opts.MaxResults > 0 && int(current) >= opts.MaxResults {
+					completedNormally = true
+					cb(Event{Type: EventTargetDone, Target: &target})
 					return
 				}
 				if atomic.CompareAndSwapInt64(&validCount, current, current+1) {
@@ -168,6 +181,8 @@ loop:
 			}
 			resultCh <- *res
 			cb(Event{Type: EventResult, Result: res})
+			completedNormally = true
+			cb(Event{Type: EventTargetDone, Target: &target})
 			if opts.MaxResults > 0 && int(n) >= opts.MaxResults {
 				hitLimit.Store(true)
 				cancel()
@@ -228,9 +243,13 @@ loop:
 
 		wg.Add(1)
 		go func(target Target) {
+			completedNormally := false
 			defer func() {
 				<-sem
 				wg.Done()
+				if !completedNormally {
+					return
+				}
 				n := atomic.AddInt64(&completed, 1)
 				cb(Event{Type: EventProgress, Progress: &Progress{
 					Completed: int(n),
@@ -250,15 +269,21 @@ loop:
 					Port:             target.Port,
 					DownloadSpeedKBs: -1,
 				}})
+				completedNormally = true
+				cb(Event{Type: EventTargetDone, Target: &target})
 				return
 			}
 			if opts.MinSpeedKBs > 0 && speed < opts.MinSpeedKBs {
+				completedNormally = true
+				cb(Event{Type: EventTargetDone, Target: &target})
 				return
 			}
 			var n int64
 			for {
 				current := atomic.LoadInt64(&validCount)
 				if opts.MaxResults > 0 && int(current) >= opts.MaxResults {
+					completedNormally = true
+					cb(Event{Type: EventTargetDone, Target: &target})
 					return
 				}
 				if atomic.CompareAndSwapInt64(&validCount, current, current+1) {
@@ -271,6 +296,8 @@ loop:
 				Port:             target.Port,
 				DownloadSpeedKBs: speed,
 			}})
+			completedNormally = true
+			cb(Event{Type: EventTargetDone, Target: &target})
 			if opts.MaxResults > 0 && int(n) >= opts.MaxResults {
 				hitLimit.Store(true)
 				cancel()
@@ -335,15 +362,24 @@ func (r *Runner) RunCombinedTest(ctx context.Context, targets []Target, latency 
 	}
 
 	worker := func(target Target) {
+		completedNormally := false
 		defer func() {
-			atomic.AddInt64(&completedCount, 1)
 			<-sem
 			wg.Done()
+			if !completedNormally {
+				return
+			}
+			atomic.AddInt64(&completedCount, 1)
 			emitPipelineProgress()
 		}()
 
 		res := r.testSingleIP(runCtx, target, latency)
+		if runCtx.Err() != nil {
+			return
+		}
 		if res == nil {
+			completedNormally = true
+			cb(Event{Type: EventTargetDone, Target: &target})
 			return
 		}
 		cb(Event{Type: EventResult, Result: res})
@@ -355,9 +391,13 @@ func (r *Runner) RunCombinedTest(ctx context.Context, targets []Target, latency 
 			}
 			res.DownloadSpeedKBs = -1
 			cb(Event{Type: EventSpeed, Result: res})
+			completedNormally = true
+			cb(Event{Type: EventTargetDone, Target: &target})
 			return
 		}
 		if speed.MinSpeedKBs > 0 && speedVal < speed.MinSpeedKBs {
+			completedNormally = true
+			cb(Event{Type: EventTargetDone, Target: &target})
 			return
 		}
 		res.DownloadSpeedKBs = speedVal
@@ -365,6 +405,8 @@ func (r *Runner) RunCombinedTest(ctx context.Context, targets []Target, latency 
 		mu.Lock()
 		if speed.MaxResults > 0 && len(results) >= speed.MaxResults {
 			mu.Unlock()
+			completedNormally = true
+			cb(Event{Type: EventTargetDone, Target: &target})
 			return
 		}
 		results = append(results, *res)
@@ -372,6 +414,8 @@ func (r *Runner) RunCombinedTest(ctx context.Context, targets []Target, latency 
 		mu.Unlock()
 		atomic.AddInt64(&validCount, 1)
 		cb(Event{Type: EventSpeed, Result: res})
+		completedNormally = true
+		cb(Event{Type: EventTargetDone, Target: &target})
 		if speed.MaxResults > 0 && n >= speed.MaxResults {
 			hitLimit.Store(true)
 			cancel()
