@@ -1,4 +1,4 @@
-/* =====================================================================
+﻿/* =====================================================================
    IP 优选工作台 · Apple 风格皮肤（方案 B）
    ---------------------------------------------------------------------
    仅外观层重写：设计变量（浅色 / 跟随系统深色）+ 布局与组件。
@@ -906,9 +906,9 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 .lib-toolbar { display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
 .lib-toolbar input[type="text"] { min-width: 0; flex: 1; }
 .lib-filter-controls { min-width: 0; display: flex; align-items: center; gap: 8px; }
-  .lib-filter-controls #lib-q { flex: 0 1 280px; max-width: 280px; }
-  .lib-filter-controls #lib-field { flex: 0 1 150px; }
-  .lib-filter-controls #lib-field-value { flex: 1 1 180px; min-width: 0; }
+  .lib-filter-controls #lib-q { flex: 1 1 340px; max-width: 480px; }
+  .lib-filter-controls #lib-field { flex: 0 0 110px; }
+  .lib-filter-controls #lib-field-value { flex: 0 0 170px; }
 .lib-filter-controls input, .lib-filter-controls select { min-width: 0; }
 .lib-manage-actions { display: flex; justify-content: flex-end; align-items: center; gap: 6px; flex-wrap: nowrap; }
   .lib-action-group { display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; }
