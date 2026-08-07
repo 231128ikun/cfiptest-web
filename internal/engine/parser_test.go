@@ -156,11 +156,18 @@ func TestResolveDefaultPorts(t *testing.T) {
 	}
 }
 
-func TestColoLocRegex(t *testing.T) {
-	body := "ip=1.2.3.4\ncolo=NRT\nloc=JP\nuag=Mozilla/5.0"
-	m := reColoLoc.FindStringSubmatch(body)
-	if len(m) <= 2 || m[1] != "NRT" || m[2] != "JP" {
-		t.Errorf("正则提取失败: %v", m)
+// TestTraceOnlyRequiresColo 验证 trace 校验只认 colo 字段：
+// 响应缺 loc / uag 时仍应视为 CF 节点；缺 colo 则不算节点。
+// 官方聚合段（/32 等）随机抽样几乎全失败后，改为 baipiao 活跃 /48 列表，
+// 边缘响应字段可能不完整，放宽判定可避免误杀可用节点。
+func TestTraceOnlyRequiresColo(t *testing.T) {
+	got := parseTraceResponse("ip=1.2.3.4\ncolo=NRT\n")
+	if got["colo"] != "NRT" {
+		t.Errorf("缺 loc/uag 的响应应解析出 colo=NRT，实际 %q", got["colo"])
+	}
+	missing := parseTraceResponse("ip=1.2.3.4\nloc=JP\nuag=Mozilla/5.0\n")
+	if missing["colo"] != "" {
+		t.Errorf("无 colo 的响应不应被当作 CF 节点，实际 colo=%q", missing["colo"])
 	}
 }
 

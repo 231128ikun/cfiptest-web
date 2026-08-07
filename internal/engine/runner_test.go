@@ -556,6 +556,86 @@ func TestLatencyTargetDoneCarriesKey(t *testing.T) {
 	}
 }
 
+// TestLatencyTraceMissingColoReportsFailure trace 响应缺少 colo 时，目标判定为
+// 无效并下发带 Failure 的 target_done（缺 colo = 不是 CF 节点）。
+func TestLatencyTraceMissingColoReportsFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/cdn-cgi/trace") {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte("ip=203.0.113.7\nloc=JP\nuag=Mozilla/5.0\n"))
+	}))
+	defer srv.Close()
+	u := strings.TrimPrefix(srv.URL, "http://")
+	host, portText, _ := net.SplitHostPort(u)
+	port, _ := strconv.Atoi(portText)
+
+	r := testRunner(map[string]Location{}, u+"/cdn-cgi/trace")
+	target := Target{IP: host, Port: port}
+	opts := latencyTestOpts()
+	opts.MaxConcurrency = 1
+
+	var failures []*ProbeFailure
+	results, err := r.RunLatencyTest(context.Background(), []Target{target}, opts, func(ev Event) {
+		if ev.Type == EventTargetDone && ev.Target != nil {
+			failures = append(failures, ev.Failure)
+		}
+	})
+	if err != nil {
+		t.Fatalf("无效目标不应让任务报错: %v", err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("有效结果 = %d，期望 0", len(results))
+	}
+	if len(failures) != 1 {
+		t.Fatalf("target_done 次数 = %d，期望 1", len(failures))
+	}
+	if failures[0] == nil || failures[0].Stage != FailureTraceColo {
+		t.Fatalf("失败原因 = %+v，期望 stage=%s", failures[0], FailureTraceColo)
+	}
+}
+
+// TestLatencyTraceColoWithoutLocPasses trace 响应只有 colo、缺 loc/uag 时仍应
+// 判定为有效 CF 节点（宽松判定，避免误杀可用节点）。
+func TestLatencyTraceColoWithoutLocPasses(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/cdn-cgi/trace") {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte("ip=203.0.113.7\ncolo=NRT\n"))
+	}))
+	defer srv.Close()
+	u := strings.TrimPrefix(srv.URL, "http://")
+	host, portText, _ := net.SplitHostPort(u)
+	port, _ := strconv.Atoi(portText)
+
+	r := testRunner(map[string]Location{}, u+"/cdn-cgi/trace")
+	target := Target{IP: host, Port: port}
+	opts := latencyTestOpts()
+	opts.MaxConcurrency = 1
+
+	var failures []*ProbeFailure
+	results, err := r.RunLatencyTest(context.Background(), []Target{target}, opts, func(ev Event) {
+		if ev.Type == EventTargetDone && ev.Target != nil {
+			failures = append(failures, ev.Failure)
+		}
+	})
+	if err != nil {
+		t.Fatalf("有效目标不应报错: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("有效结果 = %d，期望 1", len(results))
+	}
+	if len(failures) != 1 {
+		t.Fatalf("target_done 次数 = %d，期望 1", len(failures))
+	}
+	if failures[0] != nil {
+		t.Fatalf("有效目标不应带失败原因: %+v", failures[0])
+	}
+}
+
 // TestLatencyPreCancelledDoesNotEmitTargetDone 开跑前就取消：没有目标真正
 // 完成，不能把任何候选从漏斗里移除。
 func TestLatencyPreCancelledDoesNotEmitTargetDone(t *testing.T) {

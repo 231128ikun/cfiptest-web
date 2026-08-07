@@ -190,13 +190,31 @@ const (
 
 // Event 是流式回调的统一事件载体，直接序列化为 SSE data。
 type Event struct {
-	Type       EventType  `json:"type"`
-	Result     *Result    `json:"result,omitempty"`
-	Target     *Target    `json:"target,omitempty"`
-	TargetKeys []string   `json:"targetKeys,omitempty"` // server 补充的原始候选键，可同时覆盖默认端口别名
-	Progress   *Progress  `json:"progress,omitempty"`
-	Message    string     `json:"message,omitempty"`
-	Reason     DoneReason `json:"reason,omitempty"` // 仅 EventDone 携带
+	Type       EventType      `json:"type"`
+	Result     *Result        `json:"result,omitempty"`
+	Target     *Target        `json:"target,omitempty"`
+	TargetKeys []string       `json:"targetKeys,omitempty"` // server 补充的原始候选键，可与默认端口别名同时覆盖
+	Progress   *Progress      `json:"progress,omitempty"`
+	Message    string         `json:"message,omitempty"`
+	Reason     DoneReason     `json:"reason,omitempty"`  // 仅 EventDone 携带
+	Failure    *ProbeFailure  `json:"failure,omitempty"` // 仅 target_done 携带：该目标未通过检测的原因
+}
+
+// ProbeFailureStage 标记单个目标检测失败发生在哪一步，用于前端/日志诊断。
+type ProbeFailureStage string
+
+const (
+	FailureTCPConnect   ProbeFailureStage = "tcp_connect_failed" // TCP 握手全部失败（大概率该地址没有部署服务）
+	FailureLatency      ProbeFailureStage = "delay_exceeded"     // TCP 成功但平均延迟超过 MaxLatencyMs
+	FailureTraceRequest ProbeFailureStage = "trace_request_failed" // TCP 成功但 /cdn-cgi/trace 请求失败
+	FailureTraceColo    ProbeFailureStage = "trace_missing_colo"   // trace 响应里没有 colo 字段（不是 CF 节点）
+)
+
+// ProbeFailure 描述单个目标未通过检测的原因，随 target_done 事件下发。
+type ProbeFailure struct {
+	Stage  ProbeFailureStage `json:"stage"`
+	Reason string            `json:"reason,omitempty"`
+	Detail string            `json:"detail,omitempty"`
 }
 
 // Progress 表示一次进度快照。

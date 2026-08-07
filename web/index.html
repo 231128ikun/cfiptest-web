@@ -646,6 +646,7 @@
                             <label>测速时长 <span class="input-with-unit"><input type="number" id="auto-spd-duration" min="1" max="120" step="1" placeholder="默认 5"> <span class="unit">秒</span></span></label>
                         </div>
                     <label class="task-source-wide">官方 IP 段源（优先级：本地 IP 库 > 官方 IP 段 > 远程 URL）<textarea id="advanced-official-sources" rows="2" placeholder="每行一个地址"></textarea></label>
+                    <label class="task-source-wide">官方 IPv6 活跃段源（默认内置 baipiao /48 列表，可留空）<textarea id="advanced-official-v6-sources" rows="3" placeholder="每行一个地址"></textarea></label>
                         <div class="threshold-note">延迟会对每个 IP 独立 TCP 探测多次并对成功结果取平均，HTTP 校验 1 次、单请求超时默认 3 秒；连续失败达到阈值（默认 3 次）才从库移除，达到阈值前保留并累计。并发过高可能造成漏测或误判，建议从延迟 50 / 测速 5 开始，再按机器和网络逐步调整。</div>
                     </div>
                     <div class="settings-section-title">结果颜色阈值</div>

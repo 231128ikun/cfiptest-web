@@ -20,6 +20,9 @@ type Sources struct {
 	Locations      []string `json:"locations"`
 	ASNDatabase    []string `json:"asnDatabase"`
 	OfficialRanges []string `json:"officialRanges"`
+	// ActiveIPv6RangeSources 是官方 IPv6 活跃 /48 段获取地址（与 IPv4 分离，
+	// 见 engine.DefaultActiveIPv6RangeSources），避免旧配置里只有 CF 聚合段 JSON 的情况。
+	ActiveIPv6RangeSources []string `json:"activeIPv6RangeSources"`
 }
 
 type Config struct {
@@ -32,9 +35,10 @@ type Config struct {
 func Default() Config {
 	return Config{
 		Sources: Sources{
-			Locations:      append([]string(nil), engine.DefaultLocationSources...),
-			ASNDatabase:    append([]string(nil), engine.DefaultASNSources...),
-			OfficialRanges: append([]string(nil), engine.DefaultOfficialRangeSources...),
+			Locations:              append([]string(nil), engine.DefaultLocationSources...),
+			ASNDatabase:            append([]string(nil), engine.DefaultASNSources...),
+			OfficialRanges:         append([]string(nil), engine.DefaultOfficialRangeSources...),
+			ActiveIPv6RangeSources: append([]string(nil), engine.DefaultActiveIPv6RangeSources...),
 		},
 		SpeedTestURL: engine.DefaultSpeedOptions().DownloadURL,
 		TraceURL:     engine.DefaultTraceURL,
@@ -112,6 +116,7 @@ func (c *Config) FillDefaults(def Config) {
 	c.Sources.Locations = nonEmpty(c.Sources.Locations)
 	c.Sources.ASNDatabase = nonEmpty(c.Sources.ASNDatabase)
 	c.Sources.OfficialRanges = nonEmpty(c.Sources.OfficialRanges)
+	c.Sources.ActiveIPv6RangeSources = nonEmpty(c.Sources.ActiveIPv6RangeSources)
 	if len(c.Sources.Locations) == 0 {
 		c.Sources.Locations = def.Sources.Locations
 	}
@@ -120,6 +125,9 @@ func (c *Config) FillDefaults(def Config) {
 	}
 	if len(c.Sources.OfficialRanges) == 0 {
 		c.Sources.OfficialRanges = def.Sources.OfficialRanges
+	}
+	if len(c.Sources.ActiveIPv6RangeSources) == 0 {
+		c.Sources.ActiveIPv6RangeSources = def.Sources.ActiveIPv6RangeSources
 	}
 	if strings.TrimSpace(c.SpeedTestURL) == "" {
 		c.SpeedTestURL = def.SpeedTestURL

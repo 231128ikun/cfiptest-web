@@ -27,11 +27,11 @@ func TestCountCIDR(t *testing.T) {
 		// 全取
 		{"1.2.3.0/24", SampleAll, 0, 256},
 		{"1.2.0.0/16", SampleAll, 0, 65536},
-		// IPv6：/64 为抽样单元；前缀短于 /64 时最多抽 1024 个 /64 子网
+		// IPv6：/48 为抽样单元；前缀短于 /48 时最多抽 1024 个 /48 子网
 		{"2606:4700::/32", SampleOnePerSubnet, 1, 1024},
 		{"2606:4700::/32", SampleNPerSubnet, 8, 8192},
-		{"2606:4700::/48", SampleNPerSubnet, 2, 2048},
-		// 前缀不低于 /64：网段不足一个 /64，只取 N 个
+		{"2606:4700::/48", SampleNPerSubnet, 2, 2},
+		// 前缀不低于 /48：网段不足一个 /48，只取 N 个
 		{"2606:4700::/64", SampleOnePerSubnet, 1, 1},
 		{"2606:4700::/64", SampleNPerSubnet, 8, 8},
 		{"2606:4700::/126", SampleNPerSubnet, 10, 4},
@@ -179,30 +179,58 @@ func TestExpandCIDRIPv6(t *testing.T) {
 }
 
 func TestExpandCIDRIPv6Subnets(t *testing.T) {
-	// /56 = 256 个 /64 子网，每段取 1 个：应得 256 个且 /64 前缀各不相同
-	_, ipNet, _ := net.ParseCIDR("2606:4700:0:0::/56")
-	targets, err := ExpandCIDR("2606:4700:0:0::/56", SampleOnePerSubnet, 1, 443)
+	// /44 = 16 个 /48 子网，每段取 1 个：应得 16 个且 /48 前缀各不相同
+	_, ipNet, _ := net.ParseCIDR("2606:4700::/44")
+	targets, err := ExpandCIDR("2606:4700::/44", SampleOnePerSubnet, 1, 443)
 	if err != nil {
 		t.Fatalf("展开失败: %v", err)
 	}
-	if len(targets) != 256 {
-		t.Fatalf("得到 %d 个目标，期望 256", len(targets))
+	if len(targets) != 16 {
+		t.Fatalf("得到 %d 个目标，期望 16", len(targets))
 	}
-	seen := make(map[string]struct{}, 256)
+	seen := make(map[string]struct{}, 16)
 	for _, tg := range targets {
 		ip := net.ParseIP(tg.IP)
 		if ip == nil || ip.To4() != nil {
 			t.Fatalf("产出了非法 IPv6: %q", tg.IP)
 		}
 		if !ipNet.Contains(ip) {
-			t.Errorf("IP %q 落在 2606:4700::/56 之外", tg.IP)
+			t.Errorf("IP %q 落在 2606:4700::/44 之外", tg.IP)
 		}
 		b := ip.To16()
-		prefix := net.IP(append([]byte(nil), b[:8]...)).String()
+		prefix := net.IP(append([]byte(nil), b[:6]...)).String()
 		seen[prefix] = struct{}{}
 	}
-	if len(seen) != 256 {
-		t.Errorf("覆盖了 %d 个不同的 /64 子网，期望 256", len(seen))
+	if len(seen) != 16 {
+		t.Errorf("覆盖了 %d 个不同的 /48 子网，期望 16", len(seen))
+	}
+}
+
+// TestExpandCIDRIPv6WithinCIDR 回归 ipv6AtSubnet 的位序 bug：
+// 旧实现按 1<<(addrBit%8) 写位，/29 这类跨字节前缀会把地址位写到
+// 网段前缀里，产出的 IP 落在 CIDR 之外。所有抽样结果都必须落在网段内。
+func TestExpandCIDRIPv6WithinCIDR(t *testing.T) {
+	for _, cidr := range []string{"2606:4700::/29", "2606:4700::/32", "2400:cb00:2048::/48"} {
+		_, ipNet, err := net.ParseCIDR(cidr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		targets, err := ExpandCIDR(cidr, SampleNPerSubnet, 4, 443)
+		if err != nil {
+			t.Fatalf("展开 %s 失败: %v", cidr, err)
+		}
+		if len(targets) == 0 {
+			t.Fatalf("展开 %s 未产出目标", cidr)
+		}
+		for _, tg := range targets {
+			ip := net.ParseIP(tg.IP)
+			if ip == nil || ip.To4() != nil {
+				t.Fatalf("产出了非法 IPv6: %q", tg.IP)
+			}
+			if !ipNet.Contains(ip) {
+				t.Errorf("IP %q 落在 %s 之外", tg.IP, cidr)
+			}
+		}
 	}
 }
 func TestExpandCIDRIPv6Single(t *testing.T) {

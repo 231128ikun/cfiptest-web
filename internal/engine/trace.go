@@ -3,10 +3,10 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 )
@@ -18,11 +18,9 @@ const DefaultTraceURL = "speed.cloudflare.com/cdn-cgi/trace"
 // DefaultIPSTypeURL 是 IPS 类型检测接口；{ip} 会替换为当前被测 IP。
 const DefaultIPSTypeURL = "https://api.ipapi.is/?q={ip}"
 
-var reColoLoc = regexp.MustCompile(`colo=([A-Z]+)[\s\S]*?loc=([A-Z]+)`)
-
 // testSingleIP 对单个目标执行延迟测试 + Cloudflare 节点验证。
-// 返回 nil 表示该目标不可用（连接失败、超时、延迟超标或非 CF 节点）。
-func (r *Runner) testSingleIP(ctx context.Context, target Target, opts LatencyOptions) *Result {
+// 返回 (nil, failure) 表示该目标不可用，failure 说明失败在哪一步（TCP/延迟/trace/缺 colo）。
+func (r *Runner) testSingleIP(ctx context.Context, target Target, opts LatencyOptions) (*Result, *ProbeFailure) {
 	timeout := time.Duration(opts.TimeoutMs) * time.Millisecond
 	probeCount := opts.ProbeCount
 	if probeCount < 1 {
@@ -44,15 +42,16 @@ func (r *Runner) testSingleIP(ctx context.Context, target Target, opts LatencyOp
 		_ = conn.Close()
 	}
 	if successfulProbes == 0 {
-		return nil
+		return nil, &ProbeFailure{Stage: FailureTCPConnect,
+			Reason: fmt.Sprintf("TCP 连接 %d 次全部失败(%s)", probeCount, target.String())}
 	}
 	averageLatency := totalProbe / time.Duration(successfulProbes)
 	if opts.MaxLatencyMs > 0 && averageLatency.Milliseconds() > int64(opts.MaxLatencyMs) {
-		return nil
+		return nil, &ProbeFailure{Stage: FailureLatency,
+			Reason: fmt.Sprintf("平均延迟 %dms 超过阈值 %dms", averageLatency.Milliseconds(), opts.MaxLatencyMs)}
 	}
 
 	// 独立连接执行 trace 校验，避免把 HTTP/TLS 开销计入 TCP 平均延迟。
-	// HTTP 校验次数可配（HTTPProbeCount），任一次校验成功即判定为有效节点。
 	scheme := "https://"
 	if !opts.EnableTLS {
 		scheme = "http://"
@@ -62,7 +61,6 @@ func (r *Runner) testSingleIP(ctx context.Context, target Target, opts LatencyOp
 		httpProbeCount = DefaultLatencyOptions().HTTPProbeCount
 	}
 	bodyStr := ""
-	// trace 校验走独立连接，单请求超时独立于 TCP 探测（HTTPTimeoutMs，默认 3s）。
 	traceTimeout := timeout
 	if opts.HTTPTimeoutMs > 0 {
 		traceTimeout = time.Duration(opts.HTTPTimeoutMs) * time.Millisecond
@@ -74,14 +72,18 @@ func (r *Runner) testSingleIP(ctx context.Context, target Target, opts LatencyOp
 		}
 	}
 	if bodyStr == "" {
-		return nil
+		return nil, &ProbeFailure{Stage: FailureTraceRequest,
+			Reason: fmt.Sprintf("%d 次 trace 请求均失败（%s%s）", httpProbeCount, scheme, r.traceURL)}
 	}
-	matches := reColoLoc.FindStringSubmatch(bodyStr)
-	if len(matches) <= 2 {
-		return nil
-	}
-	dataCenter, locCode := matches[1], matches[2]
+	// 只要求响应里能解析出 colo=（CF 边缘节点标识）；loc 缺失不判失败，
+	// 避免因个别响应缺 loc 误杀可用节点（CFData-WEB 同样只认 colo）。
 	traceData := parseTraceResponse(bodyStr)
+	dataCenter := strings.TrimSpace(traceData["colo"])
+	if dataCenter == "" {
+		return nil, &ProbeFailure{Stage: FailureTraceColo,
+			Reason: "trace 响应中缺少 colo 字段", Detail: truncateForFailure(bodyStr, 300)}
+	}
+	locCode := strings.TrimSpace(traceData["loc"])
 	outboundIP := traceData["ip"]
 	res := &Result{
 		IP: target.IP, Port: target.Port, TCPLatencyMs: averageLatency.Milliseconds(),
@@ -98,11 +100,20 @@ func (r *Runner) testSingleIP(ctx context.Context, target Target, opts LatencyOp
 	if opts.EnableIPAPI && outboundIP != "" {
 		res.IPSType = queryIPAPI(ctx, r.ipsTypeURL, target.IP)
 	}
-	return res
+	return res, nil
 }
 
-// fetchTrace 对单个目标执行一次 HTTP trace 校验请求；
-// 响应体含 uag 回显才视为成功，返回完整响应文本。
+// truncateForFailure 截断 trace 响应体，避免把整个响应塞进错误详情。
+func truncateForFailure(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "...(截断)"
+}
+
+// fetchTrace 对单个目标执行一次 HTTP(S) trace 校验请求；
+// 任何能读到响应体的响应都视为「请求成功」，是否真是 CF 节点由 colo 字段判定。
+// 不再要求 uag 回显——部分边缘响应的头字段不完全一致，宽松判定可减少误杀。
 func fetchTrace(ctx context.Context, target Target, scheme, traceURL string, timeout time.Duration) (string, bool) {
 	dialer := &net.Dialer{Timeout: timeout}
 	conn, err := dialer.DialContext(ctx, "tcp", target.String())
@@ -125,12 +136,12 @@ func fetchTrace(ctx context.Context, target Target, scheme, traceURL string, tim
 		return "", false
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return "", false
 	}
 	bodyStr := string(body)
-	if !strings.Contains(bodyStr, "uag=Mozilla/5.0") {
+	if strings.TrimSpace(bodyStr) == "" {
 		return "", false
 	}
 	return bodyStr, true

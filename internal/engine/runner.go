@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -103,6 +104,43 @@ func (r *Runner) lookupASN(ip string) (uint, string) {
 // 这是正常收工而非故障，上层不应作为错误展示给用户。
 var ErrResultLimitReached = errors.New("已达到最大结果数")
 
+// countFailure 按失败阶段累计计数，返回对应的分类名（空串表示无需累计）。
+func countFailure(stage ProbeFailureStage, tcp, lat, trace, colo *atomic.Int64) string {
+	switch stage {
+	case FailureTCPConnect:
+		tcp.Add(1)
+		return "tcp"
+	case FailureLatency:
+		lat.Add(1)
+		return "lat"
+	case FailureTraceRequest:
+		trace.Add(1)
+		return "trace"
+	case FailureTraceColo:
+		colo.Add(1)
+		return "colo"
+	}
+	return ""
+}
+
+// failureSummary 把各失败阶段计数拼成一句诊断摘要，供完成消息展示；无失败时返回空串。
+func failureSummary(tcp, lat, trace, colo int64) string {
+	parts := make([]string, 0, 4)
+	if tcp > 0 {
+		parts = append(parts, fmt.Sprintf("TCP连接失败 %d", tcp))
+	}
+	if lat > 0 {
+		parts = append(parts, fmt.Sprintf("延迟超标 %d", lat))
+	}
+	if trace > 0 {
+		parts = append(parts, fmt.Sprintf("trace请求失败 %d", trace))
+	}
+	if colo > 0 {
+		parts = append(parts, fmt.Sprintf("缺colo %d", colo))
+	}
+	return strings.Join(parts, "、")
+}
+
 // RunLatencyTest 并发执行延迟测试 + CF 节点验证，流式回调事件。
 //
 // 并发模型：每阶段独立的信号量 channel + WaitGroup，进度用 atomic 计数，
@@ -128,6 +166,7 @@ func (r *Runner) RunLatencyTest(ctx context.Context, targets []Target, opts Late
 
 	var completed int64
 	var validCount int64
+	var failTCP, failLatency, failTrace, failColo atomic.Int64
 	var wg sync.WaitGroup
 
 loop:
@@ -155,15 +194,18 @@ loop:
 				}})
 			}()
 
-			res := r.testSingleIP(runCtx, target, opts)
-			// testSingleIP 的 nil 同时表示「无效」和「被取消」。只有上下文仍正常时，
+			res, failure := r.testSingleIP(runCtx, target, opts)
+			// failure 同时表示「无效」和「被取消」。只有上下文仍正常时，
 			// 才能确认该候选已经完整检查，可以从前端候选漏斗中移除。
 			if runCtx.Err() != nil {
 				return
 			}
 			if res == nil {
 				completedNormally = true
-				cb(Event{Type: EventTargetDone, Target: &target})
+				if failure != nil {
+					countFailure(failure.Stage, &failTCP, &failLatency, &failTrace, &failColo)
+				}
+				cb(Event{Type: EventTargetDone, Target: &target, Failure: failure})
 				return
 			}
 			var n int64
@@ -198,18 +240,25 @@ loop:
 		results = append(results, res)
 	}
 
+	summary := failureSummary(failTCP.Load(), failLatency.Load(), failTrace.Load(), failColo.Load())
 	switch {
 	case hitLimit.Load():
-		cb(Event{Type: EventDone, Reason: DoneLimit,
-			Message: fmt.Sprintf("已达到最大结果数，找到 %d 个有效 IP（剩余目标未测试）", len(results))})
+		msg := fmt.Sprintf("已达到最大结果数，找到 %d 个有效 IP（剩余目标未测试）", len(results))
+		if summary != "" {
+			msg += "；" + summary
+		}
+		cb(Event{Type: EventDone, Reason: DoneLimit, Message: msg})
 		return results, ErrResultLimitReached
 	case ctx.Err() != nil:
 		cb(Event{Type: EventDone, Reason: DoneStopped,
 			Message: fmt.Sprintf("已停止，保留 %d 个有效结果", len(results))})
 		return results, ctx.Err()
 	}
-	cb(Event{Type: EventDone, Reason: DoneCompleted,
-		Message: fmt.Sprintf("延迟测试完成，共 %d 个有效 IP", len(results))})
+	msg := fmt.Sprintf("延迟测试完成，共 %d 个有效 IP", len(results))
+	if summary != "" {
+		msg += "；" + summary
+	}
+	cb(Event{Type: EventDone, Reason: DoneCompleted, Message: msg})
 	return results, nil
 }
 
@@ -352,6 +401,7 @@ func (r *Runner) RunCombinedTest(ctx context.Context, targets []Target, latency 
 	var results []Result
 	var completedCount int64
 	var validCount int64
+	var failTCP, failLatency, failTrace, failColo atomic.Int64
 	var wg sync.WaitGroup
 
 	emitPipelineProgress := func() {
@@ -375,13 +425,16 @@ func (r *Runner) RunCombinedTest(ctx context.Context, targets []Target, latency 
 			emitPipelineProgress()
 		}()
 
-		res := r.testSingleIP(runCtx, target, latency)
+		res, failure := r.testSingleIP(runCtx, target, latency)
 		if runCtx.Err() != nil {
 			return
 		}
 		if res == nil {
 			completedNormally = true
-			cb(Event{Type: EventTargetDone, Target: &target})
+			if failure != nil {
+				countFailure(failure.Stage, &failTCP, &failLatency, &failTrace, &failColo)
+			}
+			cb(Event{Type: EventTargetDone, Target: &target, Failure: failure})
 			return
 		}
 		// 无数量上限时保持渐进式展示：延迟合格立即推送 result，速度再回填；
@@ -462,7 +515,11 @@ loop:
 			Message: fmt.Sprintf("已停止，保留 %d 个有效结果", len(results))})
 		return results, ctx.Err()
 	}
-	cb(Event{Type: EventDone, Reason: DoneCompleted,
-		Message: fmt.Sprintf("延迟+测速完成，%d/%d 个 IP 达标", len(results), total)})
+	summary := failureSummary(failTCP.Load(), failLatency.Load(), failTrace.Load(), failColo.Load())
+	msg := fmt.Sprintf("延迟+测速完成，%d/%d 个 IP 达标", len(results), total)
+	if summary != "" {
+		msg += "；" + summary
+	}
+	cb(Event{Type: EventDone, Reason: DoneCompleted, Message: msg})
 	return results, nil
 }

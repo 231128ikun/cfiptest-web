@@ -72,7 +72,7 @@ func CountCIDR(cidr string, mode SampleMode, n int) (int, error) {
 		return (1 << (24 - ones)) * perSubnet, nil
 	}
 
-	// IPv6：按 /64 子网抽样（见 ipv6SampleCount 说明）
+	// IPv6：按 /48 子网抽样（见 ipv6SampleCount 说明）
 	return ipv6SampleCount(mode, n, ones), nil
 }
 
@@ -92,9 +92,9 @@ func CountCIDRs(cidrs []string, mode SampleMode, n int) (total int, skipped []st
 // ExpandCIDR 把一个 CIDR 网段按抽样模式展开为待测 Target 列表。
 //
 // IPv4：遍历网段内每个 /24 子网，各随机取若干个末段。
-// IPv6：以 /64 为抽样单元（对应 IPv4 的 /24）。前缀短于 /64 时随机抽
-// 至多 1024 个不同的 /64 子网、每个子网取 N 个；前缀不低于 /64 时
-// 网段不足一个 /64，仅在自身范围内取 N 个。
+// IPv6：以 /48 为抽样单元（对应 IPv4 的 /24，Cloudflare 活跃列表就是 /48）。
+// 前缀短于 /48 时随机抽至多 1024 个不同的 /48 子网、每个子网取 N 个；
+// 前缀不低于 /48 时网段不足一个 /48，仅在自身范围内取 N 个。
 func ExpandCIDR(cidr string, mode SampleMode, n int, port int) ([]Target, error) {
 	_, ipNet, err := net.ParseCIDR(strings.TrimSpace(cidr))
 	if err != nil {
@@ -211,18 +211,19 @@ func ipv4At(base net.IP, offset int) string {
 // 前缀短于 /64：抽 min(2^(64-ones), 1024) 个 /64 子网，各取 N 个；
 // 前缀不低于 /64：网段不足一个 /64，仅取 N 个（受可用地址数约束）。
 //
-// IPv6 以 /64 为抽样单元（对应 IPv4 的 /24）：同一 /64 内的地址通常路由到
-// 同一机房，每段抽 N 个即可代表。官方 IPv6 段多为 /29~/48，内含 2^16~2^35 个
-// /64 子网，全测没有意义，因此每个网段最多抽 ipv6MaxSubnets 个不同的 /64 子网，
-// 把规模控制在 IPv4 官方段（约 6 千个）同一量级。
+// IPv6 以 /48 为抽样单元（对应 IPv4 的 /24）：同一 /48 内的地址几乎总是路由到
+// 同一批 Cloudflare 机房，每段抽 N 个即可代表。官方聚合段（/29~/32）里绝大多数
+// 地址并未部署服务，直接随机抽样几乎必然全部失败，因此官方 IPv6 模式改为使用
+// baipiao 维护的活跃 /48 列表（见 DefaultActiveIPv6RangeSources）。对更短的前缀
+// 每个网段最多抽 ipv6MaxSubnets 个不同的 /48 子网，把规模控制在可测的量级。
 const (
-	ipv6SubnetBits    = 64 // 抽样单元前缀长度（对应 IPv4 的 /24）
-	ipv6MaxSubnetBits = 10 // 最多抽 2^10 = 1024 个 /64 子网
+	ipv6SubnetBits    = 48 // 抽样单元前缀长度（对应 IPv4 的 /24）
+	ipv6MaxSubnetBits = 10 // 前缀短于 /48 时，最多抽 2^10 = 1024 个 /48 子网
 	ipv6MaxSubnets    = 1 << ipv6MaxSubnetBits
-	ipv6PerSubnetCap  = 256 // 每个 /64 内最多抽取的地址数
+	ipv6PerSubnetCap  = 256 // 每个 /48 内最多抽取的地址数
 )
 
-// ipv6SubnetCount 返回网段内 /64 子网的个数；前缀短于 /64 时上限 1024。
+// ipv6SubnetCount 返回网段内 /48 子网的个数；前缀短于 /48 时上限 1024。
 func ipv6SubnetCount(ones int) int {
 	if ones >= ipv6SubnetBits {
 		return 1
@@ -266,8 +267,8 @@ func ipv6SampleCount(mode SampleMode, n int, ones int) int {
 }
 
 // expandIPv6 展开一个 IPv6 网段：
-// 前缀短于 /64 时，随机抽至多 1024 个不同的 /64 子网，每个子网内随机取 N 个主机；
-// 前缀不低于 /64 时，直接在网段可用主机范围内随机取 N 个。
+// 前缀短于 /48 时，随机抽至多 1024 个不同的 /48 子网，每个子网内随机取 N 个主机；
+// 前缀不低于 /48 时，直接在网段可用主机范围内随机取 N 个。
 func expandIPv6(ipNet *net.IPNet, mode SampleMode, n int, port int) []Target {
 	ones, _ := ipNet.Mask.Size()
 	perSubnet := ipv6PerSubnetCount(mode, n)
@@ -281,7 +282,7 @@ func expandIPv6(ipNet *net.IPNet, mode SampleMode, n int, port int) []Target {
 		subnets := ipv6SubnetCount(ones)
 		targets := make([]Target, 0, subnets*perSubnet)
 		seen := make(map[uint64]struct{}, subnets)
-		// 网段极大时抽中重复 /64 的概率可忽略；尝试次数给足余量，
+		// 网段极大时抽中重复 /48 的概率可忽略；尝试次数给足余量，
 		// 即使极端情况下抽不满也直接返回，避免死循环。
 		for len(seen) < subnets && len(seen) < (subnets+32)*64 {
 			idx := rand.Uint64() & ipv6SubnetMask(ones)
@@ -316,31 +317,36 @@ func expandIPv6(ipNet *net.IPNet, mode SampleMode, n int, port int) []Target {
 	return targets
 }
 
-// ipv6SubnetMask 返回 2^(64-ones)-1，用于把随机数限定在网段内 /64 的序号范围。
+// ipv6SubnetMask 返回 2^(48-ones)-1，用于把随机数限定在网段内 /48 的序号范围。
 func ipv6SubnetMask(ones int) uint64 {
-	bits := 64 - ones
+	bits := ipv6SubnetBits - ones
+	if bits <= 0 {
+		return 0
+	}
 	if bits >= 64 {
 		return ^uint64(0)
 	}
 	return 1<<bits - 1
 }
 
-// ipv6AtSubnet 返回 base 网段内第 idx 个 /64 子网中的随机主机地址。
+// ipv6AtSubnet 返回 base 网段内第 idx 个 /48 子网中的随机主机地址。
 func ipv6AtSubnet(base net.IP, idx uint64, ones int) string {
 	ip := make(net.IP, net.IPv6len)
 	copy(ip, base)
 
-	// 子网序号 idx（< 2^(64-ones)）逐位写入 bits [ones, 64)；
+	// 子网序号 idx（< 2^(48-ones)）逐位写入 bits [ones, 48)；
 	// base 在该区间的位全为零，因此直接 OR 不会覆盖网络前缀。
-	for b := 0; b < 64-ones; b++ {
+	// 注意字节内位序：addrBit%8 是「从高位起」的位号，掩码须用 1<<(7-addrBit%8)，
+	// 否则对 /29 这类非字节对齐前缀会生成落在网段之外的地址。
+	for b := 0; b < ipv6SubnetBits-ones; b++ {
 		if idx&(1<<uint(b)) != 0 {
 			addrBit := ones + b
-			ip[addrBit/8] |= 1 << uint(addrBit%8)
+			ip[addrBit/8] |= 1 << uint(7-addrBit%8)
 		}
 	}
-	// 主机位（bits 64..127，后 8 字节）随机
+	// 主机位（bits 48..127，后 10 字节）随机
 	var h uint64 = rand.Uint64()
-	for i := 15; i >= 8; i-- {
+	for i := 15; i >= 6; i-- {
 		ip[i] = byte(h)
 		h >>= 8
 	}

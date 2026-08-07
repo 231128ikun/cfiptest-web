@@ -345,7 +345,7 @@ function renderRangesEstimate() {
     const hint = $('sample-hint');
     hint.textContent = family === 'ipv4'
         ? `IPv4 按每个 /24 抽样，避免直接检测百万级地址；当前使用 ${protocol.toUpperCase()} 端口 ${port}。`
-        : `IPv6 无法穷举全部地址（每个 /64 子网有 2^64 个地址），按每个 /64 子网抽样，每子网最多 256 个、最多覆盖 1024 个子网；当前使用 ${protocol.toUpperCase()} 端口 ${port}。`;
+        : `IPv6 无法穷举全部地址（每个 /48 子网有 2^80 个地址），按每个 /48 子网抽样，每子网最多 256 个、最多覆盖 1024 个子网；当前使用 ${protocol.toUpperCase()} 端口 ${port}。`;
     $('official-port-summary').textContent = `${protocol.toUpperCase()} · ${port}`;
     if (!officialRanges) return;
     let count;
@@ -723,7 +723,7 @@ function bindSettingsAutoSave() {
         .forEach(id => $(id).addEventListener('change', scheduleSettingsAutoSave));
     // 设置页：数据源 / URL 类字段改动后自动保存到 config
     ['advanced-trace-url', 'advanced-ips-url', 'advanced-location-sources',
-     'advanced-asn-sources', 'advanced-official-sources']
+     'advanced-asn-sources', 'advanced-official-sources', 'advanced-official-v6-sources']
         .forEach(id => $(id).addEventListener('input', scheduleConfigAutoSave));
 }
 
@@ -774,7 +774,7 @@ function bindEvents() {
             scheduleExportPreview();
         },
         onProgress: updateProgress,
-        onTargetDone: target => {
+        onTargetDone: ev => { const target = ev?.target || ev;
             const key = target?.key || entryKey(target) || `${target.ip}|${target.port || 0}`;
             const list = batchMode === 'official' ? officialCandidates : proxyCandidates;
             const removed = removeCandidateByKey(list, key);
@@ -1007,6 +1007,7 @@ function fillConfigFields(config) {
     $('advanced-location-sources').value = (sources.locations || []).join('\n');
     $('advanced-asn-sources').value = (sources.asnDatabase || []).join('\n');
     $('advanced-official-sources').value = (sources.officialRanges || []).join('\n');
+    $('advanced-official-v6-sources').value = (sources.activeIPv6RangeSources || []).join('\n');
 }
 
 function applySavedSettings(settings = {}) {
@@ -1094,6 +1095,7 @@ function readConfigFields() {
             locations: $('advanced-location-sources').value.split(/\r?\n/).map(v => v.trim()).filter(Boolean),
             asnDatabase: $('advanced-asn-sources').value.split(/\r?\n/).map(v => v.trim()).filter(Boolean),
             officialRanges: $('advanced-official-sources').value.split(/\r?\n/).map(v => v.trim()).filter(Boolean),
+            activeIPv6RangeSources: $('advanced-official-v6-sources').value.split(/\r?\n/).map(v => v.trim()).filter(Boolean),
         },
     };
 }
