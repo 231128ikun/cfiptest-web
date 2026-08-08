@@ -58,6 +58,7 @@ export function initTasks({ toast }) {
         runQueue: [],
         pendingEnabled: new Set(),
         officialPorts: { https: [443, 2053, 2083, 2087, 2096, 8443], http: [80, 8080, 8880, 2052, 2082, 2086, 2095] },
+        pathBrowser: null,
     };
 
     function currentTask() {
@@ -238,6 +239,138 @@ export function initTasks({ toast }) {
             panel.hidden = panel.dataset.taskInit !== initMode;
         });
     }
+    function isServerAbsolutePath(p) {
+        p = (p || '').trim();
+        return /^[a-zA-Z]:[\\/]/.test(p) || p.startsWith('/') || p.startsWith('\\\\');
+    }
+
+    function updateTaskInitFileStatus() {
+        const status = $('task-init-file-status');
+        const raw = $('task-init-file-path').value.trim();
+        if (isServerAbsolutePath(raw)) {
+            status.textContent = `服务器将直接读取：${raw}（文件需已存在于运行 iptest-web 的主机上）`;
+            status.classList.remove('error');
+            return;
+        }
+        if (raw) {
+            status.textContent = `已保存：${raw}（data 目录内相对路径）`;
+            status.classList.remove('error');
+            return;
+        }
+        status.textContent = '可选：先用本地 TXT/CSV（选择并导入）或服务器已有文件，把基础 IP 导入 IP 库再开始维护。';
+        status.classList.remove('error');
+    }
+
+    // ---- 服务器路径浏览器（选择初始化文件）----
+    function joinServerPath(dir, name) {
+        return String(dir || '').replace(/[\\/]+$/, '') + '/' + name;
+    }
+
+    async function openPathBrowser() {
+        const s = state.pathBrowser = state.pathBrowser || { current: '', parent: '', home: '', dataDir: '', selected: null, entries: [] };
+        $('path-browser-overlay').hidden = false;
+        await browseServerPath(s.current || s.dataDir || '');
+    }
+
+    function closePathBrowser() {
+        $('path-browser-overlay').hidden = true;
+    }
+
+    async function browseServerPath(dir) {
+        const s = state.pathBrowser;
+        if (!s) return;
+        const list = $('path-browser-list');
+        const status = $('path-browser-status');
+        list.innerHTML = '<div class="path-browser-empty">加载中…</div>';
+        status.textContent = '';
+        status.classList.remove('error');
+        $('path-browser-pick').disabled = true;
+        s.selected = null;
+        try {
+            const data = await api.browseAutoPaths(dir);
+            s.current = data.current || '';
+            s.parent = data.parent || '';
+            s.home = data.home || '';
+            s.dataDir = data.dataDir || '';
+            s.entries = data.entries || [];
+            $('path-browser-current').value = s.current;
+            $('path-browser-parent').disabled = !s.parent;
+            $('path-browser-home').hidden = !s.home;
+            renderPathBrowserList(data.error || '');
+        } catch (error) {
+            status.textContent = `浏览失败：${error.message}`;
+            status.classList.add('error');
+            list.innerHTML = '<div class="path-browser-empty">浏览失败</div>';
+        }
+    }
+
+    function formatPathBrowserSize(size) {
+        if (!Number.isFinite(size) || size < 0) return '';
+        if (size < 1024) return `${size} B`;
+        if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+        if (size < 1024 * 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)} MB`;
+        return `${(size / 1024 / 1024 / 1024).toFixed(1)} GB`;
+    }
+
+    function renderPathBrowserList(message) {
+        const s = state.pathBrowser;
+        if (!s) return;
+        const list = $('path-browser-list');
+        const status = $('path-browser-status');
+        status.classList.remove('error');
+        if (message) {
+            status.textContent = message;
+            status.classList.add('error');
+            list.innerHTML = '<div class="path-browser-empty">无法打开该目录</div>';
+            return;
+        }
+        const entries = s.entries || [];
+        status.textContent = entries.length
+            ? `${entries.length} 项 · 单击文件选中，双击目录进入`
+            : '空目录';
+        if (!entries.length) {
+            list.innerHTML = '<div class="path-browser-empty">空目录</div>';
+            return;
+        }
+        list.innerHTML = entries.map(e => `
+            <button type="button" class="path-browser-item ${e.isDir ? 'is-dir' : 'is-file'}" data-name="${escapeHTML(e.name)}" ${e.isDir ? 'data-dir="1"' : ''}>
+                <span class="path-browser-icon">${e.isDir ? '📁' : '📄'}</span>
+                <span class="path-browser-name">${escapeHTML(e.name)}</span>
+                ${e.isDir ? '' : `<span class="path-browser-size">${formatPathBrowserSize(e.size)}</span>`}
+            </button>`).join('');
+    }
+
+    function onPathBrowserListClick(e) {
+        const item = e.target.closest('.path-browser-item');
+        if (!item || !state.pathBrowser) return;
+        if (item.classList.contains('is-dir')) {
+            state.pathBrowser.selected = null;
+            $('path-browser-pick').disabled = true;
+            return;
+        }
+        state.pathBrowser.selected = joinServerPath(state.pathBrowser.current, item.dataset.name);
+        document.querySelectorAll('#path-browser-list .is-selected').forEach(el => el.classList.remove('is-selected'));
+        item.classList.add('is-selected');
+        $('path-browser-pick').disabled = false;
+        $('path-browser-status').textContent = `已选择：${state.pathBrowser.selected}`;
+    }
+
+    function onPathBrowserListDblClick(e) {
+        const item = e.target.closest('.path-browser-item[data-dir="1"]');
+        if (item && state.pathBrowser) {
+            browseServerPath(joinServerPath(state.pathBrowser.current, item.dataset.name));
+        }
+    }
+
+    function pickPathBrowserFile() {
+        const s = state.pathBrowser;
+        if (!s?.selected) return;
+        $('task-init-file-path').value = s.selected;
+        $('task-init-file-status').textContent = `已选择服务器文件：${s.selected}；定时维护将直接读取该路径。`;
+        $('task-init-file-status').classList.remove('error');
+        closePathBrowser();
+    }
+
     function updateTaskOutputPreview() {
         const preview = $('task-output-preview');
         const format = $('task-format').value === 'csv' ? 'csv' : 'txt';
@@ -267,10 +400,10 @@ export function initTasks({ toast }) {
         updateTaskLibraryPorts(task.libraryPort);
         const input = task.input || { mode: 'none' };
         $('task-input-mode').value = ['none', 'file', 'remote'].includes(input.mode) ? input.mode : 'none';
-        $('task-init-file-path').value = input.file || '';
+        $('task-init-file-path').value = (input.file || '').replace(/\\/g, '/');
         $('task-init-url').value = input.url || '';
         updateTaskSourceUI();
-        $('task-init-file-status').textContent = input.file ? `已保存：${input.file}` : '文件会保存到 data/inputs，定时维护可重复读取。';
+        updateTaskInitFileStatus();
         $('task-output').value = task.output?.path || '';
         $('task-format').value = task.output?.format === 'csv' ? 'csv' : 'txt';
         updateTaskOutputPreview();
@@ -521,6 +654,19 @@ export function initTasks({ toast }) {
             event.target.value = '';
         }
     });
+    $('task-init-file-path').addEventListener('input', updateTaskInitFileStatus);
+    $('task-init-browse').addEventListener('click', openPathBrowser);
+    $('btn-path-browser-close').addEventListener('click', closePathBrowser);
+    $('path-browser-cancel').addEventListener('click', closePathBrowser);
+    $('path-browser-overlay').addEventListener('click', e => { if (e.target === $('path-browser-overlay')) closePathBrowser(); });
+    $('path-browser-parent').addEventListener('click', () => browseServerPath(state.pathBrowser?.parent || ''));
+    $('path-browser-refresh').addEventListener('click', () => browseServerPath(state.pathBrowser?.current || ''));
+    $('path-browser-home').addEventListener('click', () => browseServerPath(state.pathBrowser?.home || ''));
+    $('path-browser-data').addEventListener('click', () => browseServerPath(state.pathBrowser?.dataDir || ''));
+    $('path-browser-current').addEventListener('change', () => browseServerPath($('path-browser-current').value.trim()));
+    $('path-browser-pick').addEventListener('click', pickPathBrowserFile);
+    $('path-browser-list').addEventListener('click', onPathBrowserListClick);
+    $('path-browser-list').addEventListener('dblclick', onPathBrowserListDblClick);
     $('task-grid').addEventListener('change', e => {
         const enable = e.target.closest('.task-enable');
         if (!enable) return;

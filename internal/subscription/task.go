@@ -201,8 +201,13 @@ func (t *Task) Validate() error {
 			return fmt.Errorf("任务 %q 初始化文件必须填写路径", t.Name)
 		}
 		cleaned := filepath.Clean(t.Input.File)
-		if filepath.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
-			return fmt.Errorf("任务 %q 输入文件必须位于 data 目录内", t.Name)
+		if filepath.IsAbs(cleaned) {
+			// 服务器绝对路径：本工具仅监听 127.0.0.1，允许直接读取运行主机上的文本文件。
+			t.Input.File = cleaned
+			break
+		}
+		if cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("任务 %q 输入文件必须位于 data 目录内或使用服务器绝对路径", t.Name)
 		}
 		t.Input.File = cleaned
 	case "remote":

@@ -950,12 +950,18 @@ func importInputTargets(lib *library.Store, targets []engine.Target, now time.Ti
 	return added, updated
 }
 
-// importInputFile 读取初始化来源文件（相对库目录），解析出 IP 并导入 IP 库（新条目状态 new）。
+// importInputFile 读取初始化来源文件（相对库目录或服务器绝对路径），解析出 IP 并导入 IP 库（新条目状态 new）。
 // 解析复用 engine.ParseTargetsWithCIDR：支持 ip:port、ip:port#备注、CIDR 展开等现有输入逻辑。
 func importInputFile(lib *library.Store, rel string, now time.Time) (int, int, error) {
-	abs, err := resolveInDir(lib.BaseDir(), rel)
-	if err != nil {
-		return 0, 0, err
+	var abs string
+	if filepath.IsAbs(rel) {
+		abs = filepath.Clean(rel)
+	} else {
+		var err error
+		abs, err = resolveInDir(lib.BaseDir(), rel)
+		if err != nil {
+			return 0, 0, err
+		}
 	}
 	body, err := os.ReadFile(abs)
 	if err != nil {

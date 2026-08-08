@@ -392,6 +392,8 @@ func TestTaskValidateInputSources(t *testing.T) {
 		{"none rejects url", TaskInput{Mode: "none", URL: "https://example.com/x"}, false},
 		{"file without path downgrades to none", TaskInput{Mode: "file"}, true},
 		{"file path traversal", TaskInput{Mode: "file", File: "../secret.txt"}, false},
+		{"file server absolute", TaskInput{Mode: "file", File: filepath.Join(string(filepath.Separator), "tmp", "seed.txt")}, true},
+		{"file absolute with .. cleans", TaskInput{Mode: "file", File: filepath.Join(string(filepath.Separator), "tmp", "..", "seed.txt")}, true},
 		{"file valid", TaskInput{Mode: "file", File: "init/seed.txt"}, true},
 		{"legacy empty-file downgrades to none", TaskInput{Mode: "file", File: ""}, true},
 		{"remote requires url", TaskInput{Mode: "remote"}, false},

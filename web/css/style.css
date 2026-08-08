@@ -1,4 +1,4 @@
-﻿/* =====================================================================
+/* =====================================================================
    IP 优选工作台 · Apple 风格皮肤（方案 B）
    ---------------------------------------------------------------------
    仅外观层重写：设计变量（浅色 / 跟随系统深色）+ 布局与组件。
@@ -981,7 +981,26 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 .task-source-wide { grid-column: 1 / -1; }
 .task-file-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
 .task-file-row input { min-width: 0; width: 100%; }
+.task-file-btns { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .task-upload-button { min-width: 104px; }
+
+/* 服务器路径浏览器 */
+.path-browser-panel { width: min(760px, 100%); }
+.path-browser-panel .help-panel-body { display: flex; flex-direction: column; gap: 10px; }
+.path-browser-bar { display: flex; gap: 6px; align-items: center; }
+.path-browser-bar input { flex: 1; min-width: 0; font-family: var(--font-mono); }
+.path-browser-list { flex: 1; min-height: 260px; max-height: 46vh; overflow: auto; border: 1px solid var(--border-light); border-radius: var(--radius-sm); background: var(--surface-soft); }
+.path-browser-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 10px; border: 0; border-bottom: 1px solid var(--border-light); background: transparent; color: var(--text); font-size: 13px; text-align: left; border-radius: 0; }
+.path-browser-item:last-child { border-bottom: 0; }
+.path-browser-item:hover { background: var(--surface-strong); }
+.path-browser-item.is-selected { background: var(--primary-soft); color: var(--primary); }
+.path-browser-icon { flex: none; font-size: 14px; }
+.path-browser-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.path-browser-size { flex: none; font-size: 11px; color: var(--text-tertiary); }
+.path-browser-empty { padding: 42px 12px; text-align: center; color: var(--text-tertiary); font-size: 12px; }
+.path-browser-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.path-browser-footer .hint { margin: 0; }
+.path-browser-actions { display: flex; gap: 8px; }
 .task-official-source { grid-template-columns: repeat(5, minmax(120px, 1fr)); }
 .task-detection-options { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
 .task-detection-note { margin: -4px 0 12px; }
@@ -1140,6 +1159,8 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
     .lib-view-controls { flex-wrap: wrap; justify-content: flex-start; }
     #log-viewer.log-viewer { height: 360px; min-height: 360px; max-height: 360px; }
     .task-file-row { grid-template-columns: 1fr; }
+    .task-file-btns { width: 100%; }
+    .task-file-btns > * { flex: 1; justify-content: center; }
     .task-upload-button { width: 100%; }
     .task-form-actions { flex-wrap: wrap; }
 }
