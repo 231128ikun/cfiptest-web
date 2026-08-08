@@ -435,7 +435,6 @@
                                     <span class="task-file-row">
                                         <input type="text" id="task-init-file-path" placeholder="data 相对路径，或运行程序主机上的绝对路径" spellcheck="false" autocomplete="off">
                                         <span class="task-file-btns">
-                                            <button type="button" id="task-init-browse" class="small" title="浏览运行 iptest-web 的那台机器上的目录">浏览服务器…</button>
                                             <label class="file-btn task-upload-button" for="task-init-upload">选择并导入</label>
                                             <input type="file" id="task-init-upload" accept=".txt,.csv,text/plain,text/csv" hidden>
                                         </span>
@@ -447,15 +446,9 @@
                                 <label class="task-source-wide">初始化远程 URL<input type="text" id="task-init-url" placeholder="https://example.com/ips.txt"></label>
                                 <span class="hint">可选：拉取该 URL 的基础 IP 导入本地 IP 库，自动补全 https。</span>
                             </div>
-                            <p class="note">来源决定候选：本地库回写状态；官方段 / 远程 URL 仅作本次候选，不写回来源。</p>
                             <div class="task-form-row task-output-row">
-                                <label class="task-output-field">输出文件名 / 相对路径 / 服务器绝对路径
-                                    <span class="task-file-row">
-                                        <input type="text" id="task-output" placeholder="例如 abc、custom/abc，或 C:/out/abc" spellcheck="false" autocomplete="off">
-                                        <span class="task-file-btns">
-                                            <button type="button" id="task-output-browse" class="small" title="浏览运行 iptest-web 的那台机器上的目录">浏览服务器…</button>
-                                        </span>
-                                    </span>
+                                <label class="task-output-field">输出路径
+                                    <input type="text" id="task-output" placeholder="留空自动生成，或填写相对/绝对路径（如 abc、out/abc）" spellcheck="false" autocomplete="off">
                                     <span id="task-output-preview" class="hint">实际输出：data/out/任务名.txt（服务器 data 目录；不是浏览器本机路径）</span>
                                 </label>
                                 <label>输出格式<select id="task-format"><option value="txt">txt</option><option value="csv">csv</option></select></label>
@@ -485,29 +478,6 @@
                         </div>
                     </div>
                 </div>
-            </div>
-            <div id="path-browser-overlay" class="help-overlay" hidden>
-                <div class="help-panel path-browser-panel">
-                    <div class="help-panel-head"><strong id="path-browser-title">选择服务器上的初始化文件</strong><button type="button" id="btn-path-browser-close" class="side-toggle" aria-label="关闭">×</button></div>
-                    <div class="help-panel-body path-browser-body">
-                        <div class="path-browser-bar">
-                            <input type="text" id="path-browser-current" placeholder="服务器路径" spellcheck="false" autocomplete="off" aria-label="当前目录">
-                            <button type="button" id="path-browser-parent" class="small" title="上级目录">↑</button>
-                            <button type="button" id="path-browser-refresh" class="small" title="刷新">刷新</button>
-                            <button type="button" id="path-browser-home" class="small" title="打开用户主目录" hidden>主目录</button>
-                            <button type="button" id="path-browser-data" class="small" title="打开程序 data 目录">data</button>
-                        </div>
-                        <div id="path-browser-list" class="path-browser-list" role="listbox" aria-label="目录与文件"></div>
-                        <div class="path-browser-footer">
-                            <span id="path-browser-status" class="hint" aria-live="polite"></span>
-                            <span class="path-browser-actions">
-                                <button type="button" id="path-browser-cancel" class="secondary-button">取消</button>
-                                <button type="button" id="path-browser-pick" class="primary" disabled>选择此文件</button>
-                            </span>
-                        </div>
-                    </div>
-                </div>
-            </div>
 </section>
 
         <section id="page-library" class="page">
@@ -746,7 +716,7 @@
 <p><b>结果范围筛选</b>：填「100~500」为区间；延迟只填一个数为上限（小于该值），速度只填一个数为下限（大于该值）。</p>
 <p><b>官方 IP 模式</b>：IPv4 按每个 /24 抽样，避免直接检测百万级地址；可选择 Cloudflare 支持的 HTTP/HTTPS 端口。</p>
                 <h4>② 自动维护</h4>
-                <p>新建任务 → 绑定 IP 库，设<b>规则</b>：字段（国家/城市/端口）多值=或、多字段=交集，每个组合取前 N 条；延迟/速度范围（测速总开关开启后可用）；总数限制。保存并勾选「启用」后，点顶部「一键维护」依次执行；输出按模板写入 data/out/，或你填写的服务器绝对路径（输出文件名留空时使用独立默认路径，不会覆盖初始化文件）；可点「浏览服务器…」选择输出位置。</p>
+<p>新建任务 → 绑定 IP 库，设<b>规则</b>：字段（国家/城市/端口）多值=或、多字段=交集，每个组合取前 N 条；延迟/速度范围（测速总开关开启后可用）；总数限制。保存并勾选「启用」后，点顶部「一键维护」依次执行；输出按模板写入 data/out/（输出文件名留空时使用独立默认路径，不会覆盖初始化文件）。</p>
 <p><b>维护来源</b>：本地库检测后会回写状态（失效移除、测速失败保留）；官方 IP 段与远程 URL 只作为本次候选，不写回、不删除来源。系统会持续检测，直到规则配额满足或候选耗尽。</p>
                 <h4>③ IP 库</h4>
                 <p>多个命名库（data/ipdb/），可新建/改名/删除/清空。库内条目随检测自动更新：延迟失败移除、测速失败保留、结果回写。</p>

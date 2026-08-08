@@ -58,7 +58,6 @@ export function initTasks({ toast }) {
         runQueue: [],
         pendingEnabled: new Set(),
         officialPorts: { https: [443, 2053, 2083, 2087, 2096, 8443], http: [80, 8080, 8880, 2052, 2082, 2086, 2095] },
-        pathBrowser: null,
     };
 
     function currentTask() {
@@ -263,176 +262,6 @@ export function initTasks({ toast }) {
         status.classList.remove('error');
     }
 
-    // ---- 服务器路径浏览器（选择初始化文件 / 输出位置）----
-    function joinServerPath(dir, name) {
-        return String(dir || '').replace(/[\\/]+$/, '') + '/' + name;
-    }
-
-    async function openPathBrowser(mode = 'file') {
-        const s = state.pathBrowser = state.pathBrowser || { current: '', parent: '', home: '', dataDir: '', selected: null, entries: [], mode: 'file' };
-        s.mode = mode === 'output' ? 'output' : 'file';
-        if (s.mode === 'output') {
-            const raw = $('task-output').value.trim().replace(/\\/g, '/');
-            // 输出模式：已有绝对路径时定位到其所在目录，方便直接确认或改文件名。
-            s.current = isServerAbsolutePath(raw) ? (raw.replace(/[^/]+$/, '') || '/') : (s.dataDir || '');
-        } else {
-            s.current = s.current || s.dataDir || '';
-        }
-        pathBrowserModeUI();
-        $('path-browser-overlay').hidden = false;
-        await browseServerPath(s.current || s.dataDir || '');
-    }
-
-    function pathBrowserModeUI() {
-        const s = state.pathBrowser;
-        if (!s) return;
-        const isOutput = s.mode === 'output';
-        $('path-browser-title').textContent = isOutput ? '选择服务器上的输出位置' : '选择服务器上的初始化文件';
-        $('path-browser-pick').textContent = isOutput ? '选择此路径' : '选择此文件';
-        $('path-browser-current').placeholder = isOutput ? '可编辑：目录 + 文件名，回车确认' : '服务器路径';
-    }
-
-    function closePathBrowser() {
-        $('path-browser-overlay').hidden = true;
-    }
-
-    async function browseServerPath(dir) {
-        const s = state.pathBrowser;
-        if (!s) return;
-        const list = $('path-browser-list');
-        const status = $('path-browser-status');
-        list.innerHTML = '<div class="path-browser-empty">加载中…</div>';
-        status.textContent = '';
-        status.classList.remove('error');
-        $('path-browser-pick').disabled = true;
-        s.selected = null;
-        try {
-            const data = await api.browseAutoPaths(dir);
-            s.current = data.current || '';
-            s.parent = data.parent || '';
-            s.home = data.home || '';
-            s.dataDir = data.dataDir || '';
-            s.entries = data.entries || [];
-            $('path-browser-current').value = s.current;
-            $('path-browser-parent').disabled = !s.parent;
-            $('path-browser-home').hidden = !s.home;
-            renderPathBrowserList(data.error || '');
-        } catch (error) {
-            status.textContent = `浏览失败：${error.message}`;
-            status.classList.add('error');
-            list.innerHTML = '<div class="path-browser-empty">浏览失败</div>';
-        }
-    }
-
-    function formatPathBrowserSize(size) {
-        if (!Number.isFinite(size) || size < 0) return '';
-        if (size < 1024) return `${size} B`;
-        if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
-        if (size < 1024 * 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)} MB`;
-        return `${(size / 1024 / 1024 / 1024).toFixed(1)} GB`;
-    }
-
-    function renderPathBrowserList(message) {
-        const s = state.pathBrowser;
-        if (!s) return;
-        const list = $('path-browser-list');
-        const status = $('path-browser-status');
-        status.classList.remove('error');
-        if (message) {
-            status.textContent = message;
-            status.classList.add('error');
-            list.innerHTML = '<div class="path-browser-empty">无法打开该目录</div>';
-            return;
-        }
-        const entries = s.entries || [];
-        status.textContent = entries.length
-            ? s.mode === 'output'
-                ? `${entries.length} 项 · 双击目录进入，单击文件或编辑路径框后点「选择此路径」`
-                : `${entries.length} 项 · 单击文件选中，双击目录进入`
-            : '空目录';
-        if (!entries.length) {
-            list.innerHTML = '<div class="path-browser-empty">空目录</div>';
-            return;
-        }
-        list.innerHTML = entries.map(e => `
-            <button type="button" class="path-browser-item ${e.isDir ? 'is-dir' : 'is-file'}" data-name="${escapeHTML(e.name)}" ${e.isDir ? 'data-dir="1"' : ''}>
-                <span class="path-browser-icon">${e.isDir ? '📁' : '📄'}</span>
-                <span class="path-browser-name">${escapeHTML(e.name)}</span>
-                ${e.isDir ? '' : `<span class="path-browser-size">${formatPathBrowserSize(e.size)}</span>`}
-            </button>`).join('');
-    }
-
-    function markPathBrowserSelected(item, path) {
-        const s = state.pathBrowser;
-        if (!s || !path) return;
-        s.selected = path;
-        document.querySelectorAll('#path-browser-list .is-selected').forEach(el => el.classList.remove('is-selected'));
-        if (item) item.classList.add('is-selected');
-        if (s.mode === 'output') $('path-browser-current').value = path;
-        $('path-browser-pick').disabled = false;
-        $('path-browser-status').textContent = s.mode === 'output'
-            ? `已选择：${path}（可继续编辑文件名）`
-            : `已选择：${path}`;
-    }
-
-    function onPathBrowserListClick(e) {
-        const item = e.target.closest('.path-browser-item');
-        if (!item || !state.pathBrowser) return;
-        const s = state.pathBrowser;
-        if (s.mode === 'output') {
-            // 输出模式：单击文件回填路径；目录仅双击进入。
-            if (item.classList.contains('is-dir')) return;
-            markPathBrowserSelected(item, joinServerPath(s.current, item.dataset.name));
-            return;
-        }
-        if (item.classList.contains('is-dir')) {
-            s.selected = null;
-            $('path-browser-pick').disabled = true;
-            return;
-        }
-        markPathBrowserSelected(item, joinServerPath(s.current, item.dataset.name));
-    }
-
-    function onPathBrowserListDblClick(e) {
-        const item = e.target.closest('.path-browser-item[data-dir="1"]');
-        if (item && state.pathBrowser) {
-            browseServerPath(joinServerPath(state.pathBrowser.current, item.dataset.name));
-        }
-    }
-
-    function onPathBrowserCurrentInput() {
-        const s = state.pathBrowser;
-        if (!s || s.mode !== 'output') return;
-        const v = $('path-browser-current').value.trim();
-        s.selected = v || null;
-        $('path-browser-pick').disabled = !v;
-        document.querySelectorAll('#path-browser-list .is-selected').forEach(el => el.classList.remove('is-selected'));
-    }
-
-    function onPathBrowserCurrentKeydown(e) {
-        if (e.key !== 'Enter' || !state.pathBrowser) return;
-        const v = $('path-browser-current').value.trim();
-        if (state.pathBrowser.mode === 'output') {
-            if (v) { state.pathBrowser.selected = v; confirmPathBrowserPick(); }
-            return;
-        }
-        if (v) browseServerPath(v);
-    }
-
-    function confirmPathBrowserPick() {
-        const s = state.pathBrowser;
-        if (!s?.selected) return;
-        if (s.mode === 'output') {
-            $('task-output').value = s.selected.replace(/\\/g, '/');
-            updateTaskOutputPreview();
-            closePathBrowser();
-            return;
-        }
-        $('task-init-file-path').value = s.selected;
-        $('task-init-file-status').textContent = `已选择服务器文件：${s.selected}；定时维护将直接读取该路径。`;
-        $('task-init-file-status').classList.remove('error');
-        closePathBrowser();
-    }
     function updateTaskOutputPreview() {
         const preview = $('task-output-preview');
         const format = $('task-format').value === 'csv' ? 'csv' : 'txt';
@@ -723,20 +552,6 @@ export function initTasks({ toast }) {
         }
     });
     $('task-init-file-path').addEventListener('input', updateTaskInitFileStatus);
-    $('task-init-browse').addEventListener('click', () => openPathBrowser('file'));
-    $('task-output-browse').addEventListener('click', () => openPathBrowser('output'));
-    $('btn-path-browser-close').addEventListener('click', closePathBrowser);
-    $('path-browser-cancel').addEventListener('click', closePathBrowser);
-    $('path-browser-overlay').addEventListener('click', e => { if (e.target === $('path-browser-overlay')) closePathBrowser(); });
-    $('path-browser-parent').addEventListener('click', () => browseServerPath(state.pathBrowser?.parent || ''));
-    $('path-browser-refresh').addEventListener('click', () => browseServerPath(state.pathBrowser?.current || ''));
-    $('path-browser-home').addEventListener('click', () => browseServerPath(state.pathBrowser?.home || ''));
-    $('path-browser-data').addEventListener('click', () => browseServerPath(state.pathBrowser?.dataDir || ''));
-    $('path-browser-current').addEventListener('input', onPathBrowserCurrentInput);
-    $('path-browser-current').addEventListener('keydown', onPathBrowserCurrentKeydown);
-    $('path-browser-pick').addEventListener('click', confirmPathBrowserPick);
-    $('path-browser-list').addEventListener('click', onPathBrowserListClick);
-    $('path-browser-list').addEventListener('dblclick', onPathBrowserListDblClick);
     $('task-grid').addEventListener('change', e => {
         const enable = e.target.closest('.task-enable');
         if (!enable) return;
