@@ -113,8 +113,8 @@ export function initTasks({ toast }) {
                 : task.librarySource === 'remote'
                     ? '远程 URL 库'
                     : (state.libNames[task.libraryId] || task.libraryId || '默认库');
-            const outputPath = task.output?.path || '未设置';
-            const outputSort = ({ latencyAsc: '延迟升序', latencyDesc: '延迟降序', speedDesc: '速度降序', speedAsc: '速度升序', ipAsc: 'IP 升序' })[task.output?.sort] || '延迟升序';
+            const outputPath = task.output?.path ? `data/${task.output.path}` : '保存后自动生成';
+            const outputSort = ({ latencyAsc: '延迟升序', latencyDesc: '延迟降序', speedDesc: '速度降序', speedAsc: '速度升序', ipAsc: 'IP 升序', countryAsc: '国家/地区升序' })[task.output?.sort] || '延迟升序';
             const schedule = scheduleLabel(task.schedule);
             const pendingKey = task.id || String(i);
             const isPending = state.pendingEnabled.has(pendingKey);
@@ -238,6 +238,22 @@ export function initTasks({ toast }) {
             panel.hidden = panel.dataset.taskInit !== initMode;
         });
     }
+    function updateTaskOutputPreview() {
+        const preview = $('task-output-preview');
+        const format = $('task-format').value === 'csv' ? 'csv' : 'txt';
+        let raw = $('task-output').value.trim().replace(/\\/g, '/');
+        const taskName = $('task-name').value.trim() || '任务名';
+        if (/^(?:[a-zA-Z]:|\/)/.test(raw) || raw.split('/').includes('..')) {
+            preview.textContent = '路径无效：只能填写 data 目录内的文件名或相对路径，不能使用绝对路径或 ../';
+            preview.classList.add('error');
+            return;
+        }
+        raw = raw.replace(/^\.\//, '').replace(/\.(?:txt|csv)$/i, '');
+        const relative = raw ? (raw.includes('/') ? raw : `out/${raw}`) : `out/${taskName}`;
+        preview.textContent = `实际输出：data/${relative}.${format}（服务器 data 目录；不是浏览器本机路径）`;
+        preview.classList.remove('error');
+    }
+
     function fillForm(task) {
         $('task-name').value = task.name || '';
         if (state.libraries.some(l => l.id === task.libraryId)) $('task-library').value = task.libraryId;
@@ -257,6 +273,7 @@ export function initTasks({ toast }) {
         $('task-init-file-status').textContent = input.file ? `已保存：${input.file}` : '文件会保存到 data/inputs，定时维护可重复读取。';
         $('task-output').value = task.output?.path || '';
         $('task-format').value = task.output?.format === 'csv' ? 'csv' : 'txt';
+        updateTaskOutputPreview();
         $('task-sort').value = task.output?.sort || 'latencyAsc';
         $('task-limit').value = task.limit > 0 ? task.limit : 200;
         $('task-speed').checked = Boolean(task.speedEnabled);
@@ -340,7 +357,6 @@ export function initTasks({ toast }) {
         task.limit = limitRaw === '' ? 200 : Math.max(0, Number(limitRaw) || 0);
         task.speedEnabled = $('task-speed').checked;
         // 检测参数统一走设置页全局默认；旧任务残留的任务级覆盖一并清除。
-        delete task.maxCandidates;
         delete task.latencyConcurrency;
         delete task.latencyTimeoutMs;
         delete task.latencyProbes;
@@ -552,6 +568,8 @@ export function initTasks({ toast }) {
         description.classList.toggle('error', !described.valid);
         $('task-schedule-cron').setAttribute('aria-invalid', String(!described.valid));
     }
+    ['task-name', 'task-output'].forEach(id => $(id).addEventListener('input', updateTaskOutputPreview));
+    $('task-format').addEventListener('change', updateTaskOutputPreview);
     $('task-speed').addEventListener('change', () => { const t = currentTask(); if (t) renderRules(t.rules || []); });
     $('task-schedule-enabled').addEventListener('change', updateScheduleUI);
     $('task-schedule-cron').addEventListener('input', updateScheduleUI);

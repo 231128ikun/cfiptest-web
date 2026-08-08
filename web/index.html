@@ -111,6 +111,7 @@
                                 <li>排除：前缀 <code>-</code> 或 <code>!</code>，如 <code>-port:9443</code>、<code>-东京</code>；也可用 <code>!=</code>，如 <code>country!=美国</code>。</li>
                                 <li>示例：<code>port:443,8443 country:日本 -测试</code>；<code>port:8000-9000 | port:2053</code>。</li>
                                 <li>保留匹配＝只保留符合条件的行；排除匹配＝删掉符合条件的行。</li>
+                                <li>延迟/速度范围框填 <code>min~max</code>，如 <code>100~500</code>；延迟只填一个数表示上限，速度只填一个数表示下限。</li>
                             </ul>
                         </div>
                         <div class="input-feedback">
@@ -152,7 +153,7 @@
                             <label>协议 <select id="official-protocol"><option value="https">HTTPS</option><option value="http">HTTP</option></select></label>
                             <label>端口 <select id="official-port"><option value="443">443</option></select></label>
                         </div>
-                        <div class="official-note" id="sample-hint">IPv4 按每个 /24 抽样，避免直接检测百万级地址；可选择 Cloudflare 支持的 HTTP/HTTPS 端口。</div>
+                        <div class="note" id="sample-hint">按每段抽样，避免直接检测百万级地址；具体方式随设置更新。</div>
                         <div class="official-actions">
                             <button id="btn-refresh-ranges" title="从远程官方接口拉取最新 IP 段并覆盖本地缓存文件">更新本地缓存</button>
                             <button id="btn-add-ranges" class="primary">生成官方候选</button>
@@ -195,8 +196,8 @@
 
                 <div class="rule-group">
                     <div class="rule-group-head"><h3>整体约束</h3><span>留空或 0 = 不限制</span></div>
-                    <label class="rule-line"><span>满足条件后自动停止</span><input type="number" id="rule-maxresults" min="0" placeholder="不限制"><em>个</em></label>
-                    <div class="rule-explain">达到该数量后立即停止剩余检测。只测延迟时按延迟合格数计数；继续测速时按同时满足延迟和速度条件的数量计数。</div>
+                    <label class="rule-line"><span>整体结果达到后停止</span><input type="number" id="rule-maxresults" min="0" placeholder="不限制"><em>个</em></label>
+                    <div class="note">达到该数量即停止；清空结果后可继续检测。</div>
                 </div>
             </div>
 
@@ -214,7 +215,6 @@
                 <div><span>当前候选</span><strong id="run-target-count">0</strong></div>
                 <div class="batch-status" id="batch-status" hidden><span>本批进度</span><strong id="batch-progress">0/0</strong></div>
                 <button id="btn-start-latency" class="primary run-button">开始检测</button>
-                <button id="btn-task-stop" class="danger" disabled>暂停检测</button>
             </div>
             <div class="progress-wrap" id="progress-wrap" role="progressbar" aria-label="检测进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="0%">
                 <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
@@ -225,8 +225,8 @@
                 <div class="result-filter-group">
                     <input type="text" id="result-filter" placeholder="筛选 IP、国家、城市、数据中心、ASN" aria-label="结果筛选">
                     <div class="result-filter-limits">
-                        <input type="number" id="result-max-latency" min="0" placeholder="延迟上限 ms" aria-label="延迟上限">
-                        <input type="number" id="result-min-speed" min="0" placeholder="最低速度 kB/s" aria-label="最低速度">
+                        <input type="text" id="result-latency-range" placeholder="延迟范围 ms：100~500；单值=上限" aria-label="延迟范围">
+                        <input type="text" id="result-speed-range" placeholder="速度范围 kB/s：10~100；单值=下限" aria-label="速度范围">
                     </div>
                 </div>
                 <div class="result-view-controls">
@@ -251,7 +251,7 @@
             <div class="quota-box" id="quota-box">
                 <div class="quota-title">自定义展示规则</div>
                 <div class="quota-controls">
-                    <span>选择分组字段与取值顺序，导出和表格都按该顺序排列；多条规则自动合并并去重。</span>
+                    <span>分组字段与取值顺序；多条规则自动合并并去重。</span>
                     <button id="btn-quota-add-rule" class="small">添加规则</button>
                 </div>
                 <div class="quota-rules" id="quota-rules"></div>
@@ -305,7 +305,7 @@
                         <div class="placeholder-help" id="placeholder-help"></div>
                     </details>
                 </div>
-                <div id="csv-template-hint" class="csv-template-hint" hidden>CSV 字段：<span id="csv-column-label"></span></div>
+                <div id="csv-template-hint" class="note" hidden>CSV 字段：<span id="csv-column-label"></span></div>
                 <div class="custom-export-actions" id="custom-export-actions" hidden>
                     <button id="btn-custom-append" class="small">追加勾选结果</button>
                     <button id="btn-custom-clear" class="small">清空自定义</button>
@@ -397,7 +397,7 @@
                                         <button type="button" class="small task-cron-preset" data-cron="0 3 * * *">每天 03:00</button>
                                         <button type="button" class="small task-cron-preset" data-cron="0 3 * * 1">每周一 03:00</button>
                                     </div>
-                                    <p class="task-cron-help">标准 5 段格式：分 时 日 月 周。支持 <code>*</code>、数字、范围、列表和步长，例如 <code>*/15 * * * *</code>。</p>
+                                    <p class="note task-cron-help">标准 5 段格式：分 时 日 月 周；支持 <code>*</code>、范围、列表和步长。</p>
                                 </div>
                             </section>
                             <div class="task-form-row task-source-heading">
@@ -444,9 +444,12 @@
                                 <label class="task-source-wide">初始化远程 URL<input type="text" id="task-init-url" placeholder="https://example.com/ips.txt"></label>
                                 <span class="hint">可选：拉取该 URL 的基础 IP 导入本地 IP 库，自动补全 https。</span>
                             </div>
-                            <p class="task-source-note">维护来源决定候选 IP 从哪里来；初始化（可选）把基础数据导入本地 IP 库。</p>
+                            <p class="note">来源决定候选：本地库回写状态；官方段 / 远程 URL 仅作本次候选，不写回来源。</p>
                             <div class="task-form-row task-output-row">
-                                <label>输出位置<input type="text" id="task-output" placeholder="留空：文件来源回写原文件，其它来源写入 out/任务名.txt"></label>
+                                <label class="task-output-field">输出文件名或相对路径
+                                    <input type="text" id="task-output" placeholder="例如 abc 或 custom/abc">
+                                    <span id="task-output-preview" class="hint">实际输出：data/out/任务名.txt（服务器 data 目录；不是浏览器本机路径）</span>
+                                </label>
                                 <label>输出格式<select id="task-format"><option value="txt">txt</option><option value="csv">csv</option></select></label>
                                 <label class="task-template-label">输出模板
                                     <span class="auto-template-row">
@@ -455,8 +458,8 @@
                                         <button type="button" id="task-tpl-save" class="small" hidden title="保存为我的模板（与导出页共用）">存为模板</button>
                                     </span>
                                 </label>
-                                <label title="输出文件内条目的排列顺序；速度排序时未测速条目排在最后">输出排序<select id="task-sort"><option value="latencyAsc">延迟升序（默认）</option><option value="latencyDesc">延迟降序</option><option value="speedDesc">速度降序</option><option value="speedAsc">速度升序</option><option value="ipAsc">IP 地址升序</option></select></label>
-                                <label>总数限制<span class="input-with-unit"><input type="number" id="task-limit" min="0" placeholder="0 = 不限" value="200"> <span class="unit">条</span></span></label>
+                                <label title="输出文件内条目的排列顺序；速度排序时未测速条目排在最后">输出排序<select id="task-sort"><option value="latencyAsc">延迟升序（默认）</option><option value="latencyDesc">延迟降序</option><option value="speedDesc">速度降序</option><option value="speedAsc">速度升序</option><option value="ipAsc">IP 地址升序</option><option value="countryAsc">国家/地区升序</option></select></label>
+                                <label>总数限制<span class="input-with-unit"><input type="number" id="task-limit" min="0" placeholder="0 = 不限" value="200"> <span class="unit">条</span></span><span class="hint">各规则会持续检测，直到规则数量满足或候选耗尽。</span></label>
                                 <label class="checkbox"><input type="checkbox" id="task-speed" title="开启后各规则可选择速度范围"> 开启测速</label>
                             </div>
                             <details class="task-rules-section" open>
@@ -496,8 +499,8 @@
                     <div class="lib-toolbar">
                         <div class="lib-filter-group">
                             <input type="text" id="lib-filter" placeholder="筛选 IP、国家、城市、数据中心、ASN、状态、来源" aria-label="库筛选">
-                            <input type="number" id="lib-max-latency" min="0" placeholder="延迟上限 ms" aria-label="延迟上限">
-                            <input type="number" id="lib-min-speed" min="0" placeholder="最低速度 kB/s" aria-label="最低速度">
+                            <input type="text" id="lib-latency-range" placeholder="延迟范围 ms：100~500；单值=上限" aria-label="延迟范围">
+                            <input type="text" id="lib-speed-range" placeholder="速度范围 kB/s：10~100；单值=下限" aria-label="速度范围">
                         </div>
                         <div class="lib-view-controls">
                             <span class="sort-bar"><label for="lib-sort-key">排序</label><select id="lib-sort-key"></select><button id="btn-lib-sort-dir" class="small">▲ 升序</button></span>
@@ -535,7 +538,7 @@
                     <div class="quota-box" id="lib-quota-box">
                         <div class="quota-title">自定义展示规则</div>
                         <div class="quota-controls">
-                            <span>选择分组字段与取值顺序，导出和表格都按该顺序排列；多条规则自动合并并去重。</span>
+                            <span>分组字段与取值顺序；多条规则自动合并并去重。</span>
                             <button id="btn-lib-quota-add-rule" class="small">添加规则</button>
                         </div>
                         <div class="quota-rules" id="lib-quota-rules"></div>
@@ -614,7 +617,7 @@
                     <button type="button" id="log-clear" class="danger">清空日志</button>
                 </div>
             </div>
-            <div id="log-status" class="auto-hint" aria-live="polite">调试日志已关闭，不记录也不显示新的日志。</div>
+            <div id="log-status" class="note" aria-live="polite">调试日志已关闭，不记录也不显示新的日志。</div>
             <div id="log-viewer" class="log-viewer" aria-live="polite"></div>
         </section>
 
@@ -647,7 +650,7 @@
                         </div>
                     <label class="task-source-wide">官方 IP 段源（优先级：本地 IP 库 > 官方 IP 段 > 远程 URL）<textarea id="advanced-official-sources" rows="2" placeholder="每行一个地址"></textarea></label>
                     <label class="task-source-wide">官方 IPv6 活跃段源（默认内置 baipiao /48 列表，可留空）<textarea id="advanced-official-v6-sources" rows="3" placeholder="每行一个地址"></textarea></label>
-                        <div class="threshold-note">延迟会对每个 IP 独立 TCP 探测多次并对成功结果取平均，HTTP 校验 1 次、单请求超时默认 3 秒；连续失败达到阈值（默认 3 次）才从库移除，达到阈值前保留并累计。并发过高可能造成漏测或误判，建议从延迟 50 / 测速 5 开始，再按机器和网络逐步调整。</div>
+                        <div class="note">详细说明见「使用说明 · 设置」；并发过高可能漏测或误判，建议延迟 50 / 测速 5 起步再调整。</div>
                     </div>
                     <div class="settings-section-title">结果颜色阈值</div>
                     <div class="advanced-group">
@@ -693,7 +696,7 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="threshold-note">输入框编辑所在区间的右端值，其余区间会自动衔接；未测速显示灰色。</div>
+                        <div class="note">输入框编辑所在区间的右端值，其余区间会自动衔接；未测速显示灰色。</div>
                     </div>
                 </div>
             <div class="settings-actions"><button id="btn-save-settings" class="primary">保存到本地</button><span id="settings-status" class="hint">保存在 data/config.json 与 data/settings.json</span></div>
@@ -709,14 +712,20 @@
             <div class="help-panel-body">
                 <h4>① 测速工作台</h4>
                 <p>三步流水线：<b>准备候选</b>（粘贴 / 文件 / 远程 URL / 官方段，或「从本地库导入」）→ <b>检测规则</b>（延迟、测速、数量）→ <b>检测及结果</b>（筛选、排序、自定义展示）。结果可复制、下载，或按<b>导出范围</b>（全部 / 当前规则 / 自定义）导入到指定 IP 库。</p>
+<p><b>整体约束</b>：达到数量即停止检测；只测延迟按延迟合格数计数，继续测速按同时满足延迟与速度条件的数量计数；清空结果后可继续检测。</p>
+<p><b>结果范围筛选</b>：填「100~500」为区间；延迟只填一个数为上限（小于该值），速度只填一个数为下限（大于该值）。</p>
+<p><b>官方 IP 模式</b>：IPv4 按每个 /24 抽样，避免直接检测百万级地址；可选择 Cloudflare 支持的 HTTP/HTTPS 端口。</p>
                 <h4>② 自动维护</h4>
                 <p>新建任务 → 绑定 IP 库，设<b>规则</b>：字段（国家/城市/端口）多值=或、多字段=交集，每个组合取前 N 条；延迟/速度范围（测速总开关开启后可用）；总数限制。保存并勾选「启用」后，点顶部「一键维护」依次执行；输出按模板写入 data/out/（未填输出文件时直接更新输入文件）。</p>
+<p><b>维护来源</b>：本地库检测后会回写状态（失效移除、测速失败保留）；官方 IP 段与远程 URL 只作为本次候选，不写回、不删除来源。系统会持续检测，直到规则配额满足或候选耗尽。</p>
                 <h4>③ IP 库</h4>
                 <p>多个命名库（data/ipdb/），可新建/改名/删除/清空。库内条目随检测自动更新：延迟失败移除、测速失败保留、结果回写。</p>
                 <h4>④ 运行记录</h4>
                 <p>每次维护的摘要与明细（data/runs.jsonl），可追溯。</p>
                 <h4>⑤ 设置</h4>
                 <p>全局默认检测参数、数据源与颜色阈值（data/config.json、data/settings.json）。</p>
+<p><b>自动维护默认值</b>：延迟对每个 IP 独立探测多次并对成功结果取平均，HTTP 校验 1 次、单请求超时默认 3 秒；连续失败达到阈值（默认 3 次）才从库移除，达到阈值前保留并累计。并发过高可能造成漏测或误判，建议从延迟 50 / 测速 5 开始，再按机器和网络逐步调整。</p>
+<p><b>结果颜色阈值</b>：输入框编辑所在区间的右端值，其余区间会自动衔接；未测速显示灰色。</p>
                 <p class="help-note">提示：本程序为本地单机应用，双击 exe 即启动服务。重复启动时会自动打开已运行的实例，不会重复占用端口；需要退出时点击右上角红色电源按钮，再点「确认退出」，或关闭黑色控制台窗口。</p>
             </div>
         </div>

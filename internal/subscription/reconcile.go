@@ -26,7 +26,8 @@ var _ Tester = (*engine.Runner)(nil)
 // Progress 是一次自动化运行的阶段进度消息（序列化进 engine.EventAuto.Message）。
 type Progress struct {
 	Group       string `json:"group,omitempty"`
-	Stage       string `json:"stage"` // gather | latency | speed | fill | output
+	Stage       string `json:"stage"`           // gather | latency | speed | fill | output
+	Round       int    `json:"round,omitempty"` // 编排轮次（第 N 轮）
 	Tested      int    `json:"tested"`
 	Passed      int    `json:"passed"`
 	Failed      int    `json:"failed"`      // 延迟失败（已从库移除）
@@ -52,8 +53,7 @@ type RunOptions struct {
 	DownloadURL          string          // 测速文件地址（不含协议头），默认 engine 默认值
 	SlackFactor          int             // 每组候选倍数：count*SlackFactor + SlackExtra，默认 3
 	SlackExtra           int             // 默认 10
-	MaxPerGroup          int             // 每组候选硬上限，默认 200
-	MaxCandidates        int             // 单次运行延迟检测候选总数上限（跨分组去重后）；0 = 不限
+	MaxPerGroup          int             // 内部每组候选批次预算，默认 200；不限制最终检测数量
 	InputTargets         []engine.Target `json:"-"`                  // 服务端已解析的初始化来源目标（远程 URL），不参与 JSON
 	InputSource          string          `json:"-"`                  // 初始化来源标签，用于进度日志
 	RemoteLibrary        bool            `json:"-"`                  // 维护来源为远程库（官方/URL）：失效不删本地库、结果不落盘
@@ -148,14 +148,6 @@ type Report struct {
 	InputUpdated int           `json:"inputUpdated"` // 初始化来源与库重叠更新的条数
 }
 
-// Run 执行一次订阅维护（兼容旧订阅器模型；新任务模型请用 RunTask）。
-func Run(ctx context.Context, t Tester, lib *library.Store, sub Subscription, opts RunOptions, prog ProgressFunc) (*Report, error) {
-	if err := sub.Validate(); err != nil {
-		return nil, err
-	}
-	return runCore(ctx, t, lib, sub.Groups, sub.InputPath, sub.Output, sub.EnableSpeed, 0, opts, prog)
-}
-
 // RunTask 执行一次维护任务：
 //
 //	1.（可选）按任务「初始化来源」把官方/URL/文件解析出的 IP 导入绑定的 IP 库（已有条目保留元数据）；
@@ -180,10 +172,6 @@ func RunTask(ctx context.Context, t Tester, lib *library.Store, task Task, opts 
 			opts.Protocol = "https"
 		}
 	}
-	// 任务级「单次检测上限」：请求/全局覆盖优先，task 值兜底（0 = 不限）。
-	if opts.MaxCandidates <= 0 && task.MaxCandidates > 0 {
-		opts.MaxCandidates = task.MaxCandidates
-	}
 	output := Output{Path: task.Output.Path, Format: task.Output.Format, Template: task.Output.Template, Sort: task.Output.Sort}
 	report, err := runCore(ctx, t, lib, groups, inputPath, output, task.SpeedEnabled, task.Limit, opts, prog)
 	if err != nil {
@@ -196,13 +184,15 @@ func RunTask(ctx context.Context, t Tester, lib *library.Store, task Task, opts 
 
 // runCore 执行核心编排流程：
 //
-//	0.（可选）初始化来源先导入 IP 库（官方 IP 只作为库）；候选始终只从库内收集。
-//	1.5 候选按单次检测上限截断（未检测条目保留，不判失效）；
-//	2. 批量延迟检测：失败者从库移除，通过者回写元数据/延迟/状态；
+//	0.（可选）初始化来源先导入 IP 库（官方/远程库为内存临时库）；候选只从库内收集。
+//	1. 分批收集未检测候选：有配额缺口的分组优先，跨批次跳过已测条目；
+//	2. 批量延迟检测：失败者软失败累计，达到阈值才移除；通过者回写元数据/延迟/状态；
 //	3. 需要测速的分组对短名单批量测速：失败不判死，只标记 SpeedValid=false；
-//	4. 按分组配额取最新结果，合并去重，再按输出排序方式排序；若设了总数限制则截断；
-//	5. 渲染并原子写出输出文件。
+//	4. 每轮结束检查分组配额，全部满足或候选耗尽即停止；
+//	5. 按分组配额取累计结果，合并去重，按输出排序方式排序；若设了总数限制则截断；
+//	6. 渲染并原子写出输出文件。
 //
+// 官方/远程库（opts.RemoteLibrary=true）只检测与输出：延迟/测速结果、失败移除均不写回库。
 // ctx 取消时保存已完成的库更新并返回部分报告（带 context 错误）。
 func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, inputPath string, out Output, enableSpeed bool, totalLimit int, opts RunOptions, prog ProgressFunc) (*Report, error) {
 	opts = opts.withDefaults()
@@ -235,239 +225,330 @@ func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, 
 			Log: fmt.Sprintf("初始化导入文件 %s：新增 %d / 更新 %d", inputPath, added, updated)})
 	}
 
-	// ---- 1. 收集候选（多分组去重） ----
+	// ---- 编排循环：分多轮收集 / 检测 / 补足 ----
+	// 每批收集一组未检测候选（按分组候选预算控制内存和并发规模，跨批次跳过已测条目），
+	// 直到所有有限配额满足、无限配额的候选耗尽或候选耗尽为止；
+	// 官方/远程库（RemoteLibrary=true）只检测与输出，不做任何库回写。
 	type cand struct {
 		entry  library.Entry
 		groups map[int]Group
 	}
-	candidates := make(map[string]*cand)
-	var order []string
-	for gi, g := range groups {
-		capN := opts.candidateCap(g.Count)
-		matched := make([]library.Entry, 0, capN)
-		for _, e := range lib.All() {
-			if g.CandidatePriority(e) == 0 {
-				continue
-			}
-			matched = append(matched, e)
-		}
-		sort.Slice(matched, func(i, j int) bool {
-			pi, pj := g.CandidatePriority(matched[i]), g.CandidatePriority(matched[j])
-			if pi != pj {
-				return pi > pj
-			}
-			if matched[i].TCPLatencyMs != matched[j].TCPLatencyMs {
-				return matched[i].TCPLatencyMs < matched[j].TCPLatencyMs
-			}
-			return matched[i].Key() < matched[j].Key()
-		})
-		if len(matched) > capN {
-			matched = matched[:capN]
-		}
-		for _, e := range matched {
-			key := e.Key()
-			c, ok := candidates[key]
-			if !ok {
-				c = &cand{entry: e, groups: make(map[int]Group)}
-				candidates[key] = c
-				order = append(order, key)
-			}
-			c.groups[gi] = g
-		}
-	}
-	// 单次检测上限（跨分组去重后，0 = 不限）：超出部分本轮不检测、不从库删除，留待后续轮次。
-	capNote := ""
-	if opts.MaxCandidates > 0 && len(order) > opts.MaxCandidates {
-		capNote = fmt.Sprintf("，超上限 %d 条留待下次", len(order)-opts.MaxCandidates)
-		order = order[:opts.MaxCandidates]
-	}
-	capLabel := "不限"
-	if opts.MaxCandidates > 0 {
-		capLabel = strconv.Itoa(opts.MaxCandidates)
-	}
-	_ = prog(Progress{Stage: "gather", Tested: len(order), Log: fmt.Sprintf("收集候选 %d 条（单次上限 %s%s）", len(order), capLabel, capNote)})
+	tested := make(map[string]bool)            // 已做延迟检测的 key（跨轮累计，避免重复检测）
+	freshAll := make(map[string]library.Entry) // 已通过延迟检测的条目（跨轮累计）
+	speedPool := make(map[int][]library.Entry) // 需要测速的分组短名单（跨轮累计，已测速）
+	speedTested := make(map[string]bool)       // 已做测速的 key（跨轮累计，避免重复测速）
 
-	// 解析未指定端口（HTTPS 默认 443，HTTP 默认 80），并让候选键跟随端口修正，
-	// 否则按旧键（端口 0）找不到检测结果会被误判为失效。
-	defaultPort := 443
-	if opts.Protocol == "http" {
-		defaultPort = 80
-	}
-	resolvedOrder := make([]string, 0, len(order))
-	for _, key := range order {
-		c := candidates[key]
-		e := c.entry
-		if e.Port == 0 {
-			e.Port = defaultPort
-			c.entry = e
-			newKey := e.Key()
-			if newKey != key {
-				delete(candidates, key)
-				candidates[newKey] = c
-				lib.RemoveKey(key) // 旧键（端口 0）作废
+	// groupQualified 统计该分组当前实测可用候选数（不做跨组去重，仅用于判断是否还需补充）。
+	groupQualified := func(gi int, g Group) int {
+		n := 0
+		if groupNeedsSpeed(g, enableSpeed) {
+			for _, e := range speedPool[gi] {
+				if g.SpeedOK(effectiveSpeed(e), e.SpeedValid) {
+					n++
+				}
 			}
-			key = newKey
+			return n
 		}
-		resolvedOrder = append(resolvedOrder, key)
-	}
-	order = resolvedOrder
-
-	// ---- 2. 批量延迟检测 ----
-	targets := make([]engine.Target, 0, len(order))
-	for _, key := range order {
-		e := candidates[key].entry
-		targets = append(targets, engine.Target{IP: e.IP, Port: e.Port})
-	}
-	enableTLS := opts.Protocol != "http"
-	latOpts := engine.LatencyOptions{
-		MaxConcurrency: opts.LatencyConcurrency,
-		TimeoutMs:      opts.LatencyTimeoutMs,
-		ProbeCount:     opts.LatencyProbes,
-		HTTPProbeCount: opts.LatencyHTTPProbes,
-		HTTPTimeoutMs:  opts.LatencyHTTPTimeoutMs,
-		EnableTLS:      enableTLS,
-	}
-	results, err := t.RunLatencyTest(ctx, targets, latOpts, func(engine.Event) {})
-	if err != nil && ctx.Err() != nil {
-		_ = lib.Save()
-		return report, ctx.Err()
-	}
-	resultByKey := make(map[string]engine.Result, len(results))
-	for _, res := range results {
-		resultByKey[library.Key(res.IP, res.Port)] = res
+		for _, e := range freshAll {
+			if groupMatches(g, e) {
+				n++
+			}
+		}
+		return n
 	}
 
-	fresh := make(map[string]library.Entry, len(order))
-	for _, key := range order {
-		c := candidates[key]
-		res, ok := resultByKey[key]
-		if !ok {
-			// 软失败：保留条目并累计连续失败，达到阈值才移除，避免单次抖动误删刚验活的 IP。
-			e := c.entry
-			e.ConsecutiveFailures++
-			e.LastCheckedAt = now
-			if e.ConsecutiveFailures >= opts.RemoveAfterFailures {
-				lib.RemoveKey(key) // 连续失败达阈值：移除
-				report.RemovedDead++
+	// 内部按批次调度候选，直到配额满足或候选耗尽；不暴露为用户配置。
+	for round := 1; ; round++ {
+		// ---- 1. 收集本轮候选（跨分组去重；跳过已检测条目） ----
+		// 有配额缺口的分组优先收集（缺口大的先取），已满足的分组不再为其追加候选。
+		type needGroup struct {
+			gi, need int
+		}
+		var shortGroups []needGroup
+		var unlimitedGroups []int
+		for gi, g := range groups {
+			if g.Count > 0 {
+				if need := g.Count - groupQualified(gi, g); need > 0 {
+					shortGroups = append(shortGroups, needGroup{gi, need})
+				}
 			} else {
-				lib.Upsert(e)
-				report.MarkedFailed++
-			}
-			for gi := range c.groups {
-				report.Groups[gi].Tested++
-				report.Groups[gi].Failed++
-			}
-			continue
-		}
-		updated, changed := applyResult(c.entry, res, now)
-		isNew := lib.Upsert(updated)
-		fresh[key] = updated
-		for gi := range c.groups {
-			report.Groups[gi].Tested++
-			if changed {
-				report.Groups[gi].Updated++
-			}
-			if isNew {
-				report.Groups[gi].New++
+				unlimitedGroups = append(unlimitedGroups, gi) // 不限数量分组始终参与，但排在最后
 			}
 		}
-	}
-	deadNote := fmt.Sprintf("（连续失败 %d 次后移除；本轮移除 %d、标记保留 %d）", opts.RemoveAfterFailures, report.RemovedDead, report.MarkedFailed)
-	if opts.RemoteLibrary {
-		deadNote = "（远程库不删除）"
-	}
-	_ = prog(Progress{Stage: "latency", Tested: len(order), Passed: len(fresh), Failed: report.RemovedDead + report.MarkedFailed,
-		Log: fmt.Sprintf("延迟检测完成：通过 %d，失败 %d%s", len(fresh), report.RemovedDead, deadNote)})
-	if ctx.Err() != nil {
-		_ = lib.Save()
-		return report, ctx.Err()
-	}
+		sort.SliceStable(shortGroups, func(a, b int) bool { return shortGroups[a].need > shortGroups[b].need })
+		gatherOrder := make([]int, 0, len(groups))
+		for _, sg := range shortGroups {
+			gatherOrder = append(gatherOrder, sg.gi)
+		}
+		gatherOrder = append(gatherOrder, unlimitedGroups...)
 
-	// ---- 3. 测速短名单（仅需要测速的分组） ----
-	speedPool := make(map[int][]library.Entry)   // 分组 -> 短名单
-	speedQueue := make(map[string]library.Entry) // 跨分组去重
-	for gi, g := range groups {
-		if !groupNeedsSpeed(g, enableSpeed) {
-			continue
-		}
-		pool := freshForGroup(fresh, g)
-		capN := opts.candidateCap(g.Count)
-		if len(pool) > capN {
-			pool = pool[:capN]
-		}
-		speedPool[gi] = pool
-		for _, e := range pool {
-			speedQueue[e.Key()] = e
-		}
-	}
-	if len(speedQueue) > 0 {
-		speedTargets := make([]engine.Target, 0, len(speedQueue))
-		for _, e := range speedQueue {
-			speedTargets = append(speedTargets, engine.Target{IP: e.IP, Port: e.Port})
-		}
-		speedMap := make(map[string]float64, len(speedQueue))
-		speedOpts := engine.SpeedOptions{
-			MaxConcurrency: opts.SpeedConcurrency,
-			DurationSec:    opts.SpeedDurationSec,
-			MinSpeedKBs:    0, // 不过滤，阈值由分组判断，失败原因才能区分
-			EnableTLS:      enableTLS,
-			DownloadURL:    opts.DownloadURL,
-		}
-		sErr := t.RunSpeedTest(ctx, speedTargets, speedOpts, func(ev engine.Event) {
-			if ev.Type != engine.EventSpeed || ev.Result == nil {
-				return
+		candidates := make(map[string]*cand)
+		var order []string
+		for _, gi := range gatherOrder {
+			g := groups[gi]
+			capN := opts.candidateCap(g.Count)
+			matched := make([]library.Entry, 0, capN)
+			for _, e := range lib.All() {
+				if tested[e.Key()] || g.CandidatePriority(e) == 0 {
+					continue
+				}
+				matched = append(matched, e)
 			}
-			speedMap[library.Key(ev.Result.IP, ev.Result.Port)] = ev.Result.DownloadSpeedKBs
-		})
-		if sErr != nil && ctx.Err() != nil {
+			sort.Slice(matched, func(i, j int) bool {
+				pi, pj := g.CandidatePriority(matched[i]), g.CandidatePriority(matched[j])
+				if pi != pj {
+					return pi > pj
+				}
+				if matched[i].TCPLatencyMs != matched[j].TCPLatencyMs {
+					return matched[i].TCPLatencyMs < matched[j].TCPLatencyMs
+				}
+				return matched[i].Key() < matched[j].Key()
+			})
+			if len(matched) > capN {
+				matched = matched[:capN]
+			}
+			for _, e := range matched {
+				key := e.Key()
+				c, ok := candidates[key]
+				if !ok {
+					c = &cand{entry: e, groups: make(map[int]Group)}
+					candidates[key] = c
+					order = append(order, key)
+				}
+				c.groups[gi] = g
+			}
+		}
+		if len(order) == 0 {
+			// 候选耗尽（或所有分组已满足）：不再有可检测的新条目，输出当前累计结果。
+			_ = prog(Progress{Stage: "gather", Round: round, Tested: 0,
+				Log: fmt.Sprintf("第 %d 轮无可测新候选，本轮结束", round)})
+			break
+		}
+		_ = prog(Progress{Stage: "gather", Round: round, Tested: len(order),
+			Log: fmt.Sprintf("第 %d 轮收集候选 %d 条（内部批次，持续检测至满足配额或候选耗尽）", round, len(order))})
+
+		// 解析未指定端口（HTTPS 默认 443，HTTP 默认 80），并让候选键跟随端口修正，
+		// 否则按旧键（端口 0）找不到检测结果会被误判为失效。
+		defaultPort := 443
+		if opts.Protocol == "http" {
+			defaultPort = 80
+		}
+		resolvedOrder := make([]string, 0, len(order))
+		for _, originalKey := range order {
+			key := originalKey
+			c := candidates[key]
+			e := c.entry
+			if e.Port == 0 {
+				e.Port = defaultPort
+				c.entry = e
+				newKey := e.Key()
+				if newKey != key {
+					delete(candidates, key)
+					candidates[newKey] = c
+					// 本地库需要把旧的 0 端口键迁移到实际端口；官方/远程候选库保持只读。
+					if !opts.RemoteLibrary {
+						lib.RemoveKey(key)
+					}
+				}
+				key = newKey
+			}
+			// 同时记录来源键与修正后的检测键，避免只读候选中的 0 端口条目被下一轮重复检测。
+			tested[originalKey] = true
+			tested[key] = true
+			resolvedOrder = append(resolvedOrder, key)
+		}
+		order = resolvedOrder
+
+		// ---- 2. 批量延迟检测 ----
+		targets := make([]engine.Target, 0, len(order))
+		for _, key := range order {
+			e := candidates[key].entry
+			targets = append(targets, engine.Target{IP: e.IP, Port: e.Port})
+		}
+		enableTLS := opts.Protocol != "http"
+		latOpts := engine.LatencyOptions{
+			MaxConcurrency: opts.LatencyConcurrency,
+			TimeoutMs:      opts.LatencyTimeoutMs,
+			ProbeCount:     opts.LatencyProbes,
+			HTTPProbeCount: opts.LatencyHTTPProbes,
+			HTTPTimeoutMs:  opts.LatencyHTTPTimeoutMs,
+			EnableTLS:      enableTLS,
+		}
+		results, err := t.RunLatencyTest(ctx, targets, latOpts, func(engine.Event) {})
+		if err != nil && ctx.Err() != nil {
 			_ = lib.Save()
 			return report, ctx.Err()
 		}
-		// 回写测速结果（失败不判死，仅标记无效）
-		speedFailed := 0
-		for key, e := range speedQueue {
-			spd, ok := speedMap[key]
-			updated := e
-			if ok && spd > 0 {
-				updated.DownloadSpeedKBs = spd
-				updated.SpeedKBs = spd
-				updated.SpeedValid = true
-			} else {
-				updated.SpeedValid = false
-			}
-			lib.Upsert(updated)
-			speedQueue[key] = updated
-			if !updated.SpeedValid {
-				speedFailed++
-			}
+		resultByKey := make(map[string]engine.Result, len(results))
+		for _, res := range results {
+			resultByKey[library.Key(res.IP, res.Port)] = res
 		}
-		for gi := range speedPool {
-			gr := &report.Groups[gi]
-			for i, e := range speedPool[gi] {
-				u := speedQueue[e.Key()]
-				speedPool[gi][i] = u
-				gr.SpeedTested++
-				if !u.SpeedValid {
-					gr.SpeedFailed++
+
+		roundFresh := make(map[string]library.Entry, len(order))
+		roundFailed := 0
+		for _, key := range order {
+			c := candidates[key]
+			res, ok := resultByKey[key]
+			if !ok {
+				// 软失败：保留条目并累计连续失败，达到阈值才移除，避免单次抖动误删刚验活的 IP。
+				e := c.entry
+				e.ConsecutiveFailures++
+				e.LastCheckedAt = now
+				if e.ConsecutiveFailures >= opts.RemoveAfterFailures {
+					if !opts.RemoteLibrary {
+						lib.RemoveKey(key) // 连续失败达阈值才移除；官方/远程库不回写
+					}
+					report.RemovedDead++
+				} else {
+					if !opts.RemoteLibrary {
+						lib.Upsert(e)
+					}
+					report.MarkedFailed++
+				}
+				roundFailed++
+				for gi := range c.groups {
+					report.Groups[gi].Tested++
+					report.Groups[gi].Failed++
+				}
+				continue
+			}
+			updated, changed := applyResult(c.entry, res, now)
+			isNew := false
+			if !opts.RemoteLibrary {
+				isNew = lib.Upsert(updated) // 官方/远程库不回写
+			}
+			freshAll[key] = updated
+			roundFresh[key] = updated
+			for gi := range c.groups {
+				report.Groups[gi].Tested++
+				if changed {
+					report.Groups[gi].Updated++
+				}
+				if isNew {
+					report.Groups[gi].New++
 				}
 			}
 		}
-		_ = prog(Progress{Stage: "speed", Tested: len(speedQueue), Failed: speedFailed,
-			Log: fmt.Sprintf("测速完成：有效 %d，失败 %d（保留待下次验证）", len(speedQueue)-speedFailed, speedFailed)})
+		deadNote := fmt.Sprintf("（连续失败 %d 次后移除；已移除 %d、标记保留 %d）", opts.RemoveAfterFailures, report.RemovedDead, report.MarkedFailed)
+		if opts.RemoteLibrary {
+			deadNote = "（官方/远程库不删除、不回写）"
+		}
+		_ = prog(Progress{Stage: "latency", Round: round, Tested: len(order), Passed: len(roundFresh), Failed: roundFailed,
+			Log: fmt.Sprintf("第 %d 轮延迟检测完成：通过 %d，失败 %d%s", round, len(roundFresh), roundFailed, deadNote)})
 		if ctx.Err() != nil {
 			_ = lib.Save()
 			return report, ctx.Err()
 		}
+
+		// ---- 3. 测速短名单（仅需要测速的分组；跨轮去重） ----
+		roundSpeedQueue := make(map[string]library.Entry)
+		for _, g := range groups {
+			if !groupNeedsSpeed(g, enableSpeed) {
+				continue
+			}
+			pool := freshForGroup(roundFresh, g)
+			capN := opts.candidateCap(g.Count)
+			if len(pool) > capN {
+				pool = pool[:capN]
+			}
+			for _, e := range pool {
+				if !speedTested[e.Key()] {
+					roundSpeedQueue[e.Key()] = e
+				}
+			}
+		}
+		if len(roundSpeedQueue) > 0 {
+			speedTargets := make([]engine.Target, 0, len(roundSpeedQueue))
+			for _, e := range roundSpeedQueue {
+				speedTargets = append(speedTargets, engine.Target{IP: e.IP, Port: e.Port})
+			}
+			speedMap := make(map[string]float64, len(roundSpeedQueue))
+			speedOpts := engine.SpeedOptions{
+				MaxConcurrency: opts.SpeedConcurrency,
+				DurationSec:    opts.SpeedDurationSec,
+				MinSpeedKBs:    0, // 不过滤，阈值由分组判断，失败原因才能区分
+				EnableTLS:      enableTLS,
+				DownloadURL:    opts.DownloadURL,
+			}
+			sErr := t.RunSpeedTest(ctx, speedTargets, speedOpts, func(ev engine.Event) {
+				if ev.Type != engine.EventSpeed || ev.Result == nil {
+					return
+				}
+				speedMap[library.Key(ev.Result.IP, ev.Result.Port)] = ev.Result.DownloadSpeedKBs
+			})
+			if sErr != nil && ctx.Err() != nil {
+				_ = lib.Save()
+				return report, ctx.Err()
+			}
+			// 更新测速结果（失败不判死，仅标记无效；官方/远程库不回写）
+			speedFailed := 0
+			for key, e := range roundSpeedQueue {
+				spd, ok := speedMap[key]
+				updated := e
+				if ok && spd > 0 {
+					updated.DownloadSpeedKBs = spd
+					updated.SpeedKBs = spd
+					updated.SpeedValid = true
+				} else {
+					updated.SpeedValid = false
+				}
+				if !opts.RemoteLibrary {
+					lib.Upsert(updated)
+				}
+				speedTested[key] = true
+				if !updated.SpeedValid {
+					speedFailed++
+				}
+				for gi, g := range groups {
+					if !groupNeedsSpeed(g, enableSpeed) || !groupMatches(g, updated) {
+						continue
+					}
+					speedPool[gi] = append(speedPool[gi], updated)
+					gr := &report.Groups[gi]
+					gr.SpeedTested++
+					if !updated.SpeedValid {
+						gr.SpeedFailed++
+					}
+				}
+			}
+			_ = prog(Progress{Stage: "speed", Round: round, Tested: len(roundSpeedQueue), Failed: speedFailed,
+				Log: fmt.Sprintf("第 %d 轮测速完成：有效 %d，失败 %d（保留待下次验证）", round, len(roundSpeedQueue)-speedFailed, speedFailed)})
+			if ctx.Err() != nil {
+				_ = lib.Save()
+				return report, ctx.Err()
+			}
+		}
+
+		// ---- 4. 检查配额是否全部满足 ----
+		allFilled := true
+		for gi, g := range groups {
+			// Count=0 表示不限数量：必须继续检测，直到该分组没有候选，
+			// 不能把“没有数量目标”误判为“已经满足”。
+			if g.Count <= 0 || groupQualified(gi, g) < g.Count {
+				allFilled = false
+				break
+			}
+		}
+		if allFilled {
+			break
+		}
 	}
 
-	// ---- 4. 按分组配额选结果 ----
+	// ---- 5. 按分组配额选结果（多轮累计口径） ----
 	var output []library.Entry
 	seenOut := make(map[string]bool)
 	for gi, g := range groups {
 		gr := &report.Groups[gi]
 		if groupNeedsSpeed(g, enableSpeed) {
 			filled := 0
-			for _, e := range speedPool[gi] {
+			pool := speedPool[gi]
+			sort.Slice(pool, func(i, j int) bool {
+				if pool[i].TCPLatencyMs != pool[j].TCPLatencyMs {
+					return pool[i].TCPLatencyMs < pool[j].TCPLatencyMs
+				}
+				return pool[i].Key() < pool[j].Key()
+			})
+			for _, e := range pool {
 				if g.Count > 0 && filled >= g.Count {
 					break
 				}
@@ -486,7 +567,7 @@ func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, 
 			}
 			continue
 		}
-		pool := freshForGroup(fresh, g)
+		pool := freshForGroup(freshAll, g)
 		filled := 0
 		for _, e := range pool {
 			if g.Count > 0 && filled >= g.Count {
@@ -503,9 +584,9 @@ func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, 
 			gr.Shortage = g.Count - filled
 		}
 	}
-	shortHint := "IP 库候选不足：请用初始化来源导入更多该地区 IP，或放宽规则条件"
+	shortHint := "IP 库候选已耗尽：请用初始化来源导入更多该地区 IP，或放宽规则条件"
 	if opts.RemoteLibrary {
-		shortHint = "候选不足：请扩大抽样范围或放宽规则条件"
+		shortHint = "官方/远程候选已耗尽：请扩大抽样范围或放宽规则条件"
 	}
 	for gi := range report.Groups {
 		if report.Groups[gi].Shortage > 0 {
@@ -624,29 +705,36 @@ func expandCombinations(conds []Condition) []map[string]string {
 	return combos
 }
 
+// groupMatches 判断条目是否符合分组的筛选约束（国家、延迟、城市、DC、区域、ASN、端口）。
+func groupMatches(g Group, e library.Entry) bool {
+	if (g.CountryCode != "" && !strings.EqualFold(e.CountryCode, g.CountryCode)) || !g.LatencyOK(e.TCPLatencyMs) {
+		return false
+	}
+	if len(g.Cities) > 0 && !containsFold(g.Cities, e.CityZh) {
+		return false
+	}
+	if len(g.DataCenters) > 0 && !containsFold(g.DataCenters, e.DataCenter) {
+		return false
+	}
+	if len(g.Regions) > 0 && !containsFold(g.Regions, e.RegionZh) {
+		return false
+	}
+	if len(g.ASNs) > 0 && !containsUint(g.ASNs, e.ASN) {
+		return false
+	}
+	if len(g.Ports) > 0 && !containsInt(g.Ports, e.Port) {
+		return false
+	}
+	return true
+}
+
 // freshForGroup 从本次延迟通过的条目中，按分组实测约束筛选并排序。
 func freshForGroup(fresh map[string]library.Entry, g Group) []library.Entry {
 	pool := make([]library.Entry, 0)
 	for _, e := range fresh {
-		if !g.CountryMatches(e.CountryCode) || !g.LatencyOK(e.TCPLatencyMs) {
-			continue
+		if groupMatches(g, e) {
+			pool = append(pool, e)
 		}
-		if len(g.Cities) > 0 && !containsFold(g.Cities, e.CityZh) {
-			continue
-		}
-		if len(g.DataCenters) > 0 && !containsFold(g.DataCenters, e.DataCenter) {
-			continue
-		}
-		if len(g.Regions) > 0 && !containsFold(g.Regions, e.RegionZh) {
-			continue
-		}
-		if len(g.ASNs) > 0 && !containsUint(g.ASNs, e.ASN) {
-			continue
-		}
-		if len(g.Ports) > 0 && !containsInt(g.Ports, e.Port) {
-			continue
-		}
-		pool = append(pool, e)
 	}
 	sort.Slice(pool, func(i, j int) bool {
 		if pool[i].TCPLatencyMs != pool[j].TCPLatencyMs {
@@ -790,6 +878,10 @@ func sortOutput(entries []library.Entry, sortKey string) {
 			if a.Port != b.Port {
 				return a.Port < b.Port
 			}
+		case OutputSortCountryAsc:
+			if cmp := strings.Compare(countrySortKey(a), countrySortKey(b)); cmp != 0 {
+				return cmp < 0
+			}
 		default: // latencyAsc（含旧任务空值）
 			if a.TCPLatencyMs != b.TCPLatencyMs {
 				return a.TCPLatencyMs < b.TCPLatencyMs
@@ -797,6 +889,19 @@ func sortOutput(entries []library.Entry, sortKey string) {
 		}
 		return a.Key() < b.Key()
 	})
+}
+
+// countrySortKey 返回稳定的国家排序键：优先 ISO 二字母码，其次国家名，
+// 两者皆空（无国家信息）的条目排最后。
+func countrySortKey(e library.Entry) string {
+	switch {
+	case e.CountryCode != "":
+		return "0" + e.CountryCode
+	case e.Country != "":
+		return "1" + e.Country
+	default:
+		return "2"
+	}
 }
 
 // compareIP 按 IP 地址数值比较；无法解析的字符串排后面。

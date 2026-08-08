@@ -86,9 +86,10 @@ function readQuotaRules() {
 }
 
 /** 清空所有规则编辑器（销毁 picker 监听器）。 */
-function clearQuotaEditors() {
+function clearQuotaEditors(container) {
     for (const { conditions } of editors.values()) conditions.forEach(item => item.picker.destroy());
     editors.clear();
+    if (container) container.innerHTML = '';
 }
 
 /** 刷新所有 picker 的候选项（维度切换后调用）。 */

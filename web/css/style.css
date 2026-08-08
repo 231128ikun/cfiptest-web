@@ -533,7 +533,11 @@ details > summary { color: var(--text-secondary); font-weight: 580; cursor: poin
 .field-row { display: flex; align-items: center; gap: 15px; padding: 11px 0; border-top: 1px solid var(--border-light); flex-wrap: wrap; }
 .field-name { min-width: 80px; color: var(--text-secondary); font-size: 12px; }
 .field-row #sample-n { width: 68px; min-height: 30px; }
-.official-note { margin-top: 10px; padding: 10px 12px; border-left: 3px solid var(--accent); background: var(--accent-soft); color: var(--text-secondary); font-size: 12px; }
+/* 统一说明：所有辅助提示共用同一视觉（小字、次级色），避免零碎混排 */
+.note { margin: 8px 0 0; color: var(--text-secondary); font-size: 12px; line-height: 1.65; }
+.note code { padding: 1px 4px; border-radius: 4px; background: var(--surface-strong); font-size: 11px; font-family: var(--font-mono); }
+/* 日志页状态行保留左侧状态色条 */
+#log-status { margin: 10px 0 0; padding-left: 10px; border-left: 3px solid var(--border-strong); }
 .official-actions { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
 .estimate-box { margin-top: 10px; color: var(--text-secondary); font-size: 12px; }
 .official-candidate { padding: 16px; border: 1px solid var(--border-light); border-radius: var(--radius-lg); background: var(--surface); }
@@ -560,7 +564,7 @@ details > summary { color: var(--text-secondary); font-weight: 580; cursor: poin
 .rule-line input[type="number"] { width: 100%; text-align: right; }
 .rule-line input[type="checkbox"] { justify-self: end; }
 .rule-line em { color: var(--text-secondary); font-size: 11px; font-style: normal; }
-.rule-explain { margin-top: 11px; padding-top: 9px; border-top: 1px solid var(--border-light); color: var(--text-secondary); font-size: 11px; }
+
 .hidden-setting { display: none !important; }
 
 /* ---------- 11. 运行与进度 ---------- */
@@ -589,8 +593,8 @@ details > summary { color: var(--text-secondary); font-weight: 580; cursor: poin
 .result-filter-group { display: flex; flex: 1 1 420px; gap: 8px; min-width: 0; flex-wrap: wrap; }
 .result-filter-group > input { flex: 1 1 160px; min-width: 150px; }
 #result-filter { flex: 2 1 320px; min-width: 220px; }
-#result-max-latency, #result-min-speed { flex: 1 1 140px; min-width: 120px; max-width: 200px; }
-.result-filter-limits { display: flex; align-items: center; gap: 8px; flex: 1 1 300px; min-width: 260px; flex-wrap: nowrap; }
+#result-latency-range, #result-speed-range { flex: 0 1 180px; min-width: 140px; }
+.result-filter-limits { display: flex; align-items: center; gap: 8px; flex: 1 1 300px; min-width: 260px; flex-wrap: wrap; }
 .result-view-controls { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; }
 .sort-bar { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 12px; }
 .sort-bar select { min-height: 32px; }
@@ -609,6 +613,7 @@ details > summary { color: var(--text-secondary); font-weight: 580; cursor: poin
 .quota-controls { margin-bottom: 9px; color: var(--text-secondary); font-size: 12px; }
 .quota-controls .ctl { display: inline-flex; align-items: center; gap: 6px; }
 .quota-rules { display: grid; gap: 8px; margin: 10px 0; }
+.quota-rules:empty::after { content: '暂无规则，点击「添加规则」创建'; padding: 12px; text-align: center; color: var(--text-secondary); border: 1px dashed var(--border-light); border-radius: var(--radius-sm); }
 .quota-rule { padding: 10px; border: 1px solid var(--border-light); border-radius: var(--radius); background: var(--surface-soft); }
 .quota-rule-head, .quota-condition { display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
 .quota-rule-head { align-items: center; margin-bottom: 8px; }
@@ -729,7 +734,7 @@ table.results .empty-row td { padding: 34px 0; text-align: center; color: var(--
 .template-fields[open] summary { margin-bottom: 6px; }
 .placeholder-help { color: var(--text-secondary); font-size: 11px; }
 .placeholder-help code { display: inline-block; margin: 2px 3px 2px 0; padding: 2px 5px; border-radius: 4px; background: var(--surface-strong); font-family: var(--font-mono); cursor: pointer; }
-.csv-template-hint { padding: 9px 10px; border-left: 3px solid var(--accent); background: var(--accent-soft); font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+
 .export-preview { display: flex; flex-direction: column; min-height: 420px; }
 .custom-export-actions { display: grid; grid-template-columns: auto auto 1fr; gap: 8px; }
 .custom-export-actions .hint { justify-self: end; align-self: center; }
@@ -785,8 +790,7 @@ table.results .empty-row td { padding: 34px 0; text-align: center; color: var(--
 .auto-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
 .auto-toolbar input[type="text"] { min-width: 300px; flex: 1; }
 .auto-toolbar select { max-width: 260px; }
-.auto-hint { margin-top: 8px; padding: 8px 12px; border-left: 3px solid var(--accent); background: var(--surface-soft); color: var(--text-secondary); font-size: 12px; line-height: 1.7; }
-.auto-hint code { padding: 1px 4px; border-radius: 4px; background: var(--surface-strong); font-size: 11px; font-family: var(--font-mono); }
+/* auto-hint 已合并进 .note；日志状态行保留左色条 */
 .auto-lib-filters { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
 .auto-lib-filters input { min-width: 260px; flex: 1; }
 .auto-lib-table-wrap { max-height: 380px; overflow: auto; border: 1px solid var(--border-light); border-radius: var(--radius-sm); }
@@ -861,7 +865,7 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 .range-fast { color: var(--success); background: var(--success-soft); }
 .range-mid { color: var(--warning); background: var(--warning-soft); }
 .range-slow { color: var(--danger); background: var(--danger-soft); }
-.threshold-note { margin-top: 8px; color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
+
 .settings-actions { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
 
 /* ---------- 18. Toast ---------- */
@@ -916,7 +920,6 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 .task-cron-description { font-size: 11px; color: var(--primary); }
 .task-cron-description.error { color: var(--danger); }
 .task-cron-presets { display: flex; flex-wrap: wrap; gap: 6px; align-self: end; }
-.task-cron-help { margin: 0; font-size: 11px; color: var(--text-secondary); line-height: 1.6; }
 .task-cron-help code { padding: 1px 5px; border-radius: 4px; background: var(--surface-strong); font-family: var(--font-mono); font-size: 10px; }
 .task-form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px 12px; margin-bottom: 12px; }
 .task-primary-row { grid-template-columns: minmax(0, 1fr); align-items: end; }
@@ -1004,7 +1007,7 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 .lib-filter-group { display: flex; flex: 1 1 420px; gap: 8px; min-width: 0; flex-wrap: wrap; }
 .lib-filter-group > input { flex: 1 1 160px; min-width: 120px; }
 #lib-filter { flex: 2 1 320px; min-width: 220px; }
-#lib-max-latency, #lib-min-speed { flex: 0 1 150px; min-width: 120px; }
+#lib-latency-range, #lib-speed-range { flex: 0 1 180px; min-width: 140px; }
 .lib-view-controls { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; }
 .lib-action-sep { width: 1px; height: 20px; background: var(--border-light); flex-shrink: 0; }
 .lib-new-side { width: 100%; margin-bottom: 10px; }
@@ -1142,7 +1145,7 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 }
 
 @media (max-width: 640px) {
-    #lib-filter, #lib-max-latency, #lib-min-speed { flex: 1 1 100%; min-width: 0; }
+    #lib-filter, #lib-latency-range, #lib-speed-range { flex: 1 1 100%; min-width: 0; }
     .lib-view-controls { align-items: stretch; }
     .lib-view-controls > * { width: 100%; }
     .lib-action-sep { display: none; }
@@ -1170,7 +1173,7 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
     .auto-template-row select { flex-basis: 100%; }
     .auto-group-head, .auto-group-row { grid-template-columns: 1fr 1fr; }
     .auto-group-row { padding-bottom: 8px; border-bottom: 1px solid var(--border-light); }
-    #result-filter, #result-max-latency, #result-min-speed { flex: 1 1 120px; min-width: 0; }
+    #result-filter, #result-latency-range, #result-speed-range { flex: 1 1 120px; min-width: 0; }
     .result-filter-limits { min-width: 0; }
     .result-view-controls { align-items: stretch; }
     .result-view-controls > * { width: 100%; }

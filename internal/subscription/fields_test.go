@@ -1,4 +1,4 @@
-﻿package subscription
+package subscription
 
 import (
 	"testing"
@@ -15,6 +15,9 @@ func TestExpandTaskRulesExtendedFields(t *testing.T) {
 			{Field: "region", Values: []string{"北美洲"}},
 		},
 	}}}
+	if err := task.Validate(); err != nil {
+		t.Fatal(err)
+	}
 	groups, err := expandTaskRules(task)
 	if err != nil {
 		t.Fatal(err)
@@ -33,24 +36,18 @@ func TestExpandTaskRulesExtendedFields(t *testing.T) {
 	}
 }
 
-func TestSoftMatchExtendedFields(t *testing.T) {
+func TestCandidatePriorityExtendedFields(t *testing.T) {
 	g := Group{DataCenters: []string{"LAX"}, ASNs: []uint{13335}, Regions: []string{"北美洲"}}
 	e := library.Entry{IP: "1.1.1.1", Port: 443, DataCenter: "LAX", ASN: 13335, RegionZh: "北美洲"}
-	if !g.SoftMatch(e) {
-		t.Fatal("匹配字段应通过粗筛")
-	}
 	if g.CandidatePriority(e) != 2 {
 		t.Fatalf("已知匹配应为 2: %d", g.CandidatePriority(e))
 	}
 	e2 := library.Entry{IP: "1.1.1.2", Port: 443} // 全未知
-	if !g.SoftMatch(e2) {
-		t.Fatal("字段未知应仍为候选")
-	}
 	if g.CandidatePriority(e2) != 1 {
 		t.Fatalf("字段未知应为 1: %d", g.CandidatePriority(e2))
 	}
 	e3 := library.Entry{IP: "1.1.1.3", Port: 443, DataCenter: "NRT", ASN: 13335, RegionZh: "亚洲"}
-	if g.SoftMatch(e3) {
+	if g.CandidatePriority(e3) != 0 {
 		t.Fatal("数据中心已知但不匹配应排除")
 	}
 }

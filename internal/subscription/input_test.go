@@ -8,24 +8,13 @@ import (
 	"iptest-web/internal/library"
 )
 
-func TestValidateOutputDefaultsToInput(t *testing.T) {
-	s := Subscription{Name: "x", InputPath: "out/原订阅.txt", Groups: []Group{{Name: "g", Count: 1}}}
-	if err := s.Validate(); err != nil {
-		t.Fatal(err)
-	}
-	if s.Output.Path != filepath.FromSlash("out/原订阅.txt") {
-		t.Fatalf("未指定输出时应回写原输入文件: %q", s.Output.Path)
-	}
-}
-
-func TestRunImportsInputFile(t *testing.T) {
+func TestRunImportsInputFileWithoutOverwritingIt(t *testing.T) {
 	dir := t.TempDir()
-	// 原订阅文件：ip:port#备注
-	input := filepath.Join(dir, "out")
-	if err := os.MkdirAll(input, 0755); err != nil {
+	inputDir := filepath.Join(dir, "out")
+	if err := os.MkdirAll(inputDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	inputPath := filepath.Join(input, "原订阅.txt")
+	inputPath := filepath.Join(inputDir, "原订阅.txt")
 	body := "1.0.0.11:443#美国-洛杉矶\n1.0.0.12:443#日本-东京\n2.0.0.13:2053\n"
 	if err := os.WriteFile(inputPath, []byte(body), 0644); err != nil {
 		t.Fatal(err)
@@ -40,46 +29,45 @@ func TestRunImportsInputFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sub := Subscription{
+	spec := testRun{
 		Name:      "x",
 		InputPath: "out/原订阅.txt",
 		Groups: []Group{
 			{Name: "美国", CountryCode: "US", Count: 2},
 			{Name: "日本", CountryCode: "JP", Count: 1},
 		},
+		Output: Output{Path: "out/维护结果.txt", Template: "{ip}:{port}"},
 	}
-	report, err := Run(t.Context(), fake, lib, sub, RunOptions{}, nil)
+	report, err := runTest(t.Context(), fake, lib, spec, RunOptions{}, nil)
 	if err != nil {
-		t.Fatalf("Run 失败: %v", err)
+		t.Fatalf("运行失败: %v", err)
 	}
-	if report.InputAdded != 3 {
-		t.Fatalf("应导入 3 条: %+v", report)
+	if report.InputAdded != 3 || report.TotalLines != 3 {
+		t.Fatalf("导入或输出数量错误: %+v", report)
 	}
-	// 输出文件默认回写原订阅文件
-	if report.OutputPath != inputPath {
-		t.Fatalf("输出应回写原文件: %q", report.OutputPath)
+	wantOutput := filepath.Join(inputDir, "维护结果.txt")
+	if report.OutputPath != wantOutput {
+		t.Fatalf("输出位置错误: got=%q want=%q", report.OutputPath, wantOutput)
 	}
-	if report.TotalLines != 3 {
-		t.Fatalf("应输出 3 行: %+v", report)
+	if original, err := os.ReadFile(inputPath); err != nil || string(original) != body {
+		t.Fatalf("初始化文件不应被覆盖: err=%v content=%q", err, original)
 	}
-	out, err := os.ReadFile(inputPath)
-	if err != nil {
-		t.Fatal(err)
+	if output, err := os.ReadFile(wantOutput); err != nil || len(output) == 0 {
+		t.Fatalf("维护结果未写出: err=%v", err)
 	}
-	if len(out) == 0 {
-		t.Fatal("原订阅文件应被更新")
-	}
-	// 库中状态应为 active
-	if e, ok := lib.Get("1.0.0.11", 443); !ok || e.Status != library.StatusActive {
-		t.Fatalf("输入文件 IP 未入库: %+v", e)
+	if entry, ok := lib.Get("1.0.0.11", 443); !ok || entry.Status != library.StatusActive {
+		t.Fatalf("输入文件 IP 未入库: %+v", entry)
 	}
 }
 
 func TestRunRejectsInputTraversal(t *testing.T) {
 	dir := t.TempDir()
 	lib, _ := library.Open(filepath.Join(dir, library.FileName))
-	sub := Subscription{Name: "x", InputPath: "../evil.txt", Groups: []Group{{Name: "g", Count: 1}}}
-	if _, err := Run(t.Context(), newFake(), lib, sub, RunOptions{}, nil); err == nil {
+	spec := testRun{
+		Name: "x", InputPath: "../evil.txt", Groups: []Group{{Name: "g", Count: 1}},
+		Output: Output{Path: "out/result.txt", Template: "{ip}:{port}"},
+	}
+	if _, err := runTest(t.Context(), newFake(), lib, spec, RunOptions{}, nil); err == nil {
 		t.Fatal("目录穿越应被拒绝")
 	}
 }

@@ -57,7 +57,7 @@ type TaskInput struct {
 
 // TaskOutput 描述任务的输出。
 type TaskOutput struct {
-	Path     string `json:"path,omitempty"`     // 相对 data 目录；空 = 回写输入文件
+	Path     string `json:"path,omitempty"`     // 相对 data 目录；空 = out/<任务名>.<格式>
 	Format   string `json:"format,omitempty"`   // txt | csv
 	Template string `json:"template,omitempty"` // 占位符模板
 	Sort     string `json:"sort,omitempty"`     // 输出排序：latencyAsc（默认）| latencyDesc | speedDesc | speedAsc | ipAsc
@@ -85,7 +85,6 @@ type Task struct {
 	Input              TaskInput    `json:"input"`
 	Output             TaskOutput   `json:"output"`
 	Limit              int          `json:"limit"`                        // 总数限制（合并去重后取前 N）；0=不限
-	MaxCandidates      int          `json:"maxCandidates,omitempty"`      // 单次运行检测候选数上限（跨分组去重后）；0 = 不限（默认 200 由前端预填）
 	SpeedEnabled       bool         `json:"speedEnabled"`                 // 顶部测速总开关；关 = 规则速度字段无效
 	LatencyConcurrency int          `json:"latencyConcurrency,omitempty"` // 延迟并发；0 = 用设置页全局默认
 	SpeedConcurrency   int          `json:"speedConcurrency,omitempty"`   // 测速并发；0 = 用设置页全局默认
@@ -260,9 +259,11 @@ func (t *Task) Validate() error {
 		}
 		for j := range r.Conditions {
 			c := &r.Conditions[j]
-			c.Field = strings.ToLower(strings.TrimSpace(c.Field))
-			switch c.Field {
-			case "country", "city", "port", "dataCenter", "asn", "region":
+			switch strings.ToLower(strings.TrimSpace(c.Field)) {
+			case "country", "city", "port", "asn", "region":
+				c.Field = strings.ToLower(strings.TrimSpace(c.Field))
+			case "datacenter":
+				c.Field = "dataCenter"
 			default:
 				return fmt.Errorf("任务 %q 规则 %s 含未知条件字段 %q", t.Name, r.Name, c.Field)
 			}
@@ -281,9 +282,6 @@ func (t *Task) Validate() error {
 	if t.Limit < 0 {
 		return fmt.Errorf("任务 %q 总数限制不能为负", t.Name)
 	}
-	if t.MaxCandidates < 0 {
-		return fmt.Errorf("任务 %q 单次检测上限不能为负", t.Name)
-	}
 	t.Schedule.Cron = strings.TrimSpace(t.Schedule.Cron)
 	if t.Schedule.Enabled {
 		if t.Schedule.Cron == "" {
@@ -293,21 +291,38 @@ func (t *Task) Validate() error {
 			return fmt.Errorf("任务 %q 定时表达式无效: %w", t.Name, err)
 		}
 	}
-	if t.Output.Path == "" {
-		if t.LibrarySource == LibrarySourceLocal && strings.TrimSpace(t.Input.File) != "" {
-			// 本地库 + 初始化文件：默认回写该文件。
-			t.Output.Path = filepath.Clean(strings.TrimSpace(t.Input.File))
-		} else {
-			t.Output.Path = filepath.Join("out", t.Name+".txt")
-		}
-	}
+	t.Output.Format = strings.ToLower(strings.TrimSpace(t.Output.Format))
 	if t.Output.Format == "" {
 		t.Output.Format = "txt"
 	}
-	t.Output.Format = strings.ToLower(t.Output.Format)
 	if t.Output.Format != "txt" && t.Output.Format != "csv" {
 		return fmt.Errorf("任务 %q 输出格式仅支持 txt/csv", t.Name)
 	}
+	ext := "." + t.Output.Format
+	p := strings.TrimSpace(t.Output.Path)
+	if p == "" {
+		p = filepath.Join("out", t.Name+ext)
+	} else {
+		// 只填文件名时固定输出到 data/out；填写相对目录时输出到 data/<目录>。
+		if !strings.Contains(p, "/") && !strings.Contains(p, "\\") {
+			p = filepath.Join("out", p)
+		}
+		lower := strings.ToLower(p)
+		switch {
+		case strings.HasSuffix(lower, ".txt"):
+			p = p[:len(p)-len(".txt")] + ext
+		case strings.HasSuffix(lower, ".csv"):
+			p = p[:len(p)-len(".csv")] + ext
+		default:
+			p += ext
+		}
+	}
+	p = filepath.Clean(p)
+	normalizedPath := strings.ReplaceAll(p, "\\", "/")
+	if filepath.IsAbs(p) || strings.HasPrefix(normalizedPath, "/") || p == ".." || strings.HasPrefix(p, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("任务 %q 输出位置必须位于 data 目录内", t.Name)
+	}
+	t.Output.Path = p
 	if t.Output.Template == "" {
 		t.Output.Template = DefaultTemplate
 	}
@@ -322,10 +337,12 @@ func (t *Task) Validate() error {
 		t.Output.Sort = OutputSortSpeedAsc
 	case "ipasc":
 		t.Output.Sort = OutputSortIPAsc
+	case "countryasc":
+		t.Output.Sort = OutputSortCountryAsc
 	case "":
 		t.Output.Sort = OutputSortLatencyAsc
 	default:
-		return fmt.Errorf("任务 %q 输出排序仅支持 latencyAsc/latencyDesc/speedDesc/speedAsc/ipAsc", t.Name)
+		return fmt.Errorf("任务 %q 输出排序仅支持 latencyAsc/latencyDesc/speedDesc/speedAsc/ipAsc/countryAsc", t.Name)
 	}
 	return nil
 }
@@ -472,6 +489,97 @@ func SaveTasks(dataDir string, tasks []Task) error {
 	return writeFileAtomic(filepath.Join(dataDir, TasksFile), append(body, '\n'))
 }
 
+// legacySubscription 仅用于把 subscriptions.json 一次性迁移为任务；运行时不再使用旧订阅器模型。
+type legacySubscription struct {
+	Name        string  `json:"name"`
+	InputPath   string  `json:"inputPath,omitempty"`
+	EnableSpeed bool    `json:"enableSpeed"`
+	Groups      []Group `json:"groups"`
+	Output      Output  `json:"output"`
+}
+
+func (s legacySubscription) toTask(index int) (Task, error) {
+	name := strings.TrimSpace(s.Name)
+	if name == "" {
+		return Task{}, fmt.Errorf("订阅器名称不能为空")
+	}
+	if len(s.Groups) == 0 {
+		return Task{}, fmt.Errorf("订阅器 %q 至少需要一个分组", name)
+	}
+	task := Task{
+		ID:           fmt.Sprintf("t-%d", index+1),
+		Name:         name,
+		Enabled:      true,
+		LibraryID:    library.DefaultID,
+		Input:        TaskInput{Mode: "none"},
+		Output:       TaskOutput{Path: s.Output.Path, Format: s.Output.Format, Template: s.Output.Template, Sort: s.Output.Sort},
+		SpeedEnabled: s.EnableSpeed,
+	}
+	if inputPath := strings.TrimSpace(s.InputPath); inputPath != "" {
+		task.Input = TaskInput{Mode: "file", File: inputPath}
+	}
+	seen := make(map[string]bool, len(s.Groups))
+	for i, group := range s.Groups {
+		group.Name = strings.TrimSpace(group.Name)
+		if group.Name == "" {
+			group.Name = fmt.Sprintf("分组%d", i+1)
+		}
+		if seen[group.Name] {
+			return Task{}, fmt.Errorf("分组名重复: %s", group.Name)
+		}
+		seen[group.Name] = true
+		if group.Count < 1 {
+			return Task{}, fmt.Errorf("分组 %q 的配额 count 必须 >= 1", group.Name)
+		}
+		for _, port := range group.Ports {
+			if port < 1 || port > 65535 {
+				return Task{}, fmt.Errorf("分组 %q 包含非法端口 %d", group.Name, port)
+			}
+		}
+		rule := TaskRule{
+			Name:       group.Name,
+			Limit:      group.Count,
+			LatencyMin: group.LatencyMinMs,
+			LatencyMax: group.MaxLatencyMs,
+			SpeedMin:   group.MinSpeedKBs,
+			SpeedMax:   group.MaxSpeedKBs,
+		}
+		addCondition := func(field string, values []string) {
+			if len(values) > 0 {
+				rule.Conditions = append(rule.Conditions, Condition{Field: field, Values: values})
+			}
+		}
+		if countryCode := strings.ToUpper(strings.TrimSpace(group.CountryCode)); countryCode != "" {
+			addCondition("country", []string{countryCode})
+		}
+		addCondition("city", group.Cities)
+		addCondition("dataCenter", group.DataCenters)
+		addCondition("region", group.Regions)
+		if len(group.ASNs) > 0 {
+			asns := make([]string, len(group.ASNs))
+			for j, asn := range group.ASNs {
+				asns[j] = strconv.FormatUint(uint64(asn), 10)
+			}
+			addCondition("asn", asns)
+		}
+		if len(group.Ports) > 0 {
+			ports := make([]string, len(group.Ports))
+			for j, port := range group.Ports {
+				ports[j] = strconv.Itoa(port)
+			}
+			addCondition("port", ports)
+		}
+		if group.RequireSpeed {
+			task.SpeedEnabled = true
+		}
+		task.Rules = append(task.Rules, rule)
+	}
+	if err := task.Validate(); err != nil {
+		return Task{}, err
+	}
+	return task, nil
+}
+
 // migrateSubscriptions 把旧版 subscriptions.json 转成任务（仅当 tasks.json 不存在）。
 func migrateSubscriptions(dataDir string) ([]Task, error) {
 	body, err := os.ReadFile(filepath.Join(dataDir, SubscriptionsFile))
@@ -481,47 +589,15 @@ func migrateSubscriptions(dataDir string) ([]Task, error) {
 		}
 		return nil, fmt.Errorf("读取 %s 失败: %w", SubscriptionsFile, err)
 	}
-	var subs []Subscription
-	if err := json.Unmarshal(body, &subs); err != nil {
+	var subscriptions []legacySubscription
+	if err := json.Unmarshal(body, &subscriptions); err != nil {
 		return nil, fmt.Errorf("%s 格式错误: %w", SubscriptionsFile, err)
 	}
-	tasks := make([]Task, 0, len(subs))
-	for i, sub := range subs {
-		if err := sub.Validate(); err != nil {
+	tasks := make([]Task, 0, len(subscriptions))
+	for i, subscription := range subscriptions {
+		task, err := subscription.toTask(i)
+		if err != nil {
 			return nil, fmt.Errorf("%s 第 %d 项无效: %w", SubscriptionsFile, i+1, err)
-		}
-		input := TaskInput{Mode: "none"}
-		if strings.TrimSpace(sub.InputPath) != "" {
-			input = TaskInput{Mode: "file", File: sub.InputPath}
-		}
-		task := Task{
-			ID:           fmt.Sprintf("t-%d", i+1),
-			Name:         sub.Name,
-			Enabled:      true,
-			LibraryID:    library.DefaultID,
-			Input:        input,
-			Output:       TaskOutput{Path: sub.Output.Path, Format: sub.Output.Format, Template: sub.Output.Template},
-			SpeedEnabled: sub.EnableSpeed,
-		}
-		for gi, g := range sub.Groups {
-			rule := TaskRule{
-				Name:       g.Name,
-				Limit:      g.Count,
-				LatencyMax: g.MaxLatencyMs,
-				SpeedMin:   g.MinSpeedKBs,
-			}
-			if g.CountryCode != "" {
-				rule.Conditions = append(rule.Conditions, Condition{Field: "country", Values: []string{g.CountryCode}})
-			}
-			if len(g.Ports) > 0 {
-				vs := make([]string, 0, len(g.Ports))
-				for _, p := range g.Ports {
-					vs = append(vs, fmt.Sprintf("%d", p))
-				}
-				rule.Conditions = append(rule.Conditions, Condition{Field: "port", Values: vs})
-			}
-			_ = gi
-			task.Rules = append(task.Rules, rule)
 		}
 		tasks = append(tasks, task)
 	}

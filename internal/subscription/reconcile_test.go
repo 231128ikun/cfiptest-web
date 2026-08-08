@@ -117,6 +117,18 @@ func usGroup(count int) Group {
 	return Group{Name: "美国", CountryCode: "US", Country: "美国", Count: count}
 }
 
+type testRun struct {
+	Name        string
+	InputPath   string
+	EnableSpeed bool
+	Groups      []Group
+	Output      Output
+}
+
+func runTest(ctx context.Context, tester Tester, lib *library.Store, spec testRun, opts RunOptions, prog ProgressFunc) (*Report, error) {
+	return runCore(ctx, tester, lib, spec.Groups, spec.InputPath, spec.Output, spec.EnableSpeed, 0, opts, prog)
+}
+
 func TestRunFillsAndWritesOutput(t *testing.T) {
 	fake := newFake()
 	lib := mkLib(t,
@@ -128,7 +140,7 @@ func TestRunFillsAndWritesOutput(t *testing.T) {
 	fake.add("1.0.0.12", 443, "US", true, 0)
 	fake.add("1.0.0.13", 443, "US", true, 0)
 
-	sub := Subscription{
+	sub := testRun{
 		Name:   "测试订阅",
 		Groups: []Group{usGroup(2)},
 		Output: Output{Path: "out/test.txt", Template: "{ip}:{port}#{country}"},
@@ -137,7 +149,7 @@ func TestRunFillsAndWritesOutput(t *testing.T) {
 	libPath := lib.Path()
 	dataDir := filepath.Dir(libPath)
 
-	report, err := Run(context.Background(), fake, lib, sub, RunOptions{}, nil)
+	report, err := runTest(context.Background(), fake, lib, sub, RunOptions{}, nil)
 	if err != nil {
 		t.Fatalf("Run 失败: %v", err)
 	}
@@ -179,9 +191,9 @@ func TestRunRemovesLatencyFailures(t *testing.T) {
 	fake.add("1.0.0.22", 443, "US", false, 0) // 延迟失败
 	fake.add("1.0.0.23", 443, "US", true, 0)
 
-	sub := Subscription{Name: "x", Groups: []Group{usGroup(2)},
+	sub := testRun{Name: "x", Groups: []Group{usGroup(2)},
 		Output: Output{Path: "out/t.txt", Template: "{ip}:{port}"}}
-	report, err := Run(context.Background(), fake, lib, sub, RunOptions{RemoveAfterFailures: 1}, nil)
+	report, err := runTest(context.Background(), fake, lib, sub, RunOptions{RemoveAfterFailures: 1}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,11 +221,11 @@ func TestRunUpdatesChangedCountry(t *testing.T) {
 	fake.add("1.0.0.32", 443, "US", true, 0)
 	fake.add("1.0.0.33", 443, "US", true, 0)
 
-	sub := Subscription{Name: "x", Groups: []Group{
+	sub := testRun{Name: "x", Groups: []Group{
 		usGroup(2),
 		{Name: "日本", CountryCode: "JP", Count: 1},
 	}, Output: Output{Path: "out/t.txt", Template: "{ip}:{port}"}}
-	report, err := Run(context.Background(), fake, lib, sub, RunOptions{}, nil)
+	report, err := runTest(context.Background(), fake, lib, sub, RunOptions{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,10 +254,10 @@ func TestRunSpeedFailureKeepsEntry(t *testing.T) {
 	fake.add("1.0.0.41", 443, "US", true, 5000)
 	fake.add("1.0.0.42", 443, "US", true, -1)
 
-	sub := Subscription{Name: "x", EnableSpeed: true, Groups: []Group{{
+	sub := testRun{Name: "x", EnableSpeed: true, Groups: []Group{{
 		Name: "美国", CountryCode: "US", Count: 1, MinSpeedKBs: 1000, RequireSpeed: true,
 	}}, Output: Output{Path: "out/t.txt", Template: "{ip}:{port}"}}
-	report, err := Run(context.Background(), fake, lib, sub, RunOptions{}, nil)
+	report, err := runTest(context.Background(), fake, lib, sub, RunOptions{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,9 +287,9 @@ func TestRunShortageReported(t *testing.T) {
 	)
 	fake.add("1.0.0.51", 443, "US", true, 0)
 
-	sub := Subscription{Name: "x", Groups: []Group{usGroup(3)},
+	sub := testRun{Name: "x", Groups: []Group{usGroup(3)},
 		Output: Output{Path: "out/t.txt", Template: "{ip}:{port}"}}
-	report, err := Run(context.Background(), fake, lib, sub, RunOptions{}, nil)
+	report, err := runTest(context.Background(), fake, lib, sub, RunOptions{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,11 +314,11 @@ func TestRunDedupesAcrossGroups(t *testing.T) {
 	fake.add("1.0.0.62", 443, "US", true, 0)
 
 	// 不限国家分组 + 美国组：同一批 IP 会同时命中两个组，输出应去重
-	sub := Subscription{Name: "x", Groups: []Group{
+	sub := testRun{Name: "x", Groups: []Group{
 		{Name: "全部", Count: 2},
 		usGroup(2),
 	}, Output: Output{Path: "out/t.txt", Template: "{ip}:{port}"}}
-	report, err := Run(context.Background(), fake, lib, sub, RunOptions{}, nil)
+	report, err := runTest(context.Background(), fake, lib, sub, RunOptions{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,9 +333,9 @@ func TestRunProgressCalled(t *testing.T) {
 	fake.add("1.0.0.71", 443, "US", true, 0)
 
 	var stages []string
-	sub := Subscription{Name: "x", Groups: []Group{usGroup(1)},
+	sub := testRun{Name: "x", Groups: []Group{usGroup(1)},
 		Output: Output{Path: "out/t.txt", Template: "{ip}:{port}"}}
-	_, err := Run(context.Background(), fake, lib, sub, RunOptions{}, func(p Progress) error {
+	_, err := runTest(context.Background(), fake, lib, sub, RunOptions{}, func(p Progress) error {
 		stages = append(stages, p.Stage)
 		return nil
 	})
@@ -342,9 +354,9 @@ func TestRunResolvesDefaultPort(t *testing.T) {
 	lib := mkLib(t, library.Entry{IP: "1.0.0.81", Port: 0, CountryCode: "US", Status: library.StatusNew})
 	fake.add("1.0.0.81", 443, "US", true, 0) // 按 TLS 默认 443 测试
 
-	sub := Subscription{Name: "x", Groups: []Group{usGroup(1)},
+	sub := testRun{Name: "x", Groups: []Group{usGroup(1)},
 		Output: Output{Path: "out/t.txt", Template: "{ip}:{port}"}}
-	report, err := Run(context.Background(), fake, lib, sub, RunOptions{}, nil)
+	report, err := runTest(context.Background(), fake, lib, sub, RunOptions{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -356,7 +368,7 @@ func TestRunResolvesDefaultPort(t *testing.T) {
 
 func TestWriteOutputCSV(t *testing.T) {
 	dir := t.TempDir()
-	sub := Subscription{Name: "x", Groups: []Group{usGroup(1)},
+	sub := testRun{Name: "x", Groups: []Group{usGroup(1)},
 		Output: Output{Path: "out/t.csv", Format: "csv"}}
 	path, err := WriteOutput(dir, sub.Output, []library.Entry{{IP: "1.2.3.4", Port: 443, CountryCode: "US", Country: "美国", TCPLatencyMs: 99}})
 	if err != nil {
@@ -373,9 +385,9 @@ func TestRunCancelSavesPartial(t *testing.T) {
 	cancel() // 立即取消
 	fake := newFake()
 	lib := mkLib(t, library.Entry{IP: "1.0.0.91", Port: 443, CountryCode: "US", Status: library.StatusNew})
-	sub := Subscription{Name: "x", Groups: []Group{usGroup(1)},
+	sub := testRun{Name: "x", Groups: []Group{usGroup(1)},
 		Output: Output{Path: "out/t.txt", Template: "{ip}:{port}"}}
-	_, err := Run(ctx, fake, lib, sub, RunOptions{}, nil)
+	_, err := runTest(ctx, fake, lib, sub, RunOptions{}, nil)
 	if err == nil {
 		t.Fatal("取消时应返回错误")
 	}
@@ -421,6 +433,22 @@ func TestRunTaskConcurrencyOptions(t *testing.T) {
 
 // TestImportInputTargetsKeepsExistingMetadata 验证重复导入初始化来源时，
 // 已有条目保留全部检测元数据，只有新条目以 StatusNew 入库。
+func TestSortOutputCountryAsc(t *testing.T) {
+	entries := []library.Entry{
+		{IP: "1.1.1.3", Port: 443, CountryCode: "US", Country: "美国"},
+		{IP: "1.1.1.1", Port: 443, CountryCode: "JP", Country: "日本"},
+		{IP: "1.1.1.2", Port: 443, Country: "巴西"},
+		{IP: "1.1.1.4", Port: 443, CountryCode: "CN", Country: "中国"},
+	}
+	sortOutput(entries, OutputSortCountryAsc)
+	want := []string{"1.1.1.4", "1.1.1.1", "1.1.1.3", "1.1.1.2"}
+	for i, e := range entries {
+		if e.IP != want[i] {
+			t.Fatalf("第 %d 条=%s，期望 %s", i, e.IP, want[i])
+		}
+	}
+}
+
 func TestImportInputTargetsKeepsExistingMetadata(t *testing.T) {
 	lib := mkLib(t, library.Entry{
 		IP: "1.0.0.1", Port: 443, Source: library.SourceOfficial,
@@ -488,5 +516,32 @@ func TestRunTaskInitSourceFeedsLibraryOnly(t *testing.T) {
 	}
 	if report.TotalLines != 2 || report.Groups[0].Filled != 2 {
 		t.Fatalf("应输出 2 条: %+v", report)
+	}
+}
+
+func TestRunTaskRemoteLibraryDoesNotWriteBack(t *testing.T) {
+	fake := newFake()
+	original := library.Entry{
+		IP: "1.0.0.90", Port: 0, CountryCode: "", Status: library.StatusNew,
+		TCPLatencyMs: 999, ConsecutiveFailures: 2,
+	}
+	lib := library.NewInMemory(t.TempDir(), []library.Entry{original})
+	fake.add(original.IP, 443, "SG", true, 0)
+	task := Task{
+		Name:   "远程只读",
+		Rules:  []TaskRule{{Name: "新加坡", Limit: 1, Conditions: []Condition{{Field: "country", Values: []string{"SG"}}}}},
+		Output: TaskOutput{Path: "out/remote.txt", Template: "{ip}:{port}"},
+	}
+	report, err := RunTask(context.Background(), fake, lib, task, RunOptions{RemoteLibrary: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.TotalLines != 1 {
+		t.Fatalf("应输出检测结果，实际 %d 条", report.TotalLines)
+	}
+	got, ok := lib.Get(original.IP, original.Port)
+	_, createdResolvedKey := lib.Get(original.IP, 443)
+	if !ok || createdResolvedKey || got.CountryCode != original.CountryCode || got.TCPLatencyMs != original.TCPLatencyMs || got.ConsecutiveFailures != original.ConsecutiveFailures {
+		t.Fatalf("远程候选库不应写回检测结果：before=%+v after=%+v", original, got)
 	}
 }

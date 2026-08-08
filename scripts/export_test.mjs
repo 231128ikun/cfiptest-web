@@ -136,7 +136,7 @@ check('escapeHTML 覆盖五个字符，null/undefined 变空串', () => {
 
 // exporter.js 顶层不碰 DOM（document 只在 triggerDownload 函数体里用），
 // 所以可以直接 import；下面 downloadAsCSV 一节再补桩件。
-const { serialize, download, downloadAsCSV, downloadAsText, copyToClipboard } = await import('../web/js/exporter.js');
+const { serialize, download, downloadAsCSV, copyToClipboard } = await import('../web/js/exporter.js');
 
 console.log('serialize（序列化与投递解耦）:');
 // 注意 filter 保持的是注册表顺序（ip → 延迟 → ASN），不是这里数组字面量的顺序。
@@ -202,7 +202,7 @@ check('serialize 不写 BOM —— BOM 属于投递层', () => {
     assert.equal(serialize([ROW], 'csv', { columns: COLS3 }).charCodeAt(0) === 0xFEFF, false);
 });
 
-console.log('投递层（downloadAsCSV / downloadAsText）:');
+console.log('投递层（downloadAsCSV / download）:');
 
 // 最小桩：triggerDownload 的顺序是 new Blob → createElement → click，
 // 所以最近构造的 Blob 就是本次要投递的那个，click 时一并记下文件名。
@@ -246,7 +246,7 @@ check('文件名可覆盖', () => {
 });
 check('TXT 原样投递，MIME 为 text/plain', () => {
     captured.length = 0;
-    downloadAsText('1.1.1.1:443\n2.2.2.2:443');
+    download('1.1.1.1:443\n2.2.2.2:443', 'iptest-result.txt');
     assert.equal(captured[0].blob.text, '1.1.1.1:443\n2.2.2.2:443');
     assert.equal(captured[0].blob.type, 'text/plain;charset=utf-8');
     assert.equal(captured[0].name, 'iptest-result.txt');
@@ -260,7 +260,7 @@ check('download 可指定 MIME 与文件名（统一投递入口）', () => {
 });
 check('每次下载都释放 object URL（不泄漏）', () => {
     const before = revoked;
-    downloadAsText('x');
+    download('x', 'iptest-result.txt');
     assert.equal(revoked, before + 1);
 });
 check('downloadAsCSV 默认 enableTLS=true', () => {

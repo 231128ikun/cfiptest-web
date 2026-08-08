@@ -1,4 +1,4 @@
-﻿// library.js —— IP 库页：库列表（多库管理）+ 库内容表格 + 手动导入/导出。
+// library.js —— IP 库页：库列表（多库管理）+ 库内容表格 + 手动导入/导出。
 // 表格复用工作台结果页的 ResultTable 与 columns.js 列注册表，
 // 筛选/排序/自定义展示规则与工作台完全共用同一套逻辑，一次性加载全量数据。
 import { escapeHTML } from './columns.js';
@@ -7,6 +7,7 @@ import { LIBRARY_COLUMNS, LIBRARY_CSV_COLUMNS } from './columns.js';
 import { ResultTable } from './table.js';
 import { download, downloadAsCSV, serialize } from './exporter.js';
 import { PRESETS } from './composer.js';
+import { parseRangeInput } from './validation.js';
 import { addQuotaRule, readQuotaRules, clearQuotaEditors } from './quota-rules.js';
 import * as api from './api.js';
 
@@ -334,7 +335,7 @@ export function initLibrary({ toast }) {
     function clearQuotaRules() {
         if (!table) return;
         table.clearDisplayRules();
-        clearQuotaEditors();
+        clearQuotaEditors($('lib-quota-rules'));
         addQuotaRule($('lib-quota-rules'), table);
         renderCount();
     }
@@ -362,14 +363,18 @@ export function initLibrary({ toast }) {
         function applyLibFilters() {
             if (!table) return;
             table.setFilter($('lib-filter').value);
+            const lat = parseRangeInput($('lib-latency-range').value, { singleBias: 'max' });
+            const spd = parseRangeInput($('lib-speed-range').value, { singleBias: 'min' });
             table.setFilters({
-                maxLatency: parseFloat($('lib-max-latency').value) || 0,
-                minSpeed: parseFloat($('lib-min-speed').value) || 0,
+                minLatency: lat.min || 0,
+                maxLatency: lat.max || 0,
+                minSpeed: spd.min || 0,
+                maxSpeed: spd.max || 0,
             });
             renderCount();
             updateActionStates();
         }
-        ['lib-filter', 'lib-max-latency', 'lib-min-speed'].forEach(id => {
+        ['lib-filter', 'lib-latency-range', 'lib-speed-range'].forEach(id => {
             $(id).addEventListener('input', applyLibFilters);
         });
 
@@ -413,9 +418,6 @@ export function initLibrary({ toast }) {
         $('lib-quota-toggle').addEventListener('click', () => {
             const box = $('lib-quota-box');
             const open = !box.classList.contains('active');
-            if (open && document.querySelectorAll('#lib-quota-rules .quota-rule').length === 0) {
-                addQuotaRule($('lib-quota-rules'), table);
-            }
             box.classList.toggle('active', open);
             $('lib-quota-toggle').classList.toggle('active', open);
             $('lib-quota-toggle').setAttribute('aria-expanded', String(open));

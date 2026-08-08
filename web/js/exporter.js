@@ -27,10 +27,6 @@ export function download(content, filename, type = 'text/plain;charset=utf-8') {
     triggerDownload(new Blob([content], { type }), filename);
 }
 
-/** 下载纯文本（结果框内容） */
-export function downloadAsText(content, filename = 'iptest-result.txt') {
-    return download(content, filename, 'text/plain;charset=utf-8');
-}
 
 /**
  * 把结果序列化为指定格式的字符串（纯函数，不碰 DOM）。

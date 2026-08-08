@@ -193,7 +193,7 @@ export class ResultTable {
         this.render();
     }
 
-    /** 设置结构化筛选：country / maxLatency / minSpeed。空值表示不限制。 */
+    /** 设置结构化筛选：country / minLatency / maxLatency / minSpeed / maxSpeed。空值表示不限制。 */
     setFilters(filters = {}) {
         this.filters = { ...filters };
         this.render();
@@ -292,10 +292,12 @@ export class ResultTable {
             rows = rows.filter(r =>
                 this.searchFields.some(field => String(r[field] ?? '').toLowerCase().includes(this.filterText)));
         }
-        const { country, maxLatency, minSpeed } = this.filters;
+        const { country, minLatency, maxLatency, minSpeed, maxSpeed } = this.filters;
         if (country) rows = rows.filter(r => r.country === country || r.locCode === country);
+        if (Number(minLatency) > 0) rows = rows.filter(r => Number(r.tcpLatencyMs) >= Number(minLatency));
         if (Number(maxLatency) > 0) rows = rows.filter(r => Number(r.tcpLatencyMs) <= Number(maxLatency));
         if (Number(minSpeed) > 0) rows = rows.filter(r => Number(r.downloadSpeedKBs) >= Number(minSpeed));
+        if (Number(maxSpeed) > 0) rows = rows.filter(r => Number(r.downloadSpeedKBs) <= Number(maxSpeed));
         if (includeDisplayLimit) rows = this._applyDisplayRules(rows);
         return rows;
     }

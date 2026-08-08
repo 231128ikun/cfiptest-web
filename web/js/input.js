@@ -140,30 +140,6 @@ export function importCSVText(rawText) {
 	return rows.map(line => csvRowToInputLine(line, fallback)).filter(Boolean).join('\n');
 }
 
-/** 批量规范化：返回 { valid: 规范化后的唯一列表, invalidCount, dupCount } */
-export function processInput(rawText) {
-    const lines = rawText.split('\n');
-    const seen = new Set();
-    const valid = [];
-    let invalidCount = 0;
-    let dupCount = 0;
-
-    for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith('#')) continue;
-        const normalized = normalizeIPFormat(trimmed);
-        if (!normalized) { invalidCount++; continue; }
-        if (seen.has(normalized)) { dupCount++; continue; }
-        seen.add(normalized);
-        valid.push(normalized);
-    }
-    return { valid, invalidCount, dupCount, totalLines: lines.filter(l => l.trim()).length };
-}
-
-/** 简单去重（保持行原样，不做规范化） */
-export function quickDeduplicate(lines) {
-    return [...new Set(lines.map(l => l.trim()).filter(Boolean))];
-}
 
 /* ---------------- 筛选 DSL ----------------
  * 语法：空格或 && = 且，| 或 || = 条件组之间的或，逗号 = 同字段多个值。

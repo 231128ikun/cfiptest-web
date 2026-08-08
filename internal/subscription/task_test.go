@@ -80,14 +80,6 @@ func TestTaskValidateDefaults(t *testing.T) {
 	if task.Output.Path != filepath.FromSlash("out/日本专线.txt") || task.Output.Format != "txt" || task.Output.Template != DefaultTemplate {
 		t.Fatalf("输出默认值错误: %+v", task.Output)
 	}
-	// 输入文件存在时输出默认回写输入文件
-	t2 := Task{Name: "x", Input: TaskInput{Mode: "file", File: "out/原.txt"}, Rules: []TaskRule{{Name: "r", Limit: 1}}}
-	if err := t2.Validate(); err != nil {
-		t.Fatal(err)
-	}
-	if t2.Output.Path != filepath.FromSlash("out/原.txt") {
-		t.Fatalf("输出应回写输入文件: %q", t2.Output.Path)
-	}
 }
 
 func TestTaskValidateErrors(t *testing.T) {
@@ -96,7 +88,6 @@ func TestTaskValidateErrors(t *testing.T) {
 		{Name: "x", Rules: nil},
 		{Name: "x", Rules: []TaskRule{{Name: "r", Limit: 1, Conditions: []Condition{{Field: "bogus", Values: []string{"a"}}}}}},
 		{Name: "x", Rules: []TaskRule{{Name: "r", Limit: 1, LatencyMin: 500, LatencyMax: 100}}},
-		{Name: "x", MaxCandidates: -1, Rules: []TaskRule{{Name: "r", Limit: 1}}},
 	}
 	for i, c := range cases {
 		if err := c.Validate(); err == nil {
@@ -227,37 +218,25 @@ func TestRunTaskTotalLimit(t *testing.T) {
 	}
 }
 
-func TestRunTaskMaxCandidates(t *testing.T) {
+func TestRunTaskChecksAllCandidatesUntilQuota(t *testing.T) {
 	dir := t.TempDir()
 	fake := newFake()
 	lib, _ := library.Open(filepath.Join(dir, library.FileName))
-	// 5 条美国 IP：前 4 条延迟通过，最后 1 条失败（若被检测会被删除）。
 	ips := []string{"1.0.0.11", "1.0.0.12", "1.0.0.13", "1.0.0.14", "1.0.0.15"}
 	for i, ip := range ips {
 		lib.Upsert(library.Entry{IP: ip, Port: 443, CountryCode: "US", Status: library.StatusActive, TCPLatencyMs: int64(100 + i*10)})
-		fake.add(ip, 443, "US", i < 4, 0)
+		fake.add(ip, 443, "US", i >= 3, 0)
 	}
-	task := Task{
-		Name:          "检测上限",
-		MaxCandidates: 2,
-		Rules:         []TaskRule{{Name: "美国", Limit: 0, Conditions: []Condition{{Field: "country", Values: []string{"US"}}}}},
-		Output:        TaskOutput{Path: "out/t.txt", Template: "{ip}:{port}"},
-	}
-	report, err := RunTask(context.Background(), fake, lib, task, RunOptions{}, nil)
+	task := Task{Name: "检测全部候选", Limit: 2, Rules: []TaskRule{{Name: "美国", Limit: 2, Conditions: []Condition{{Field: "country", Values: []string{"US"}}}}}, Output: TaskOutput{Path: "out/t.txt", Template: "{ip}:{port}"}}
+	report, err := RunTask(context.Background(), fake, lib, task, RunOptions{MaxPerGroup: 1, RemoveAfterFailures: 1}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(fake.latencyCalled) != 2 {
-		t.Fatalf("应只检测 2 条，实际 %d: %v", len(fake.latencyCalled), fake.latencyCalled)
-	}
-	if _, ok := lib.Get("1.0.0.15", 443); !ok {
-		t.Fatal("未检测的失败条目不应被删除")
-	}
-	if report.RemovedDead != 0 {
-		t.Fatalf("本轮不应删除任何条目: %+v", report)
-	}
 	if report.TotalLines != 2 {
-		t.Fatalf("应输出 2 条，实际 %d", report.TotalLines)
+		t.Fatalf("应凑够 2 条，实际 %d", report.TotalLines)
+	}
+	if len(fake.latencyCalled) != 5 {
+		t.Fatalf("应持续检测至凑够结果或候选耗尽，实际 %d: %v", len(fake.latencyCalled), fake.latencyCalled)
 	}
 }
 
@@ -295,7 +274,7 @@ func TestRunTaskSpeedGate(t *testing.T) {
 
 func TestLoadTasksMigratesSubscriptions(t *testing.T) {
 	dir := t.TempDir()
-	subs := []Subscription{{
+	subs := []legacySubscription{{
 		Name: "旧订阅", EnableSpeed: true,
 		Groups: []Group{{Name: "美国", CountryCode: "US", Count: 10, MaxLatencyMs: 300, MinSpeedKBs: 1000, RequireSpeed: true}},
 		Output: Output{Path: "out/sub.txt", Template: "{ip}:{port}#{country}"},
@@ -330,6 +309,37 @@ func TestLoadTasksMigratesSubscriptions(t *testing.T) {
 	}
 }
 
+func TestLegacyMigrationKeepsInputAndOutputSeparate(t *testing.T) {
+	dir := t.TempDir()
+	subscriptions := []legacySubscription{{
+		Name:      "旧订阅",
+		InputPath: "out/source.txt",
+		Groups:    []Group{{Name: "新加坡", CountryCode: "sg", Count: 1}},
+	}}
+	body, err := json.Marshal(subscriptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, SubscriptionsFile), body, 0644); err != nil {
+		t.Fatal(err)
+	}
+	tasks, err := LoadTasks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("迁移任务数量错误: %+v", tasks)
+	}
+	if tasks[0].Input.File != filepath.FromSlash("out/source.txt") {
+		t.Fatalf("初始化文件未保留: %+v", tasks[0].Input)
+	}
+	if tasks[0].Output.Path != filepath.FromSlash("out/旧订阅.txt") {
+		t.Fatalf("未设置输出时应使用独立默认路径，不得覆盖初始化文件: %q", tasks[0].Output.Path)
+	}
+	if tasks[0].Rules[0].Conditions[0].Values[0] != "SG" {
+		t.Fatalf("国家码未规范化: %+v", tasks[0].Rules[0].Conditions)
+	}
+}
 func TestTaskConcurrencyJSON(t *testing.T) {
 	task := Task{Name: "x", LatencyConcurrency: 20, SpeedConcurrency: 6, Rules: []TaskRule{{Name: "r", Limit: 1}}}
 	data, err := json.Marshal(task)
@@ -453,5 +463,44 @@ func TestTaskValidateLibrarySources(t *testing.T) {
 				t.Fatalf("规范化结果不符: %+v", task)
 			}
 		})
+	}
+}
+
+func TestTaskValidateOutputPaths(t *testing.T) {
+	cases := []struct {
+		name   string
+		path   string
+		format string
+		want   string
+	}{
+		{name: "文件名", path: "abc", format: "txt", want: "out/abc.txt"},
+		{name: "切换扩展名", path: "abc.txt", format: "csv", want: "out/abc.csv"},
+		{name: "相对目录", path: "custom/abc", format: "csv", want: "custom/abc.csv"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			task := Task{Name: "x", Rules: []TaskRule{{Name: "r", Limit: 1}}, Output: TaskOutput{Path: tc.path, Format: tc.format}}
+			if err := task.Validate(); err != nil {
+				t.Fatal(err)
+			}
+			if task.Output.Path != filepath.FromSlash(tc.want) {
+				t.Fatalf("输出路径=%q，期望 %q", task.Output.Path, filepath.FromSlash(tc.want))
+			}
+		})
+	}
+	for _, invalid := range []string{"../escape", "C:/escape", "/escape"} {
+		task := Task{Name: "x", Rules: []TaskRule{{Name: "r", Limit: 1}}, Output: TaskOutput{Path: invalid}}
+		if err := task.Validate(); err == nil {
+			t.Fatalf("越界路径 %q 应被拒绝", invalid)
+		}
+	}
+
+	// 国家/地区排序可被识别并规范化为常量。
+	sortTask := Task{Name: "x", Rules: []TaskRule{{Name: "r", Limit: 1}}, Output: TaskOutput{Sort: "countryAsc"}}
+	if err := sortTask.Validate(); err != nil {
+		t.Fatalf("countryAsc 应通过校验: %v", err)
+	}
+	if sortTask.Output.Sort != OutputSortCountryAsc {
+		t.Fatalf("排序=%q，期望 %q", sortTask.Output.Sort, OutputSortCountryAsc)
 	}
 }

@@ -146,6 +146,16 @@ check('未测速结果不会通过最低速度筛选', () => {
     t.setFilters({ minSpeed: 1 });
     assert.equal(t.getAllResults().length, 0);
 });
+check('延迟与速度支持下限/上限范围筛选', () => {
+    const rows = MIXED.map((r, i) => ({ ...r, downloadSpeedKBs: (i + 1) * 100 }));
+    const { t } = makeTable(rows);
+    t.setFilters({ minLatency: 25, maxLatency: 40, minSpeed: 300, maxSpeed: 400 });
+    assert.deepEqual(t.getAllResults().map(r => r.ip), ['1.1.1.3', '1.1.1.4']);
+    t.setFilters({ minLatency: 45 });
+    assert.deepEqual(t.getAllResults().map(r => r.ip), ['1.1.1.5']);
+    t.setFilters({ maxSpeed: 100 });
+    assert.deepEqual(t.getAllResults().map(r => r.ip), ['1.1.1.1']);
+});
 
 console.log('展示前 N:');
 check('组合规则支持国家+端口，并按当前排序取前 N', () => {

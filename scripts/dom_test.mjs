@@ -177,7 +177,7 @@ check('反代模式输入框与候选区高度固定且对齐', () => {
 });
 check('结果筛选关键词更长、延迟与速度更窄', () => {
     assert.ok(/#result-filter \{ flex: 2 1 320px; min-width: 220px; \}/.test(css));
-    assert.ok(/#result-max-latency, #result-min-speed \{ flex: 1 1 140px; min-width: 120px; max-width: 200px; \}/.test(css));
+    assert.ok(/#result-latency-range, #result-speed-range \{ flex: 0 1 180px; min-width: 140px; \}/.test(css));
 });
 check('IPS 检测地址在本地配置中可见', () => {
     assert.ok(/id="advanced-ips-url"/.test(html));
@@ -261,8 +261,8 @@ check('速度条件始终可编辑，复选框只控制是否自动继续测速'
 check('统一最大数量按速度规则状态分配到最终阶段', () => {
     const latency = fnBody('function latencyOptions');
     const speed = fnBody('function speedOptions');
-    assert.ok(/speedEnabled\(\) \? 0 : ruleMaxResults\(\)/.test(latency), '组合检测的数量限制应只统计最终达标结果');
-    assert.ok(/maxResults: ruleMaxResults\(\)/.test(speed), '统一最大数量没有作用到最终测速阶段');
+    assert.ok(/speedEnabled\(\) \? 0 : \(maxResults \?\? ruleMaxResults\(\)\)/.test(latency), '组合检测的数量限制应只统计最终达标结果');
+    assert.ok(/maxResults: maxResults \?\? ruleMaxResults\(\)/.test(speed), '统一最大数量没有作用到最终测速阶段');
 });
 
 check('设置修改后自动防抖保存，刷新不再丢', () => {

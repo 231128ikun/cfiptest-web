@@ -102,9 +102,6 @@ func Key(ip string, port int) string {
 // Key 返回本条目的键。
 func (e *Entry) Key() string { return Key(e.IP, e.Port) }
 
-// IsActive 判断条目当前是否视为有效。
-func (e *Entry) IsActive() bool { return e.Status == StatusActive }
-
 // EntryFromResult 从一次检测结果构造库条目（状态 active，来源 import）。
 // 用于把「手动三步检测」通过的结果一键导入 IP 库。
 func EntryFromResult(res engine.Result, now time.Time) Entry {

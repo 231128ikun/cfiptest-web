@@ -6,33 +6,8 @@ import (
 	"iptest-web/internal/library"
 )
 
-// SoftMatch 是候选粗筛：只看国家/城市/端口。
-// 国家或城市未知的条目（未测过）也视为候选——测完才知道归属；
-// 延迟/速度阈值不在此判断，需要现测。
-func (g Group) SoftMatch(e library.Entry) bool {
-	if g.CountryCode != "" && e.CountryCode != "" && !strings.EqualFold(e.CountryCode, g.CountryCode) {
-		return false
-	}
-	if len(g.Cities) > 0 && e.CityZh != "" && !containsFold(g.Cities, e.CityZh) {
-		return false
-	}
-	if len(g.DataCenters) > 0 && e.DataCenter != "" && !containsFold(g.DataCenters, e.DataCenter) {
-		return false
-	}
-	if len(g.Regions) > 0 && e.RegionZh != "" && !containsFold(g.Regions, e.RegionZh) {
-		return false
-	}
-	if len(g.ASNs) > 0 && e.ASN != 0 && !containsUint(g.ASNs, e.ASN) {
-		return false
-	}
-	if len(g.Ports) > 0 && !containsInt(g.Ports, e.Port) {
-		return false
-	}
-	return true
-}
-
 // CandidatePriority 是候选排序优先级：2=记录已匹配（最优先），1=字段值未知（测后可能匹配）。
-// 返回 0 表示不匹配（SoftMatch 应已排除，这里兜底）。
+// 返回 0 表示已知字段不匹配。
 func (g Group) CandidatePriority(e library.Entry) int {
 	unknown := false
 	// 已知值不匹配 → 排除
@@ -75,10 +50,6 @@ func (g Group) CandidatePriority(e library.Entry) int {
 	}
 	return 2
 }
-// RequiresSpeed 判断该分组是否需要测速结果。
-func (g Group) RequiresSpeed(sub Subscription) bool {
-	return groupNeedsSpeed(g, sub.EnableSpeed)
-}
 
 // LatencyOK 判断实测延迟是否满足分组范围；0 表示不限。
 func (g Group) LatencyOK(ms int64) bool {
@@ -103,14 +74,6 @@ func (g Group) SpeedOK(kbs float64, valid bool) bool {
 		return false
 	}
 	return true
-}
-
-// CountryMatches 判断实测国家码是否属于该分组（分组不限国家时恒真）。
-func (g Group) CountryMatches(code string) bool {
-	if g.CountryCode == "" {
-		return true
-	}
-	return strings.EqualFold(code, g.CountryCode)
 }
 
 func containsFold(list []string, v string) bool {

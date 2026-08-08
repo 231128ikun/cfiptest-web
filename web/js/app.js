@@ -7,7 +7,7 @@ import { ResultTable, CSV_COLUMNS } from './table.js';
 import { ALL_COLUMNS, TABLE_COLUMNS, DEFAULT_BADGE_THRESHOLDS, csvValue, escapeHTML, normalizeBadgeThresholds, setBadgeThresholds } from './columns.js';
 import { PRESETS, placeholderNames } from './composer.js';
 import { download, copyToClipboard, serialize as serializeExport } from './exporter.js';
-import { boundedNumber } from './validation.js';
+import { boundedNumber, parseRangeInput } from './validation.js';
 import { initTasks } from './tasks.js';
 import { initLibrary } from './library.js';
 import { addQuotaRule as addQuotaRuleShared, readQuotaRules as readQuotaRulesShared, clearQuotaEditors as clearQuotaEditorsShared, refreshQuotaEditors as refreshQuotaEditorsShared } from './quota-rules.js';
@@ -103,10 +103,13 @@ function renderCandidatesThrottled() {
 function updateRunButton() {
     const running = currentTaskId !== null;
     const active = activeCandidates();
+    const targetReached = !running && ruleMaxResults() > 0 && remainingResultLimit() === 0;
     const btn = $('btn-start-latency');
-    btn.disabled = running || active.length === 0;
+    btn.disabled = !running && (active.length === 0 || targetReached);
     if (running) {
-        btn.textContent = '检测中…';
+        btn.textContent = '停止检测';
+    } else if (targetReached) {
+        btn.textContent = '已达到目标';
     } else if (batchRemaining > 0 && batchKeys) {
         btn.textContent = '继续检测';
     } else {
@@ -484,6 +487,24 @@ function ruleMaxResults() {
 
 function speedEnabled() { return $('spd-enable').checked; }
 
+function qualifiedResultCount() {
+    if (!table) return 0;
+    const maxLatency = Number($('lat-maxlatency').value) || 0;
+    const minSpeed = Number($('spd-minspeed').value) || 0;
+    return table.results.filter(result => {
+        if (maxLatency > 0 && Number(result.tcpLatencyMs) > maxLatency) return false;
+        if (!speedEnabled()) return true;
+        const speed = Number(result.downloadSpeedKBs) || 0;
+        return speed > 0 && (minSpeed <= 0 || speed >= minSpeed);
+    }).length;
+}
+
+// “满足条件后自动停止”约束累计的整体结果；停止后继续时只检测尚缺的数量。
+function remainingResultLimit() {
+    const target = ruleMaxResults();
+    return target > 0 ? Math.max(0, target - qualifiedResultCount()) : 0;
+}
+
 function readNumberField(id, { min = -Infinity, max = Infinity, integer = false, optional = false } = {}) {
     const field = $(id);
     const result = boundedNumber(field.value, { min, max, integer, emptyValue: 0 });
@@ -512,25 +533,25 @@ function normalizeRuleFields({ notify = false } = {}) {
     return changed;
 }
 
-function latencyOptions() {
+function latencyOptions(maxResults = null) {
     normalizeRuleFields();
     return {
         maxConcurrency: readNumberField('lat-concurrency', { min: 1, max: 1000, integer: true, optional: true }),
         maxLatencyMs: readNumberField('lat-maxlatency', { min: 0, max: 10000, integer: true, optional: true }) || 0,
         // 启用速度规则时，统一数量限制只在最终测速阶段生效。
-        maxResults: speedEnabled() ? 0 : ruleMaxResults(),
+        maxResults: speedEnabled() ? 0 : (maxResults ?? ruleMaxResults()),
         enableTLS: $('lat-tls').checked,
         enableIPAPI: $('lat-ipapi').checked,
     };
 }
 
-function speedOptions() {
+function speedOptions(maxResults = null) {
     normalizeRuleFields();
     return {
         maxConcurrency: readNumberField('spd-concurrency', { min: 1, max: 100, integer: true, optional: true }),
         durationSec: readNumberField('spd-duration', { min: 1, max: 30, integer: true, optional: true }),
         minSpeedKBs: readNumberField('spd-minspeed', { min: 0, optional: true }) || 0,
-        maxResults: ruleMaxResults(),
+        maxResults: maxResults ?? ruleMaxResults(),
         downloadURL: $('advanced-speed-url').value.trim() || undefined,
         enableTLS: $('lat-tls').checked,
     };
@@ -581,7 +602,6 @@ function setRunning(running, type = null) {
     if (table) $('btn-clear-results').disabled = running || table.results.length === 0;
     $('btn-start-speed').disabled = running || table.getSelectedResults().length === 0;
     $('btn-speed-filtered').disabled = running || table.getAllResults().length === 0;
-    $('btn-task-stop').disabled = !running;
     $('progress-wrap').classList.toggle('active', running);
 }
 
@@ -599,13 +619,20 @@ async function startPipeline() {
     normalizeRuleFields({ notify: true });
     const targets = activeCandidates();
     if (!targets.length) { toast('候选区为空'); return; }
-    // 候选漏斗：只在本批开始时快照；结果不清空，暂停/续跑后从剩余候选继续
+    const target = ruleMaxResults();
+    const remainingLimit = remainingResultLimit();
+    if (target > 0 && remainingLimit === 0) {
+        toast(`整体结果已达到 ${target} 个；如需继续，请提高数量目标或清空结果`);
+        updateRunButton();
+        return;
+    }
+    // 候选漏斗：只在本次开始时快照；结果不清空，停止后从剩余候选继续。
     const keys = new Set(targets.map(entryKey));
     $('progress-fill').style.width = '0%';
     try {
-        const response = await api.startLatencyTest(targets, latencyOptions(), {
+        const response = await api.startLatencyTest(targets, latencyOptions(remainingLimit), {
             enableSpeed: speedEnabled(),
-            speedOptions: speedOptions(),
+            speedOptions: speedOptions(remainingLimit),
         });
         currentTaskId = response.taskId;
         batchKeys = keys;
@@ -699,21 +726,28 @@ function bindRulesAndRun() {
         $('spd-url').value = $('advanced-speed-url').value;
         scheduleConfigAutoSave();
     });
-    $('rule-maxresults').addEventListener('input', () => { $('spd-maxresults').value = ruleMaxResults(); });
+    $('rule-maxresults').addEventListener('input', () => { $('spd-maxresults').value = ruleMaxResults(); updateRunButton(); });
     document.getElementById('btn-reset-rules').addEventListener('click', () => { resetRules(); scheduleSettingsAutoSave(); toast('已恢复推荐设置'); });
     $('btn-save-settings').addEventListener('click', saveLocalSettings);
-    $('btn-start-latency').addEventListener('click', startPipeline);
+    $('btn-start-latency').addEventListener('click', async () => {
+        if (currentTaskId !== null) {
+            const btn = $('btn-start-latency');
+            btn.disabled = true;
+            btn.textContent = '正在停止…';
+            try {
+                await api.stopTask(currentTaskId);
+                toast('已发送停止指令');
+            } catch (error) {
+                toast(error.message);
+                updateRunButton();
+            }
+            return;
+        }
+        await startPipeline();
+    });
     $('btn-start-speed').addEventListener('click', () => startSupplementalSpeed(false));
     $('btn-speed-filtered').addEventListener('click', () => startSupplementalSpeed(true));
 
-    $('btn-task-stop').addEventListener('click', async () => {
-        try {
-            await api.stopTask(currentTaskId);
-            toast('已发送停止指令');
-        } catch (error) {
-            toast(error.message);
-        }
-    });
 }
 
 function bindSettingsAutoSave() {
@@ -889,11 +923,16 @@ function updateCountryFilter() {
     // 国家已可通过关键词与组合规则筛选，不再维护重复的单选下拉。
 }
 
+
 function applyResultFilters() {
     table.setFilter($('result-filter').value);
+    const lat = parseRangeInput($('result-latency-range').value, { singleBias: 'max' });
+    const spd = parseRangeInput($('result-speed-range').value, { singleBias: 'min' });
     table.setFilters({
-        maxLatency: parseFloat($('result-max-latency').value) || 0,
-        minSpeed: parseFloat($('result-min-speed').value) || 0,
+        minLatency: lat.min || 0,
+        maxLatency: lat.max || 0,
+        minSpeed: spd.min || 0,
+        maxSpeed: spd.max || 0,
     });
     refreshButtons();
     refreshQuotaEditors();
@@ -1144,7 +1183,7 @@ async function saveLocalSettings() {
     } catch (error) { toast(error.message); }
 }
 
-function clearQuotaEditors() { clearQuotaEditorsShared(); }
+function clearQuotaEditors(container) { clearQuotaEditorsShared(container); }
 
 function refreshQuotaEditors() { refreshQuotaEditorsShared(table); }
 
@@ -1153,7 +1192,6 @@ function bindQuotaPanel() {
     $('btn-quota-toggle').addEventListener('click', () => {
         const box = $('quota-box');
         const open = !box.classList.contains('active');
-        if (open && document.querySelectorAll('#quota-rules .quota-rule').length === 0) addQuotaRule();
         box.classList.toggle('active', open);
         $('btn-quota-toggle').classList.toggle('active', open);
         $('btn-quota-toggle').setAttribute('aria-expanded', String(open));
@@ -1168,7 +1206,7 @@ function bindQuotaPanel() {
     });
     $('btn-quota-clear').addEventListener('click', () => {
         table.clearDisplayRules();
-        clearQuotaEditors();
+        clearQuotaEditors($('quota-rules'));
         addQuotaRule();
         refreshButtons();
         scheduleExportPreview();
@@ -1204,13 +1242,15 @@ function bindResults() {
         table.clear();
         customResults = [];
         $('result-count').textContent = '';
+        updateRunButton();
+        refreshButtons();
         regenerateOutput();
-        toast('已清空检测结果');
+        toast('已清空检测结果，可继续检测');
     });
 
     $('result-filter').addEventListener('input', applyResultFilters);
-    $('result-max-latency').addEventListener('input', applyResultFilters);
-    $('result-min-speed').addEventListener('input', applyResultFilters);
+    $('result-latency-range').addEventListener('input', applyResultFilters);
+    $('result-speed-range').addEventListener('input', applyResultFilters);
     $('sort-key').addEventListener('change', () => {
         const key = $('sort-key').value;
         if (!key) table.clearSort(); else table.setSort(key, table.sortAsc);
@@ -1573,13 +1613,16 @@ function bindPageNav() {
     $('btn-exit-confirm').addEventListener('click', async () => {
         $('btn-exit-confirm').disabled = true;
         $('btn-exit-confirm').textContent = '正在退出…';
+        $('btn-exit-cancel').disabled = true;
         try {
             await fetch('/api/shutdown', { method: 'POST' });
-        } catch { /* 服务已随请求断开 */ }
-        const overlay = document.createElement('div');
-        overlay.className = 'shutdown-overlay';
-        overlay.textContent = '服务已停止，现在可以关闭此页面。';
-        document.body.appendChild(overlay);
+        } catch { /* 服务已停止 */ }
+        // 用 exit-overlay 本身展示成功状态
+        const dialog = document.querySelector('.exit-dialog');
+        if (dialog) {
+            dialog.innerHTML = '<p class="exit-dialog-title">服务已停止</p><p class="exit-dialog-text">页面即将关闭，请重新启动程序以继续使用。</p><div class="exit-dialog-actions"><button class="exit-confirm-btn" onclick="window.close()">关闭页面</button></div>';
+        }
+        setTimeout(() => { try { window.close(); } catch { /* 浏览器阻止，保留按钮 */ } }, 1500);
     });
     $('sidebar-toggle').addEventListener('click', () => {
         const collapsed = sidebar.classList.toggle('collapsed');
