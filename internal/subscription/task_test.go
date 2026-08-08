@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -490,7 +491,12 @@ func TestTaskValidateOutputPaths(t *testing.T) {
 			}
 		})
 	}
-	for _, invalid := range []string{"../escape", "C:/escape", "/escape"} {
+	invalid := []string{"../escape"}
+	if runtime.GOOS == "windows" {
+		// Windows 下反斜杠穿越与盘符外写法仍应被拒绝（无盘符的 / 开头路径不是绝对路径）。
+		invalid = append(invalid, "..\\escape", "/escape")
+	}
+	for _, invalid := range invalid {
 		task := Task{Name: "x", Rules: []TaskRule{{Name: "r", Limit: 1}}, Output: TaskOutput{Path: invalid}}
 		if err := task.Validate(); err == nil {
 			t.Fatalf("越界路径 %q 应被拒绝", invalid)
@@ -504,5 +510,35 @@ func TestTaskValidateOutputPaths(t *testing.T) {
 	}
 	if sortTask.Output.Sort != OutputSortCountryAsc {
 		t.Fatalf("排序=%q，期望 %q", sortTask.Output.Sort, OutputSortCountryAsc)
+	}
+}
+func TestTaskOutputAbsolutePath(t *testing.T) {
+	// 服务器绝对路径应通过校验并按格式补全/切换扩展名。
+	dir := t.TempDir()
+	base := filepath.Join(dir, "share", "sub")
+	in := filepath.Join(base, "list.txt")
+	task := Task{Name: "x", Rules: []TaskRule{{Name: "r", Limit: 1}}, Output: TaskOutput{Path: in, Format: "csv"}}
+	if err := task.Validate(); err != nil {
+		t.Fatalf("服务器绝对输出路径应通过校验: %v", err)
+	}
+	if want := filepath.Join(base, "list.csv"); task.Output.Path != want {
+		t.Fatalf("绝对路径扩展名切换错误=%q，期望 %q", task.Output.Path, want)
+	}
+	task2 := Task{Name: "x", Rules: []TaskRule{{Name: "r", Limit: 1}}, Output: TaskOutput{Path: filepath.Join(base, "fresh"), Format: "txt"}}
+	if err := task2.Validate(); err != nil {
+		t.Fatalf("无扩展名绝对路径应通过校验: %v", err)
+	}
+	if want := filepath.Join(base, "fresh.txt"); task2.Output.Path != want {
+		t.Fatalf("绝对路径补全扩展名错误=%q，期望 %q", task2.Output.Path, want)
+	}
+	if runtime.GOOS == "windows" {
+		// Windows 盘符绝对路径：允许，并按格式补全扩展名。
+		win := Task{Name: "x", Rules: []TaskRule{{Name: "r", Limit: 1}}, Output: TaskOutput{Path: "C:/out/list", Format: "csv"}}
+		if err := win.Validate(); err != nil {
+			t.Fatalf("Windows 绝对输出路径应通过校验: %v", err)
+		}
+		if got := filepath.FromSlash("C:/out/list.csv"); win.Output.Path != got {
+			t.Fatalf("Windows 绝对路径错误=%q，期望 %q", win.Output.Path, got)
+		}
 	}
 }

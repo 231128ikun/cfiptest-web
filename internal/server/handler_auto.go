@@ -767,13 +767,19 @@ func (s *Server) handleAutoOutput(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "缺少 path 参数")
 		return
 	}
-	abs := filepath.Join(s.dataDir, filepath.FromSlash(rel))
-	base := filepath.Clean(s.dataDir)
-	target := filepath.Clean(abs)
-	relTo, err := filepath.Rel(base, target)
-	if err != nil || strings.HasPrefix(relTo, "..") || filepath.IsAbs(relTo) {
-		writeError(w, http.StatusBadRequest, "path 必须位于 data 目录内")
-		return
+	var target string
+	if filepath.IsAbs(filepath.FromSlash(rel)) {
+		// 服务器绝对路径：本工具仅监听 127.0.0.1，允许直接读取运行主机上的输出文件。
+		target = filepath.Clean(filepath.FromSlash(rel))
+	} else {
+		abs := filepath.Join(s.dataDir, filepath.FromSlash(rel))
+		base := filepath.Clean(s.dataDir)
+		target = filepath.Clean(abs)
+		relTo, err := filepath.Rel(base, target)
+		if err != nil || strings.HasPrefix(relTo, "..") || filepath.IsAbs(relTo) {
+			writeError(w, http.StatusBadRequest, "path 必须位于 data 目录内")
+			return
+		}
 	}
 	body, err := os.ReadFile(target)
 	if err != nil {

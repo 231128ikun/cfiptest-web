@@ -114,7 +114,9 @@ export function initTasks({ toast }) {
                 : task.librarySource === 'remote'
                     ? '远程 URL 库'
                     : (state.libNames[task.libraryId] || task.libraryId || '默认库');
-            const outputPath = task.output?.path ? `data/${task.output.path}` : '保存后自动生成';
+            const outputPath = task.output?.path
+                ? (isServerAbsolutePath(task.output.path) ? task.output.path.replace(/\\/g, '/') : 'data/' + task.output.path)
+                : '保存后自动生成';
             const outputSort = ({ latencyAsc: '延迟升序', latencyDesc: '延迟降序', speedDesc: '速度降序', speedAsc: '速度升序', ipAsc: 'IP 升序', countryAsc: '国家/地区升序' })[task.output?.sort] || '延迟升序';
             const schedule = scheduleLabel(task.schedule);
             const pendingKey = task.id || String(i);
@@ -261,15 +263,33 @@ export function initTasks({ toast }) {
         status.classList.remove('error');
     }
 
-    // ---- 服务器路径浏览器（选择初始化文件）----
+    // ---- 服务器路径浏览器（选择初始化文件 / 输出位置）----
     function joinServerPath(dir, name) {
         return String(dir || '').replace(/[\\/]+$/, '') + '/' + name;
     }
 
-    async function openPathBrowser() {
-        const s = state.pathBrowser = state.pathBrowser || { current: '', parent: '', home: '', dataDir: '', selected: null, entries: [] };
+    async function openPathBrowser(mode = 'file') {
+        const s = state.pathBrowser = state.pathBrowser || { current: '', parent: '', home: '', dataDir: '', selected: null, entries: [], mode: 'file' };
+        s.mode = mode === 'output' ? 'output' : 'file';
+        if (s.mode === 'output') {
+            const raw = $('task-output').value.trim().replace(/\\/g, '/');
+            // 输出模式：已有绝对路径时定位到其所在目录，方便直接确认或改文件名。
+            s.current = isServerAbsolutePath(raw) ? (raw.replace(/[^/]+$/, '') || '/') : (s.dataDir || '');
+        } else {
+            s.current = s.current || s.dataDir || '';
+        }
+        pathBrowserModeUI();
         $('path-browser-overlay').hidden = false;
         await browseServerPath(s.current || s.dataDir || '');
+    }
+
+    function pathBrowserModeUI() {
+        const s = state.pathBrowser;
+        if (!s) return;
+        const isOutput = s.mode === 'output';
+        $('path-browser-title').textContent = isOutput ? '选择服务器上的输出位置' : '选择服务器上的初始化文件';
+        $('path-browser-pick').textContent = isOutput ? '选择此路径' : '选择此文件';
+        $('path-browser-current').placeholder = isOutput ? '可编辑：目录 + 文件名，回车确认' : '服务器路径';
     }
 
     function closePathBrowser() {
@@ -326,7 +346,9 @@ export function initTasks({ toast }) {
         }
         const entries = s.entries || [];
         status.textContent = entries.length
-            ? `${entries.length} 项 · 单击文件选中，双击目录进入`
+            ? s.mode === 'output'
+                ? `${entries.length} 项 · 双击目录进入，单击文件或编辑路径框后点「选择此路径」`
+                : `${entries.length} 项 · 单击文件选中，双击目录进入`
             : '空目录';
         if (!entries.length) {
             list.innerHTML = '<div class="path-browser-empty">空目录</div>';
@@ -340,19 +362,35 @@ export function initTasks({ toast }) {
             </button>`).join('');
     }
 
+    function markPathBrowserSelected(item, path) {
+        const s = state.pathBrowser;
+        if (!s || !path) return;
+        s.selected = path;
+        document.querySelectorAll('#path-browser-list .is-selected').forEach(el => el.classList.remove('is-selected'));
+        if (item) item.classList.add('is-selected');
+        if (s.mode === 'output') $('path-browser-current').value = path;
+        $('path-browser-pick').disabled = false;
+        $('path-browser-status').textContent = s.mode === 'output'
+            ? `已选择：${path}（可继续编辑文件名）`
+            : `已选择：${path}`;
+    }
+
     function onPathBrowserListClick(e) {
         const item = e.target.closest('.path-browser-item');
         if (!item || !state.pathBrowser) return;
+        const s = state.pathBrowser;
+        if (s.mode === 'output') {
+            // 输出模式：单击文件回填路径；目录仅双击进入。
+            if (item.classList.contains('is-dir')) return;
+            markPathBrowserSelected(item, joinServerPath(s.current, item.dataset.name));
+            return;
+        }
         if (item.classList.contains('is-dir')) {
-            state.pathBrowser.selected = null;
+            s.selected = null;
             $('path-browser-pick').disabled = true;
             return;
         }
-        state.pathBrowser.selected = joinServerPath(state.pathBrowser.current, item.dataset.name);
-        document.querySelectorAll('#path-browser-list .is-selected').forEach(el => el.classList.remove('is-selected'));
-        item.classList.add('is-selected');
-        $('path-browser-pick').disabled = false;
-        $('path-browser-status').textContent = `已选择：${state.pathBrowser.selected}`;
+        markPathBrowserSelected(item, joinServerPath(s.current, item.dataset.name));
     }
 
     function onPathBrowserListDblClick(e) {
@@ -362,28 +400,58 @@ export function initTasks({ toast }) {
         }
     }
 
-    function pickPathBrowserFile() {
+    function onPathBrowserCurrentInput() {
+        const s = state.pathBrowser;
+        if (!s || s.mode !== 'output') return;
+        const v = $('path-browser-current').value.trim();
+        s.selected = v || null;
+        $('path-browser-pick').disabled = !v;
+        document.querySelectorAll('#path-browser-list .is-selected').forEach(el => el.classList.remove('is-selected'));
+    }
+
+    function onPathBrowserCurrentKeydown(e) {
+        if (e.key !== 'Enter' || !state.pathBrowser) return;
+        const v = $('path-browser-current').value.trim();
+        if (state.pathBrowser.mode === 'output') {
+            if (v) { state.pathBrowser.selected = v; confirmPathBrowserPick(); }
+            return;
+        }
+        if (v) browseServerPath(v);
+    }
+
+    function confirmPathBrowserPick() {
         const s = state.pathBrowser;
         if (!s?.selected) return;
+        if (s.mode === 'output') {
+            $('task-output').value = s.selected.replace(/\\/g, '/');
+            updateTaskOutputPreview();
+            closePathBrowser();
+            return;
+        }
         $('task-init-file-path').value = s.selected;
         $('task-init-file-status').textContent = `已选择服务器文件：${s.selected}；定时维护将直接读取该路径。`;
         $('task-init-file-status').classList.remove('error');
         closePathBrowser();
     }
-
     function updateTaskOutputPreview() {
         const preview = $('task-output-preview');
         const format = $('task-format').value === 'csv' ? 'csv' : 'txt';
         let raw = $('task-output').value.trim().replace(/\\/g, '/');
         const taskName = $('task-name').value.trim() || '任务名';
-        if (/^(?:[a-zA-Z]:|\/)/.test(raw) || raw.split('/').includes('..')) {
-            preview.textContent = '路径无效：只能填写 data 目录内的文件名或相对路径，不能使用绝对路径或 ../';
+        if (isServerAbsolutePath(raw)) {
+            raw = raw.replace(/\.(?:txt|csv)$/i, '');
+            preview.textContent = '实际输出：' + raw + '.' + format + '（服务器文件绝对路径；在运行 iptest-web 的主机上写入，非浏览器本机路径）';
+            preview.classList.remove('error');
+            return;
+        }
+        if (raw.split('/').includes('..')) {
+            preview.textContent = '路径无效：不能使用 ../，只能填写 data 目录内的相对路径或服务器绝对路径';
             preview.classList.add('error');
             return;
         }
         raw = raw.replace(/^\.\//, '').replace(/\.(?:txt|csv)$/i, '');
-        const relative = raw ? (raw.includes('/') ? raw : `out/${raw}`) : `out/${taskName}`;
-        preview.textContent = `实际输出：data/${relative}.${format}（服务器 data 目录；不是浏览器本机路径）`;
+        const relative = raw ? (raw.includes('/') ? raw : 'out/' + raw) : 'out/' + taskName;
+        preview.textContent = '实际输出：data/' + relative + '.' + format + '（服务器 data 目录；不是浏览器本机路径）';
         preview.classList.remove('error');
     }
 
@@ -655,7 +723,8 @@ export function initTasks({ toast }) {
         }
     });
     $('task-init-file-path').addEventListener('input', updateTaskInitFileStatus);
-    $('task-init-browse').addEventListener('click', openPathBrowser);
+    $('task-init-browse').addEventListener('click', () => openPathBrowser('file'));
+    $('task-output-browse').addEventListener('click', () => openPathBrowser('output'));
     $('btn-path-browser-close').addEventListener('click', closePathBrowser);
     $('path-browser-cancel').addEventListener('click', closePathBrowser);
     $('path-browser-overlay').addEventListener('click', e => { if (e.target === $('path-browser-overlay')) closePathBrowser(); });
@@ -663,8 +732,9 @@ export function initTasks({ toast }) {
     $('path-browser-refresh').addEventListener('click', () => browseServerPath(state.pathBrowser?.current || ''));
     $('path-browser-home').addEventListener('click', () => browseServerPath(state.pathBrowser?.home || ''));
     $('path-browser-data').addEventListener('click', () => browseServerPath(state.pathBrowser?.dataDir || ''));
-    $('path-browser-current').addEventListener('change', () => browseServerPath($('path-browser-current').value.trim()));
-    $('path-browser-pick').addEventListener('click', pickPathBrowserFile);
+    $('path-browser-current').addEventListener('input', onPathBrowserCurrentInput);
+    $('path-browser-current').addEventListener('keydown', onPathBrowserCurrentKeydown);
+    $('path-browser-pick').addEventListener('click', confirmPathBrowserPick);
     $('path-browser-list').addEventListener('click', onPathBrowserListClick);
     $('path-browser-list').addEventListener('dblclick', onPathBrowserListDblClick);
     $('task-grid').addEventListener('change', e => {

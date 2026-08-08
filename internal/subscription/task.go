@@ -308,8 +308,9 @@ func (t *Task) Validate() error {
 	if p == "" {
 		p = filepath.Join("out", t.Name+ext)
 	} else {
-		// 只填文件名时固定输出到 data/out；填写相对目录时输出到 data/<目录>。
-		if !strings.Contains(p, "/") && !strings.Contains(p, "\\") {
+		// 只填文件名时固定输出到 data/out；填写相对目录时输出到 data/<目录>；
+		// 服务器绝对路径直接按运行主机路径处理（本工具仅监听 127.0.0.1）。
+		if !filepath.IsAbs(p) && !strings.Contains(p, "/") && !strings.Contains(p, "\\") {
 			p = filepath.Join("out", p)
 		}
 		lower := strings.ToLower(p)
@@ -324,8 +325,8 @@ func (t *Task) Validate() error {
 	}
 	p = filepath.Clean(p)
 	normalizedPath := strings.ReplaceAll(p, "\\", "/")
-	if filepath.IsAbs(p) || strings.HasPrefix(normalizedPath, "/") || p == ".." || strings.HasPrefix(p, ".."+string(filepath.Separator)) {
-		return fmt.Errorf("任务 %q 输出位置必须位于 data 目录内", t.Name)
+	if !filepath.IsAbs(p) && (strings.HasPrefix(normalizedPath, "/") || p == ".." || strings.HasPrefix(p, ".."+string(filepath.Separator))) {
+		return fmt.Errorf("任务 %q 输出位置必须位于 data 目录内或使用服务器绝对路径", t.Name)
 	}
 	t.Output.Path = p
 	if t.Output.Template == "" {

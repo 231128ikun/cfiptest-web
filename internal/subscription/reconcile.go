@@ -986,7 +986,7 @@ func resolveInDir(dir, rel string) (string, error) {
 	return target, nil
 }
 
-// WriteOutput 将订阅结果按格式渲染并原子写入 dataDir 下的输出文件。
+// WriteOutput 将订阅结果按格式渲染并原子写入输出文件（相对路径位于 dataDir 下，绝对路径直接写入运行主机位置）。
 func WriteOutput(dataDir string, out Output, entries []library.Entry) (string, error) {
 	if strings.TrimSpace(out.Path) == "" {
 		return "", fmt.Errorf("输出路径为空")
@@ -994,7 +994,12 @@ func WriteOutput(dataDir string, out Output, entries []library.Entry) (string, e
 	if out.Format == "" {
 		out.Format = "txt"
 	}
-	path := filepath.Join(dataDir, filepath.FromSlash(out.Path))
+	var path string
+	if filepath.IsAbs(out.Path) {
+		path = filepath.Clean(filepath.FromSlash(out.Path))
+	} else {
+		path = filepath.Join(dataDir, filepath.FromSlash(out.Path))
+	}
 	if dir := filepath.Dir(path); dir != "" {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return "", err

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -318,5 +319,22 @@ func TestAutoRunOptionsPriority(t *testing.T) {
 	opts = s2.autoRunOptions(nil, nil)
 	if opts.LatencyConcurrency != 0 || opts.SpeedConcurrency != 0 {
 		t.Fatalf("无配置应返回 0/0，实际 %d/%d", opts.LatencyConcurrency, opts.SpeedConcurrency)
+	}
+}
+
+func TestAutoOutputAbsolutePath(t *testing.T) {
+	s := autoServer(t)
+	target := filepath.Join(t.TempDir(), "exported", "t.txt")
+	if _, err := subscription.WriteOutput(s.dataDir, subscription.Output{Path: target, Template: "{ip}:{port}"}, []library.Entry{{IP: "8.8.8.8", Port: 443}}); err != nil {
+		t.Fatal(err)
+	}
+	rec := doJSON(t, s.handleAutoOutput, http.MethodGet, "/api/auto/output?path="+url.QueryEscape(filepath.ToSlash(target)), nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "8.8.8.8:443") {
+		t.Fatalf("绝对路径输出下载失败: %d %s", rec.Code, rec.Body.String())
+	}
+	// 相对路径仍拒绝穿越。
+	rec = doJSON(t, s.handleAutoOutput, http.MethodGet, "/api/auto/output?path=..%2F..%2Fx", nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("相对穿越应 400: %d", rec.Code)
 	}
 }

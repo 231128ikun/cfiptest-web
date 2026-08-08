@@ -545,3 +545,22 @@ func TestRunTaskRemoteLibraryDoesNotWriteBack(t *testing.T) {
 		t.Fatalf("远程候选库不应写回检测结果：before=%+v after=%+v", original, got)
 	}
 }
+
+func TestWriteOutputAbsolutePath(t *testing.T) {
+	dataDir := t.TempDir()
+	target := filepath.Join(t.TempDir(), "exported", "sub", "t.txt")
+	path, err := WriteOutput(dataDir, Output{Path: target, Format: "txt", Template: "{ip}:{port}"}, []library.Entry{{IP: "1.2.3.4", Port: 443}})
+	if err != nil {
+		t.Fatalf("绝对路径输出失败: %v", err)
+	}
+	if path != target {
+		t.Fatalf("返回路径=%q，期望 %q", path, target)
+	}
+	body, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("读取绝对输出失败: %v", err)
+	}
+	if string(body) != "1.2.3.4:443\n" {
+		t.Fatalf("绝对输出内容错误: %q", body)
+	}
+}
