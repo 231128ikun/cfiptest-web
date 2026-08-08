@@ -144,7 +144,6 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/auto/library/remove", s.handleLibraryRemove)
 	s.mux.HandleFunc("POST /api/auto/run", s.handleAutoRun)
 	s.mux.HandleFunc("GET /api/auto/output", s.handleAutoOutput)
-	s.mux.HandleFunc("GET /api/auto/paths", s.handleAutoPaths)
 	s.mux.HandleFunc("GET /api/log", s.handleLogGet)
 	s.mux.HandleFunc("POST /api/log/clear", s.handleLogClear)
 	s.mux.HandleFunc("POST /api/shutdown", s.handleShutdown)

@@ -69,10 +69,6 @@ export function fetchTasks() { return postJSON('/api/auto/tasks', {}, 'GET'); }
 export function saveTasks(tasks) { return postJSON('/api/auto/tasks', { tasks }, 'PUT'); }
 export function validateTask(task) { return postJSON('/api/auto/tasks/validate', task); }
 export function uploadAutoInput(name, text) { return postJSON('/api/auto/input/upload', { name, text }); }
-export function browseAutoPaths(dir = '') {
-    const query = dir ? `?path=${encodeURIComponent(dir)}` : '';
-    return postJSON(`/api/auto/paths${query}`, {}, 'GET');
-}
 
 export function fetchLibraries() { return postJSON('/api/auto/libraries', {}, 'GET'); }
 export function createLibrary(name) { return postJSON('/api/auto/libraries', { name }); }
