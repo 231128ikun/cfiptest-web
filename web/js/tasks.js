@@ -262,27 +262,6 @@ export function initTasks({ toast }) {
         status.classList.remove('error');
     }
 
-    function updateTaskOutputPreview() {
-        const preview = $('task-output-preview');
-        const format = $('task-format').value === 'csv' ? 'csv' : 'txt';
-        let raw = $('task-output').value.trim().replace(/\\/g, '/');
-        const taskName = $('task-name').value.trim() || '任务名';
-        if (isServerAbsolutePath(raw)) {
-            raw = raw.replace(/\.(?:txt|csv)$/i, '');
-            preview.textContent = '实际输出：' + raw + '.' + format + '（服务器文件绝对路径；在运行 iptest-web 的主机上写入，非浏览器本机路径）';
-            preview.classList.remove('error');
-            return;
-        }
-        if (raw.split('/').includes('..')) {
-            preview.textContent = '路径无效：不能使用 ../，只能填写 data 目录内的相对路径或服务器绝对路径';
-            preview.classList.add('error');
-            return;
-        }
-        raw = raw.replace(/^\.\//, '').replace(/\.(?:txt|csv)$/i, '');
-        const relative = raw ? (raw.includes('/') ? raw : 'out/' + raw) : 'out/' + taskName;
-        preview.textContent = '实际输出：data/' + relative + '.' + format + '（服务器 data 目录；不是浏览器本机路径）';
-        preview.classList.remove('error');
-    }
 
     function fillForm(task) {
         $('task-name').value = task.name || '';
@@ -303,7 +282,6 @@ export function initTasks({ toast }) {
         updateTaskInitFileStatus();
         $('task-output').value = task.output?.path || '';
         $('task-format').value = task.output?.format === 'csv' ? 'csv' : 'txt';
-        updateTaskOutputPreview();
         $('task-sort').value = task.output?.sort || 'latencyAsc';
         $('task-limit').value = task.limit > 0 ? task.limit : 200;
         $('task-speed').checked = Boolean(task.speedEnabled);
@@ -599,8 +577,6 @@ export function initTasks({ toast }) {
         description.classList.toggle('error', !described.valid);
         $('task-schedule-cron').setAttribute('aria-invalid', String(!described.valid));
     }
-    ['task-name', 'task-output'].forEach(id => $(id).addEventListener('input', updateTaskOutputPreview));
-    $('task-format').addEventListener('change', updateTaskOutputPreview);
     $('task-speed').addEventListener('change', () => { const t = currentTask(); if (t) renderRules(t.rules || []); });
     $('task-schedule-enabled').addEventListener('change', updateScheduleUI);
     $('task-schedule-cron').addEventListener('input', updateScheduleUI);

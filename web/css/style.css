@@ -928,10 +928,19 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 .task-form-row label.checkbox { flex-direction: row; align-items: center; gap: 6px; padding-top: 16px; color: var(--text); }
 .task-template-label { grid-column: span 2; }
 .task-output-row { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
-.task-output-row .task-template-label { grid-column: span 2; }
 .task-output-row .auto-template-row { display: flex; gap: 6px; flex-wrap: wrap; }
 .task-output-row .auto-template-row select { flex: 1; min-width: 120px; }
 .task-output-row .auto-template-row input { flex: 1; min-width: 160px; }
+/* Output directory toggle */
+.task-output-dir { margin: 6px 0 2px; }
+.task-output-dir > summary { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: var(--radius-sm); background: var(--surface-soft); border: 1px solid var(--border-light); cursor: pointer; font-size: 12px; font-weight: 500; color: var(--text-tertiary); transition: color .15s ease, background .15s ease; list-style: none; }
+.task-output-dir > summary:hover { color: var(--text-secondary); background: var(--surface-strong); }
+.task-output-dir > summary::-webkit-details-marker { display: none; }
+.task-output-dir[open] > summary { margin-bottom: 8px; }
+.task-output-dir-field { display: block; }
+.task-output-dir-field input { width: 100%; max-width: 420px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: 13px; font-family: var(--font-mono); }
+.task-output-dir-field input:focus { outline: 2px solid var(--primary); outline-offset: -1px; border-color: var(--primary); }
+
 .task-rules-section { margin: 8px 0; }
 .task-rules-section > summary { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-radius: var(--radius-sm); background: var(--surface-soft); border: 1px solid var(--border-light); cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text-secondary); transition: background .15s ease; list-style: none; }
 .task-rules-section > summary:hover { background: var(--surface-strong); }

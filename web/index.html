@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#f5f5f7">
     <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2214%22%20fill%3D%22%230071e3%22%2F%3E%3Ccircle%20cx%3D%2223%22%20cy%3D%2232%22%20r%3D%226.5%22%20fill%3D%22%23fff%22%2F%3E%3Ccircle%20cx%3D%2241%22%20cy%3D%2219.5%22%20r%3D%226.5%22%20fill%3D%22%23fff%22%2F%3E%3Ccircle%20cx%3D%2241%22%20cy%3D%2244.5%22%20r%3D%226.5%22%20fill%3D%22%23fff%22%2F%3E%3Cpath%20d%3D%22M28.5%2030.5l9-8.5M28.5%2033.5l9%208.5%22%20stroke%3D%22%23fff%22%20stroke-width%3D%224%22%20stroke-linecap%3D%22round%22%2F%3E%3C%2Fsvg%3E">
-    <title>IP 优选工作台</title>
+    <title>IP 浼橀€夊伐浣滃彴</title>
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -13,15 +13,15 @@
         <div class="header-inner">
             <div class="brand-block">
                 <div class="brand-mark" aria-hidden="true">IP</div>
-                <div><h1>IP 优选工作台</h1><p>导入候选、设置规则、检测并导出</p></div>
-                <button type="button" id="btn-help" class="help-btn" title="使用说明" aria-label="使用说明">?</button>
+                <div><h1>IP 浼橀€夊伐浣滃彴</h1><p>瀵煎叆鍊欓€夈€佽缃鍒欍€佹娴嬪苟瀵煎嚭</p></div>
+                <button type="button" id="btn-help" class="help-btn" title="浣跨敤璇存槑" aria-label="浣跨敤璇存槑">?</button>
             </div>
             <div class="header-status">
-                <span class="local-badge">本地运行</span>
-                <span class="version" id="app-version">版本号：加载中…</span>
-                <span id="res-status" class="res-status">资源加载中…</span>
+                <span class="local-badge">鏈湴杩愯</span>
+                <span class="version" id="app-version">鐗堟湰鍙凤細鍔犺浇涓€?/span>
+                <span id="res-status" class="res-status">璧勬簮鍔犺浇涓€?/span>
                 <span class="header-divider" aria-hidden="true"></span>
-                <button type="button" id="btn-stop-power" class="power-btn" title="退出程序" aria-label="退出程序">
+                <button type="button" id="btn-stop-power" class="power-btn" title="閫€鍑虹▼搴? aria-label="閫€鍑虹▼搴?>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
                 </button>
                 
@@ -32,103 +32,103 @@
     <div class="app-shell">
     <aside class="sidebar" id="sidebar">
         <div class="side-head">
-            <span class="side-head-title">导航</span>
-            <button type="button" id="sidebar-toggle" class="side-toggle" title="折叠 / 展开侧边栏" aria-label="折叠 / 展开侧边栏">«</button>
+            <span class="side-head-title">瀵艰埅</span>
+            <button type="button" id="sidebar-toggle" class="side-toggle" title="鎶樺彔 / 灞曞紑渚ц竟鏍? aria-label="鎶樺彔 / 灞曞紑渚ц竟鏍?>芦</button>
         </div>
-        <nav class="sidebar-nav" aria-label="主导航">
+        <nav class="sidebar-nav" aria-label="涓诲鑸?>
             <div class="side-group">
-                <a href="#page-workspace" class="side-item active" data-page="workspace" title="测速工作台"><span class="side-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/></svg></span><span class="side-label">测速工作台</span></a>
-                <a href="#page-tasks" class="side-item" data-page="tasks" title="自动维护"><span class="side-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><polyline points="20 4 20 8 16 8"/></svg></span><span class="side-label">自动维护</span></a>
-                <a href="#page-library" class="side-item" data-page="library" title="IP 库"><span class="side-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.6" y="3.6" width="7.4" height="7.4" rx="1.6"/><rect x="13" y="3.6" width="7.4" height="7.4" rx="1.6"/><rect x="3.6" y="13" width="7.4" height="7.4" rx="1.6"/><rect x="13" y="13" width="7.4" height="7.4" rx="1.6"/></svg></span><span class="side-label">IP 库</span></a>
-                <a href="#page-logs" class="side-item" data-page="logs" title="日志"><span class="side-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="13.5" y2="17"/></svg></span><span class="side-label">日志</span></a>
+                <a href="#page-workspace" class="side-item active" data-page="workspace" title="娴嬮€熷伐浣滃彴"><span class="side-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/></svg></span><span class="side-label">娴嬮€熷伐浣滃彴</span></a>
+                <a href="#page-tasks" class="side-item" data-page="tasks" title="鑷姩缁存姢"><span class="side-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><polyline points="20 4 20 8 16 8"/></svg></span><span class="side-label">鑷姩缁存姢</span></a>
+                <a href="#page-library" class="side-item" data-page="library" title="IP 搴?><span class="side-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.6" y="3.6" width="7.4" height="7.4" rx="1.6"/><rect x="13" y="3.6" width="7.4" height="7.4" rx="1.6"/><rect x="3.6" y="13" width="7.4" height="7.4" rx="1.6"/><rect x="13" y="13" width="7.4" height="7.4" rx="1.6"/></svg></span><span class="side-label">IP 搴?/span></a>
+                <a href="#page-logs" class="side-item" data-page="logs" title="鏃ュ織"><span class="side-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="13.5" y2="17"/></svg></span><span class="side-label">鏃ュ織</span></a>
 
             </div>
             <div class="side-group side-bottom">
-                <a href="#page-settings" class="side-item" data-page="settings" title="设置"><span class="side-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.1"/><path d="M12 2.6v2.6M12 18.8v2.6M2.6 12h2.6M18.8 12h2.6M5.4 5.4l1.9 1.9M16.7 16.7l1.9 1.9M18.6 5.4l-1.9 1.9M7.3 16.7l-1.9 1.9"/></svg></span><span class="side-label">设置</span></a>
+                <a href="#page-settings" class="side-item" data-page="settings" title="璁剧疆"><span class="side-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.1"/><path d="M12 2.6v2.6M12 18.8v2.6M2.6 12h2.6M18.8 12h2.6M5.4 5.4l1.9 1.9M16.7 16.7l1.9 1.9M18.6 5.4l-1.9 1.9M7.3 16.7l-1.9 1.9"/></svg></span><span class="side-label">璁剧疆</span></a>
             </div>
         </nav>
         </aside>
     <main class="content">
         <section id="page-workspace" class="page active">
-            <nav class="flow-nav" aria-label="处理流程">
+            <nav class="flow-nav" aria-label="澶勭悊娴佺▼">
                 <div class="flow-nav-inner">
-                    <a href="#stage-input" class="flow-step active"><span>1</span>准备候选</a>
-                    <a href="#stage-test" class="flow-step"><span>2</span>检测规则</a>
-                    <a href="#stage-results" class="flow-step"><span>3</span>检测及结果</a>
+                    <a href="#stage-input" class="flow-step active"><span>1</span>鍑嗗鍊欓€?/a>
+                    <a href="#stage-test" class="flow-step"><span>2</span>妫€娴嬭鍒?/a>
+                    <a href="#stage-results" class="flow-step"><span>3</span>妫€娴嬪強缁撴灉</a>
                 </div>
             </nav>
         <section id="stage-input" class="flow-section">
             <div class="section-heading">
-                <div><span class="eyebrow">STEP 1</span><h2>准备待检测候选</h2></div>
-                <div class="section-metric"><strong id="candidate-count">0 条</strong><span>候选目标</span></div>
+                <div><span class="eyebrow">STEP 1</span><h2>鍑嗗寰呮娴嬪€欓€?/h2></div>
+                <div class="section-metric"><strong id="candidate-count">0 鏉?/strong><span>鍊欓€夌洰鏍?/span></div>
             </div>
 
             <div class="mode-tabs" id="mode-tabs" role="tablist">
-                <button id="tab-proxy" class="mode-tab active" data-mode="proxy" role="tab" aria-selected="true" aria-controls="source-proxy" tabindex="0">反代 IP 模式</button>
-                <button id="tab-official" class="mode-tab" data-mode="official" role="tab" aria-selected="false" aria-controls="source-official" tabindex="-1">官方 IP 模式</button>
+                <button id="tab-proxy" class="mode-tab active" data-mode="proxy" role="tab" aria-selected="true" aria-controls="source-proxy" tabindex="0">鍙嶄唬 IP 妯″紡</button>
+                <button id="tab-official" class="mode-tab" data-mode="official" role="tab" aria-selected="false" aria-controls="source-official" tabindex="-1">瀹樻柟 IP 妯″紡</button>
             </div>
 
             <div id="source-proxy" class="source-panel" role="tabpanel" aria-labelledby="tab-proxy">
-                <div class="import-station" aria-label="快速载入候选">
+                <div class="import-station" aria-label="蹇€熻浇鍏ュ€欓€?>
                     <div class="import-station-title">
-                        <strong>快速载入</strong>
-                        <span>也可以直接在下方原始列表中粘贴或编辑内容</span>
+                        <strong>蹇€熻浇鍏?/strong>
+                        <span>涔熷彲浠ョ洿鎺ュ湪涓嬫柟鍘熷鍒楄〃涓矘璐存垨缂栬緫鍐呭</span>
                     </div>
                     <div class="source-toolbar compact-toolbar proxy-source-toolbar">
                         <label class="import-source-select">
-                            <span>来源</span>
-                            <select id="import-source" aria-label="导入来源">
-                                <option value="file">本地文件</option>
-                                <option value="remote">远程链接</option>
-                                <option value="library">IP 库</option>
+                            <span>鏉ユ簮</span>
+                            <select id="import-source" aria-label="瀵煎叆鏉ユ簮">
+                                <option value="file">鏈湴鏂囦欢</option>
+                                <option value="remote">杩滅▼閾炬帴</option>
+                                <option value="library">IP 搴?/option>
                             </select>
                         </label>
                         <div class="proxy-source-field" aria-live="polite">
-                            <span class="proxy-source-hint" id="import-hint">支持 .txt、.csv 文件；选择后内容会载入原始列表</span>
-                            <input type="text" id="import-remote-url" placeholder="远程 TXT / CSV 链接，如 https://example.com/list.txt" aria-label="远程 TXT 或 CSV 链接" hidden>
-                            <select id="import-library-select" hidden aria-label="选择 IP 库"><option value="">选择要导入的 IP 库…</option></select>
+                            <span class="proxy-source-hint" id="import-hint">鏀寔 .txt銆?csv 鏂囦欢锛涢€夋嫨鍚庡唴瀹逛細杞藉叆鍘熷鍒楄〃</span>
+                            <input type="text" id="import-remote-url" placeholder="杩滅▼ TXT / CSV 閾炬帴锛屽 https://example.com/list.txt" aria-label="杩滅▼ TXT 鎴?CSV 閾炬帴" hidden>
+                            <select id="import-library-select" hidden aria-label="閫夋嫨 IP 搴?><option value="">閫夋嫨瑕佸鍏ョ殑 IP 搴撯€?/option></select>
                         </div>
                         <input type="file" id="file-input" accept=".txt,.csv,.text,text/plain,text/csv" hidden>
-                        <button type="button" id="btn-import-remote" class="primary import-action">选择文件</button>
+                        <button type="button" id="btn-import-remote" class="primary import-action">閫夋嫨鏂囦欢</button>
                     </div>
                 </div>
                 <div class="input-candidate-grid">
                     <div class="input-pane">
-                        <div class="pane-head"><span>原始 IP 列表</span><span id="source-line-count" class="hint">0 行</span></div>
-                        <textarea id="ip-input" rows="13" placeholder="1.1.1.1&#10;1.1.1.1:443&#10;1.1.1.1:443#美国-洛杉矶&#10;[2606:4700::1]:443#日本-东京&#10;每行一个；支持 IP、端口、国家-城市备注、CIDR、TXT 与本程序导出的 CSV"></textarea>
+                        <div class="pane-head"><span>鍘熷 IP 鍒楄〃</span><span id="source-line-count" class="hint">0 琛?/span></div>
+                        <textarea id="ip-input" rows="13" placeholder="1.1.1.1&#10;1.1.1.1:443&#10;1.1.1.1:443#缇庡浗-娲涙潐鐭?#10;[2606:4700::1]:443#鏃ユ湰-涓滀含&#10;姣忚涓€涓紱鏀寔 IP銆佺鍙ｃ€佸浗瀹?鍩庡競澶囨敞銆丆IDR銆乀XT 涓庢湰绋嬪簭瀵煎嚭鐨?CSV"></textarea>
                         <div class="filter-row">
-                            <input type="text" id="filter-expr" placeholder="如 port:443、port:8000-9000、country:日本、-port:9443、条件1 | 条件2">
-                            <button id="btn-filter-keep" class="small">保留匹配</button>
-                            <button id="btn-filter-remove" class="small">排除匹配</button>
-                            <button id="btn-filter-clear" class="small">重置筛选</button>
-                            <button type="button" id="btn-filter-help" class="small help-icon" title="筛选说明" aria-label="筛选说明">?</button>
+                            <input type="text" id="filter-expr" placeholder="濡?port:443銆乸ort:8000-9000銆乧ountry:鏃ユ湰銆?port:9443銆佹潯浠? | 鏉′欢2">
+                            <button id="btn-filter-keep" class="small">淇濈暀鍖归厤</button>
+                            <button id="btn-filter-remove" class="small">鎺掗櫎鍖归厤</button>
+                            <button id="btn-filter-clear" class="small">閲嶇疆绛涢€?/button>
+                            <button type="button" id="btn-filter-help" class="small help-icon" title="绛涢€夎鏄? aria-label="绛涢€夎鏄?>?</button>
                         </div>
                         <div id="filter-help" class="filter-help" hidden>
-                            <p><b>筛选表达式说明</b>：输入框会实时显示筛选后的内容。</p>
+                            <p><b>绛涢€夎〃杈惧紡璇存槑</b>锛氳緭鍏ユ浼氬疄鏃舵樉绀虹瓫閫夊悗鐨勫唴瀹广€?/p>
                             <ul>
-                                <li>空格或 <code>&&</code> 表示“且”，<code>|</code> 表示“或”，逗号表示同字段多个值。</li>
-                                <li>支持字段：<code>port:443</code>（精确端口）、<code>port:8000-9000</code>（范围）、<code>country:日本</code>、<code>asn:AS906</code>（或 <code>as:906</code>）；裸关键词匹配任意文本。</li>
-                                <li>排除：前缀 <code>-</code> 或 <code>!</code>，如 <code>-port:9443</code>、<code>-东京</code>；也可用 <code>!=</code>，如 <code>country!=美国</code>。</li>
-                                <li>示例：<code>port:443,8443 country:日本 -测试</code>；<code>port:8000-9000 | port:2053</code>。</li>
-                                <li>保留匹配＝只保留符合条件的行；排除匹配＝删掉符合条件的行。</li>
-                                <li>延迟/速度范围框填 <code>min~max</code>，如 <code>100~500</code>；延迟只填一个数表示上限，速度只填一个数表示下限。</li>
+                                <li>绌烘牸鎴?<code>&&</code> 琛ㄧず鈥滀笖鈥濓紝<code>|</code> 琛ㄧず鈥滄垨鈥濓紝閫楀彿琛ㄧず鍚屽瓧娈靛涓€笺€?/li>
+                                <li>鏀寔瀛楁锛?code>port:443</code>锛堢簿纭鍙ｏ級銆?code>port:8000-9000</code>锛堣寖鍥达級銆?code>country:鏃ユ湰</code>銆?code>asn:AS906</code>锛堟垨 <code>as:906</code>锛夛紱瑁稿叧閿瘝鍖归厤浠绘剰鏂囨湰銆?/li>
+                                <li>鎺掗櫎锛氬墠缂€ <code>-</code> 鎴?<code>!</code>锛屽 <code>-port:9443</code>銆?code>-涓滀含</code>锛涗篃鍙敤 <code>!=</code>锛屽 <code>country!=缇庡浗</code>銆?/li>
+                                <li>绀轰緥锛?code>port:443,8443 country:鏃ユ湰 -娴嬭瘯</code>锛?code>port:8000-9000 | port:2053</code>銆?/li>
+                                <li>淇濈暀鍖归厤锛濆彧淇濈暀绗﹀悎鏉′欢鐨勮锛涙帓闄ゅ尮閰嶏紳鍒犳帀绗﹀悎鏉′欢鐨勮銆?/li>
+                                <li>寤惰繜/閫熷害鑼冨洿妗嗗～ <code>min~max</code>锛屽 <code>100~500</code>锛涘欢杩熷彧濉竴涓暟琛ㄧず涓婇檺锛岄€熷害鍙～涓€涓暟琛ㄧず涓嬮檺銆?/li>
                             </ul>
                         </div>
                         <div class="input-feedback">
-                            <span id="filter-summary">未设置筛选</span>
-                            <button id="btn-workspace-clear" class="text-button">清空列表</button>
+                            <span id="filter-summary">鏈缃瓫閫?/span>
+                            <button id="btn-workspace-clear" class="text-button">娓呯┖鍒楄〃</button>
                         </div>
                     </div>
                     <div class="transfer-pane">
-                        <button id="btn-add-paste" class="primary transfer-button" title="将当前筛选结果加入候选" aria-label="加入候选"><span>加入</span><b>→</b></button>
+                        <button id="btn-add-paste" class="primary transfer-button" title="灏嗗綋鍓嶇瓫閫夌粨鏋滃姞鍏ュ€欓€? aria-label="鍔犲叆鍊欓€?><span>鍔犲叆</span><b>鈫?/b></button>
                     </div>
                     <div class="candidate-pane">
-                        <div class="pane-head"><span>候选区</span><button id="btn-candidates-clear" class="text-button">清空</button></div>
-                        <textarea id="ip-candidates" rows="13" readonly placeholder="筛选后的内容加入这里时会自动规范化和去重"></textarea>
+                        <div class="pane-head"><span>鍊欓€夊尯</span><button id="btn-candidates-clear" class="text-button">娓呯┖</button></div>
+                        <textarea id="ip-candidates" rows="13" readonly placeholder="绛涢€夊悗鐨勫唴瀹瑰姞鍏ヨ繖閲屾椂浼氳嚜鍔ㄨ鑼冨寲鍜屽幓閲?></textarea>
                         <div class="candidate-stats">
                             <span>IPv4 <b id="stat-v4">0</b></span>
                             <span>IPv6 <b id="stat-v6">0</b></span>
-                            <span id="stat-ports">端口 —</span>
+                            <span id="stat-ports">绔彛 鈥?/span>
                         </div>
                     </div>
                 </div>
@@ -137,33 +137,33 @@
             <div id="source-official" class="source-panel" role="tabpanel" aria-labelledby="tab-official" hidden>
                 <div class="official-layout">
                     <div class="official-settings">
-                        <div class="official-heading"><h3>Cloudflare 官方 IP 段</h3><span id="ranges-status" class="hint">尚未加载</span></div>
+                        <div class="official-heading"><h3>Cloudflare 瀹樻柟 IP 娈?/h3><span id="ranges-status" class="hint">灏氭湭鍔犺浇</span></div>
                         <div class="field-row">
-                            <span class="field-name">地址类型</span>
-                            <label class="radio"><input type="radio" name="official-family" value="ipv4" checked> 官方 IPv4</label>
-                            <label class="radio"><input type="radio" name="official-family" value="ipv6"> 官方 IPv6</label>
+                            <span class="field-name">鍦板潃绫诲瀷</span>
+                            <label class="radio"><input type="radio" name="official-family" value="ipv4" checked> 瀹樻柟 IPv4</label>
+                            <label class="radio"><input type="radio" name="official-family" value="ipv6"> 瀹樻柟 IPv6</label>
                         </div>
                         <div class="field-row">
-                            <span class="field-name">抽样方式</span>
-                            <label class="radio"><input type="radio" name="sample-mode" value="one" checked> 每段取 1 个</label>
-                            <label class="radio"><input type="radio" name="sample-mode" value="n"> 每段取 <input type="number" id="sample-n" min="1" max="256" value="1"> 个</label>
+                            <span class="field-name">鎶芥牱鏂瑰紡</span>
+                            <label class="radio"><input type="radio" name="sample-mode" value="one" checked> 姣忔鍙?1 涓?/label>
+                            <label class="radio"><input type="radio" name="sample-mode" value="n"> 姣忔鍙?<input type="number" id="sample-n" min="1" max="256" value="1"> 涓?/label>
                         </div>
                         <div class="field-row official-endpoint-row">
-                            <span class="field-name">检测端点</span>
-                            <label>协议 <select id="official-protocol"><option value="https">HTTPS</option><option value="http">HTTP</option></select></label>
-                            <label>端口 <select id="official-port"><option value="443">443</option></select></label>
+                            <span class="field-name">妫€娴嬬鐐?/span>
+                            <label>鍗忚 <select id="official-protocol"><option value="https">HTTPS</option><option value="http">HTTP</option></select></label>
+                            <label>绔彛 <select id="official-port"><option value="443">443</option></select></label>
                         </div>
-                        <div class="note" id="sample-hint">按每段抽样，避免直接检测百万级地址；具体方式随设置更新。</div>
+                        <div class="note" id="sample-hint">鎸夋瘡娈垫娊鏍凤紝閬垮厤鐩存帴妫€娴嬬櫨涓囩骇鍦板潃锛涘叿浣撴柟寮忛殢璁剧疆鏇存柊銆?/div>
                         <div class="official-actions">
-                            <button id="btn-refresh-ranges" title="从远程官方接口拉取最新 IP 段并覆盖本地缓存文件">更新本地缓存</button>
-                            <button id="btn-add-ranges" class="primary">生成官方候选</button>
+                            <button id="btn-refresh-ranges" title="浠庤繙绋嬪畼鏂规帴鍙ｆ媺鍙栨渶鏂?IP 娈靛苟瑕嗙洊鏈湴缂撳瓨鏂囦欢">鏇存柊鏈湴缂撳瓨</button>
+                            <button id="btn-add-ranges" class="primary">鐢熸垚瀹樻柟鍊欓€?/button>
                         </div>
-                        <div id="ranges-estimate" class="estimate-box">打开官方模式后自动读取本地缓存；无缓存时自动尝试远程拉取</div>
+                        <div id="ranges-estimate" class="estimate-box">鎵撳紑瀹樻柟妯″紡鍚庤嚜鍔ㄨ鍙栨湰鍦扮紦瀛橈紱鏃犵紦瀛樻椂鑷姩灏濊瘯杩滅▼鎷夊彇</div>
                     </div>
                     <div class="candidate-pane official-candidate">
-                        <div class="pane-head"><span>官方候选区</span><button id="btn-official-clear" class="text-button">清空</button></div>
-                        <textarea id="official-candidates" rows="13" readonly placeholder="按设置生成的官方候选会显示在这里"></textarea>
-                        <div class="candidate-stats"><span id="official-port-summary">HTTPS · 443</span><span id="official-candidate-count">0 条</span></div>
+                        <div class="pane-head"><span>瀹樻柟鍊欓€夊尯</span><button id="btn-official-clear" class="text-button">娓呯┖</button></div>
+                        <textarea id="official-candidates" rows="13" readonly placeholder="鎸夎缃敓鎴愮殑瀹樻柟鍊欓€変細鏄剧ず鍦ㄨ繖閲?></textarea>
+                        <div class="candidate-stats"><span id="official-port-summary">HTTPS 路 443</span><span id="official-candidate-count">0 鏉?/span></div>
                     </div>
                 </div>
             </div>
@@ -171,33 +171,33 @@
 
         <section id="stage-test" class="flow-section">
             <div class="section-heading">
-                <div><span class="eyebrow">STEP 2</span><h2>检测规则</h2></div>
-                <button id="btn-reset-rules" class="secondary-button">恢复推荐设置</button>
+                <div><span class="eyebrow">STEP 2</span><h2>妫€娴嬭鍒?/h2></div>
+                <button id="btn-reset-rules" class="secondary-button">鎭㈠鎺ㄨ崘璁剧疆</button>
             </div>
 
             <details class="rules-settings" open>
-                <summary>检测参数设置</summary>
+                <summary>妫€娴嬪弬鏁拌缃?/summary>
             <div class="rules-grid">
                 <div class="rule-group">
-                    <div class="rule-group-head"><h3>连接与延迟</h3><span id="default-port-hint">目标自带端口优先；未指定时使用 443</span></div>
+                    <div class="rule-group-head"><h3>杩炴帴涓庡欢杩?/h3><span id="default-port-hint">鐩爣鑷甫绔彛浼樺厛锛涙湭鎸囧畾鏃朵娇鐢?443</span></div>
                     <label class="rule-line"><span>TLS</span><input type="checkbox" id="lat-tls" checked></label>
-                    <label class="rule-line"><span>检测 IPS 类型</span><input type="checkbox" id="lat-ipapi" title="调用外部接口识别被测 IP 的地址类型（IPv4/IPv6）"></label>
-                    <label class="rule-line"><span>延迟并发数</span><input type="number" id="lat-concurrency" min="1" max="1000" step="1"><em>个</em></label>
-                    <label class="rule-line"><span>最大允许延迟</span><input type="number" id="lat-maxlatency" min="0" max="10000" placeholder="不限制"><em>ms</em></label>
+                    <label class="rule-line"><span>妫€娴?IPS 绫诲瀷</span><input type="checkbox" id="lat-ipapi" title="璋冪敤澶栭儴鎺ュ彛璇嗗埆琚祴 IP 鐨勫湴鍧€绫诲瀷锛圛Pv4/IPv6锛?></label>
+                    <label class="rule-line"><span>寤惰繜骞跺彂鏁?/span><input type="number" id="lat-concurrency" min="1" max="1000" step="1"><em>涓?/em></label>
+                    <label class="rule-line"><span>鏈€澶у厑璁稿欢杩?/span><input type="number" id="lat-maxlatency" min="0" max="10000" placeholder="涓嶉檺鍒?><em>ms</em></label>
                 </div>
 
                 <div class="rule-group" id="spd-panel">
-                    <div class="rule-group-head panel-head"><h3>速度条件</h3><label class="checkbox"><input type="checkbox" id="spd-enable"> 延迟检测后继续测速</label></div>
-                    <label class="field rule-line"><span>测速并发数</span><input type="number" id="spd-concurrency" min="1" max="100"><em>个</em></label>
-                    <label class="field rule-line"><span>单 IP 时限</span><input type="number" id="spd-duration" min="1" max="30"><em>秒</em></label>
-                    <label class="field rule-line"><span>最低下载速度</span><input type="number" id="spd-minspeed" min="0" placeholder="不限制"><em>kB/s</em></label>
+                    <div class="rule-group-head panel-head"><h3>閫熷害鏉′欢</h3><label class="checkbox"><input type="checkbox" id="spd-enable"> 寤惰繜妫€娴嬪悗缁х画娴嬮€?/label></div>
+                    <label class="field rule-line"><span>娴嬮€熷苟鍙戞暟</span><input type="number" id="spd-concurrency" min="1" max="100"><em>涓?/em></label>
+                    <label class="field rule-line"><span>鍗?IP 鏃堕檺</span><input type="number" id="spd-duration" min="1" max="30"><em>绉?/em></label>
+                    <label class="field rule-line"><span>鏈€浣庝笅杞介€熷害</span><input type="number" id="spd-minspeed" min="0" placeholder="涓嶉檺鍒?><em>kB/s</em></label>
                     <div class="field hidden-setting"><input type="number" id="spd-maxresults" min="0"><input type="text" id="spd-url"><input type="checkbox" id="spd-tls"></div>
                 </div>
 
                 <div class="rule-group">
-                    <div class="rule-group-head"><h3>整体约束</h3><span>留空或 0 = 不限制</span></div>
-                    <label class="rule-line"><span>整体结果达到后停止</span><input type="number" id="rule-maxresults" min="0" placeholder="不限制"><em>个</em></label>
-                    <div class="note">达到该数量即停止；清空结果后可继续检测。</div>
+                    <div class="rule-group-head"><h3>鏁翠綋绾︽潫</h3><span>鐣欑┖鎴?0 = 涓嶉檺鍒?/span></div>
+                    <label class="rule-line"><span>鏁翠綋缁撴灉杈惧埌鍚庡仠姝?/span><input type="number" id="rule-maxresults" min="0" placeholder="涓嶉檺鍒?><em>涓?/em></label>
+                    <div class="note">杈惧埌璇ユ暟閲忓嵆鍋滄锛涙竻绌虹粨鏋滃悗鍙户缁娴嬨€?/div>
                 </div>
             </div>
 
@@ -208,133 +208,133 @@
 
         <section id="stage-results" class="flow-section">
             <div class="section-heading compact">
-                <div><span class="eyebrow">STEP 3</span><h2>检测及结果 <span id="result-count"></span></h2></div>
+                <div><span class="eyebrow">STEP 3</span><h2>妫€娴嬪強缁撴灉 <span id="result-count"></span></h2></div>
             </div>
 
             <div class="run-strip result-run-strip">
-                <div><span>当前候选</span><strong id="run-target-count">0</strong></div>
-                <div class="batch-status" id="batch-status" hidden><span>本批进度</span><strong id="batch-progress">0/0</strong></div>
-                <button id="btn-start-latency" class="primary run-button">开始检测</button>
+                <div><span>褰撳墠鍊欓€?/span><strong id="run-target-count">0</strong></div>
+                <div class="batch-status" id="batch-status" hidden><span>鏈壒杩涘害</span><strong id="batch-progress">0/0</strong></div>
+                <button id="btn-start-latency" class="primary run-button">寮€濮嬫娴?/button>
             </div>
-            <div class="progress-wrap" id="progress-wrap" role="progressbar" aria-label="检测进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="0%">
+            <div class="progress-wrap" id="progress-wrap" role="progressbar" aria-label="妫€娴嬭繘搴? aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="0%">
                 <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
-                <div class="progress-text"><span id="progress-label">准备中…</span><span id="progress-pct">0%</span></div>
+                <div class="progress-text"><span id="progress-label">鍑嗗涓€?/span><span id="progress-pct">0%</span></div>
             </div>
 
             <div class="result-toolbar">
                 <div class="result-filter-group">
-                    <input type="text" id="result-filter" placeholder="筛选 IP、国家、城市、数据中心、ASN" aria-label="结果筛选">
+                    <input type="text" id="result-filter" placeholder="绛涢€?IP銆佸浗瀹躲€佸煄甯傘€佹暟鎹腑蹇冦€丄SN" aria-label="缁撴灉绛涢€?>
                     <div class="result-filter-limits">
-                        <input type="text" id="result-latency-range" placeholder="延迟范围 ms：100~500；单值=上限" aria-label="延迟范围">
-                        <input type="text" id="result-speed-range" placeholder="速度范围 kB/s：10~100；单值=下限" aria-label="速度范围">
+                        <input type="text" id="result-latency-range" placeholder="寤惰繜鑼冨洿 ms锛?00~500锛涘崟鍊?涓婇檺" aria-label="寤惰繜鑼冨洿">
+                        <input type="text" id="result-speed-range" placeholder="閫熷害鑼冨洿 kB/s锛?0~100锛涘崟鍊?涓嬮檺" aria-label="閫熷害鑼冨洿">
                     </div>
                 </div>
                 <div class="result-view-controls">
-                    <span class="sort-bar"><label for="sort-key">排序</label><select id="sort-key"></select><button id="btn-sort-dir" class="small">▲ 升序</button></span>
-                    <button id="btn-column-toggle" aria-expanded="false" aria-controls="column-box">显示字段</button>
-                    <button id="btn-quota-toggle" aria-expanded="false" aria-controls="quota-box">自定义展示规则</button>
-                    <button id="btn-clear-results" class="small" disabled>清空检测结果</button>
+                    <span class="sort-bar"><label for="sort-key">鎺掑簭</label><select id="sort-key"></select><button id="btn-sort-dir" class="small">鈻?鍗囧簭</button></span>
+                    <button id="btn-column-toggle" aria-expanded="false" aria-controls="column-box">鏄剧ず瀛楁</button>
+                    <button id="btn-quota-toggle" aria-expanded="false" aria-controls="quota-box">鑷畾涔夊睍绀鸿鍒?/button>
+                    <button id="btn-clear-results" class="small" disabled>娓呯┖妫€娴嬬粨鏋?/button>
                 </div>
             </div>
 
             <details class="column-box" id="column-box">
-                <summary class="column-box-head"><span>表格显示字段，同时作为 CSV 导出字段</span><span id="column-selected-count" class="hint"></span></summary>
+                <summary class="column-box-head"><span>琛ㄦ牸鏄剧ず瀛楁锛屽悓鏃朵綔涓?CSV 瀵煎嚭瀛楁</span><span id="column-selected-count" class="hint"></span></summary>
                 <div class="column-actions">
-                    <button id="btn-column-all" class="small" type="button">全选</button>
-                    <button id="btn-column-default" class="small" type="button">恢复默认</button>
-                    <button id="btn-column-save" class="small primary" type="button">保存字段</button>
-                    <span id="column-save-status" class="hint">保存到 data/settings.json</span>
+                    <button id="btn-column-all" class="small" type="button">鍏ㄩ€?/button>
+                    <button id="btn-column-default" class="small" type="button">鎭㈠榛樿</button>
+                    <button id="btn-column-save" class="small primary" type="button">淇濆瓨瀛楁</button>
+                    <span id="column-save-status" class="hint">淇濆瓨鍒?data/settings.json</span>
                 </div>
                 <div class="column-options" id="column-options"></div>
             </details>
 
             <div class="quota-box" id="quota-box">
-                <div class="quota-title">自定义展示规则</div>
+                <div class="quota-title">鑷畾涔夊睍绀鸿鍒?/div>
                 <div class="quota-controls">
-                    <span>分组字段与取值顺序；多条规则自动合并并去重。</span>
-                    <button id="btn-quota-add-rule" class="small">添加规则</button>
+                    <span>鍒嗙粍瀛楁涓庡彇鍊奸『搴忥紱澶氭潯瑙勫垯鑷姩鍚堝苟骞跺幓閲嶃€?/span>
+                    <button id="btn-quota-add-rule" class="small">娣诲姞瑙勫垯</button>
                 </div>
                 <div class="quota-rules" id="quota-rules"></div>
-                <button id="btn-quota-apply" class="small primary">应用规则</button>
-                <button id="btn-quota-clear" class="small">清除规则</button>
+                <button id="btn-quota-apply" class="small primary">搴旂敤瑙勫垯</button>
+                <button id="btn-quota-clear" class="small">娓呴櫎瑙勫垯</button>
             </div>
 
             <div class="result-actions">
-                <button id="btn-speed-filtered">对当前展示结果测速</button>
-                <button id="btn-start-speed" disabled>对勾选结果测速</button>
+                <button id="btn-speed-filtered">瀵瑰綋鍓嶅睍绀虹粨鏋滄祴閫?/button>
+                <button id="btn-start-speed" disabled>瀵瑰嬀閫夌粨鏋滄祴閫?/button>
                 <span class="result-actions-divider" aria-hidden="true"></span>
-                <button id="btn-export-open" class="primary">导出</button>
+                <button id="btn-export-open" class="primary">瀵煎嚭</button>
             </div>
             <div id="result-table-container"></div>
 
-            <div id="export-modal" class="help-overlay" hidden role="dialog" aria-modal="true" aria-label="导出 / 导入到 IP 库">
+            <div id="export-modal" class="help-overlay" hidden role="dialog" aria-modal="true" aria-label="瀵煎嚭 / 瀵煎叆鍒?IP 搴?>
     <div class="help-panel export-modal-panel">
-        <div class="help-panel-head"><strong>导出 / 导入到 IP 库</strong><button type="button" id="btn-export-close" class="side-toggle" aria-label="关闭">×</button></div>
+        <div class="help-panel-head"><strong>瀵煎嚭 / 瀵煎叆鍒?IP 搴?/strong><button type="button" id="btn-export-close" class="side-toggle" aria-label="鍏抽棴">脳</button></div>
         <div class="help-panel-body export-modal-body"><div class="export-layout">
             <div class="export-config">
                 <div class="export-config-section">
-                    <div class="export-config-label">导出范围</div>
-                    <div class="export-scope export-segmented" role="radiogroup" aria-label="导出范围">
-                        <label class="radio"><input type="radio" name="export-scope" value="direct" checked><span>全部</span></label>
-                        <label class="radio"><input type="radio" name="export-scope" value="rules"><span>当前规则</span></label>
-                        <label class="radio"><input type="radio" name="export-scope" value="custom"><span>自定义</span></label>
+                    <div class="export-config-label">瀵煎嚭鑼冨洿</div>
+                    <div class="export-scope export-segmented" role="radiogroup" aria-label="瀵煎嚭鑼冨洿">
+                        <label class="radio"><input type="radio" name="export-scope" value="direct" checked><span>鍏ㄩ儴</span></label>
+                        <label class="radio"><input type="radio" name="export-scope" value="rules"><span>褰撳墠瑙勫垯</span></label>
+                        <label class="radio"><input type="radio" name="export-scope" value="custom"><span>鑷畾涔?/span></label>
                     </div>
                 </div>
                 <div class="export-toolbar">
-                    <label class="export-field">导出格式<select id="export-format">
+                    <label class="export-field">瀵煎嚭鏍煎紡<select id="export-format">
                         <option value="txt">TXT</option>
                         <option value="csv">CSV</option>
                     </select></label>
                     <div class="export-template-field" id="export-template-field">
-                        <span class="export-field-label">导出模板</span>
+                        <span class="export-field-label">瀵煎嚭妯℃澘</span>
                         <div class="export-template-control">
-                            <select id="format-presets" aria-label="TXT 导出模板"></select>
-                            <button type="button" id="btn-template-toggle" class="template-add-button" aria-label="添加 TXT 模板" aria-expanded="false" title="添加 TXT 模板">＋</button>
+                            <select id="format-presets" aria-label="TXT 瀵煎嚭妯℃澘"></select>
+                            <button type="button" id="btn-template-toggle" class="template-add-button" aria-label="娣诲姞 TXT 妯℃澘" aria-expanded="false" title="娣诲姞 TXT 妯℃澘">锛?/button>
                         </div>
                     </div>
                 </div>
                 <div class="template-editor" id="txt-template-editor" hidden>
                     <div class="template-main">
                         <input type="text" id="format-template" class="template" value="{ip}:{port}#{country}">
-                        <input type="text" id="template-name" placeholder="新模板名称，或修改当前自定义模板">
-                        <button id="btn-save-template">保存</button>
-                        <button id="btn-delete-template" class="danger" disabled>删除</button>
+                        <input type="text" id="template-name" placeholder="鏂版ā鏉垮悕绉帮紝鎴栦慨鏀瑰綋鍓嶈嚜瀹氫箟妯℃澘">
+                        <button id="btn-save-template">淇濆瓨</button>
+                        <button id="btn-delete-template" class="danger" disabled>鍒犻櫎</button>
                     </div>
                     <details class="template-fields">
-                        <summary>可用模板字段 <span id="placeholder-count"></span></summary>
+                        <summary>鍙敤妯℃澘瀛楁 <span id="placeholder-count"></span></summary>
                         <div class="placeholder-help" id="placeholder-help"></div>
                     </details>
                 </div>
-                <div id="csv-template-hint" class="note" hidden>CSV 字段：<span id="csv-column-label"></span></div>
+                <div id="csv-template-hint" class="note" hidden>CSV 瀛楁锛?span id="csv-column-label"></span></div>
                 <div class="custom-export-actions" id="custom-export-actions" hidden>
-                    <button id="btn-custom-append" class="small">追加勾选结果</button>
-                    <button id="btn-custom-clear" class="small">清空自定义</button>
+                    <button id="btn-custom-append" class="small">杩藉姞鍕鹃€夌粨鏋?/button>
+                    <button id="btn-custom-clear" class="small">娓呯┖鑷畾涔?/button>
                     <span id="custom-count" class="hint"></span>
                     <details class="custom-field-picker" id="custom-field-picker">
-                        <summary>自定义 CSV 字段 <span id="custom-field-count"></span></summary>
+                        <summary>鑷畾涔?CSV 瀛楁 <span id="custom-field-count"></span></summary>
                         <div class="custom-field-actions">
-                            <button type="button" id="btn-custom-fields-all" class="small">全选</button>
-                            <button type="button" id="btn-custom-fields-default" class="small">默认</button>
+                            <button type="button" id="btn-custom-fields-all" class="small">鍏ㄩ€?/button>
+                            <button type="button" id="btn-custom-fields-default" class="small">榛樿</button>
                         </div>
                         <div class="custom-field-options" id="custom-field-options"></div>
                     </details>
                 </div>
                 <div class="export-actions export-actions-right">
-                    <button id="btn-import-lib">导入到 IP 库</button>
+                    <button id="btn-import-lib">瀵煎叆鍒?IP 搴?/button>
                     <span class="result-actions-divider" aria-hidden="true"></span>
-                    <button id="btn-copy" class="primary">复制到粘贴板</button>
-                    <button id="btn-download">下载文件</button>
+                    <button id="btn-copy" class="primary">澶嶅埗鍒扮矘璐存澘</button>
+                    <button id="btn-download">涓嬭浇鏂囦欢</button>
                 </div>
             </div>
             <div class="export-preview">
-                <div class="pane-head"><span id="output-title">导出预览</span><span id="output-count" class="hint" aria-live="polite">0 条</span></div>
-                <textarea id="output-box" class="output-box" rows="10" readonly placeholder="导出内容会按当前格式生成到这里"></textarea>
+                <div class="pane-head"><span id="output-title">瀵煎嚭棰勮</span><span id="output-count" class="hint" aria-live="polite">0 鏉?/span></div>
+                <textarea id="output-box" class="output-box" rows="10" readonly placeholder="瀵煎嚭鍐呭浼氭寜褰撳墠鏍煎紡鐢熸垚鍒拌繖閲?></textarea>
                 <div id="csv-preview" class="csv-preview" hidden>
                     <table>
                         <thead id="csv-preview-head"></thead>
                         <tbody id="csv-preview-body"></tbody>
                     </table>
-                    <div id="csv-preview-empty" class="csv-preview-empty">暂无可预览的结果</div>
+                    <div id="csv-preview-empty" class="csv-preview-empty">鏆傛棤鍙瑙堢殑缁撴灉</div>
                 </div>
             </div>
         </div></div>
@@ -345,14 +345,14 @@
             </section>
 <div id="import-target-modal" class="help-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="import-target-title">
     <div class="help-panel import-target-panel">
-        <div class="help-panel-head"><strong id="import-target-title">选择导入目标库</strong><button type="button" id="btn-import-target-close" class="side-toggle" aria-label="关闭">×</button></div>
+        <div class="help-panel-head"><strong id="import-target-title">閫夋嫨瀵煎叆鐩爣搴?/strong><button type="button" id="btn-import-target-close" class="side-toggle" aria-label="鍏抽棴">脳</button></div>
         <div class="help-panel-body import-target-body">
             <div class="import-target-intro">
-                <span class="import-target-icon" aria-hidden="true">↳</span>
-                <div><p class="import-target-summary">将当前导出范围内的 <strong id="import-target-count">0</strong> 条结果导入到：</p><p class="import-target-hint">已有 IP 会更新信息，不会产生重复条目。</p></div>
+                <span class="import-target-icon" aria-hidden="true">鈫?/span>
+                <div><p class="import-target-summary">灏嗗綋鍓嶅鍑鸿寖鍥村唴鐨?<strong id="import-target-count">0</strong> 鏉＄粨鏋滃鍏ュ埌锛?/p><p class="import-target-hint">宸叉湁 IP 浼氭洿鏂颁俊鎭紝涓嶄細浜х敓閲嶅鏉＄洰銆?/p></div>
             </div>
-            <label class="import-target-field">目标 IP 库<select id="lib-target-select" aria-label="导入目标 IP 库"><option value="">默认库</option></select></label>
-            <div class="import-target-actions"><button type="button" id="btn-import-target-cancel">取消</button><button type="button" id="btn-import-target-confirm" class="primary">确认导入</button></div>
+            <label class="import-target-field">鐩爣 IP 搴?select id="lib-target-select" aria-label="瀵煎叆鐩爣 IP 搴?><option value="">榛樿搴?/option></select></label>
+            <div class="import-target-actions"><button type="button" id="btn-import-target-cancel">鍙栨秷</button><button type="button" id="btn-import-target-confirm" class="primary">纭瀵煎叆</button></div>
         </div>
     </div>
 </div>
@@ -361,118 +361,118 @@
         <section id="page-tasks" class="page">
             <div class="page-head">
                 <div>
-                    <h2>自动维护</h2>
-                    <p class="page-desc">按规则长期维护订阅：任务 + 规则 + 一键维护 → 输出订阅文件。</p>
+                    <h2>鑷姩缁存姢</h2>
+                    <p class="page-desc">鎸夎鍒欓暱鏈熺淮鎶よ闃咃細浠诲姟 + 瑙勫垯 + 涓€閿淮鎶?鈫?杈撳嚭璁㈤槄鏂囦欢銆?/p>
                 </div>
                 <div class="page-actions">
-                    <button type="button" id="btn-run-all" class="primary">一键维护</button>
-                    <button type="button" id="btn-task-new" class="secondary-button">+ 新建任务</button>
+                    <button type="button" id="btn-run-all" class="primary">涓€閿淮鎶?/button>
+                    <button type="button" id="btn-task-new" class="secondary-button">+ 鏂板缓浠诲姟</button>
                 </div>
             </div>
                         <div class="task-grid" id="task-grid"></div>
             <div id="task-editor-overlay" class="help-overlay" hidden>
                 <div class="help-panel task-editor-panel">
-                    <div class="help-panel-head"><strong>编辑任务</strong><button type="button" id="btn-task-editor-close" class="side-toggle" aria-label="关闭">×</button></div>
+                    <div class="help-panel-head"><strong>缂栬緫浠诲姟</strong><button type="button" id="btn-task-editor-close" class="side-toggle" aria-label="鍏抽棴">脳</button></div>
                     <div class="help-panel-body">
                         <div id="task-form">
                             <div class="task-form-row task-primary-row">
-                                <label>任务名称<input type="text" id="task-name" placeholder="如：日本专线"></label>
+                                <label>浠诲姟鍚嶇О<input type="text" id="task-name" placeholder="濡傦細鏃ユ湰涓撶嚎"></label>
 
                             </div>
                             <section class="task-schedule-section" aria-labelledby="task-schedule-title">
                                 <div class="task-schedule-head">
                                     <div>
-                                        <strong id="task-schedule-title">定时维护</strong>
-                                        <span>程序运行期间按 Cron 计划自动执行；任务停用时不会触发。</span>
+                                        <strong id="task-schedule-title">瀹氭椂缁存姢</strong>
+                                        <span>绋嬪簭杩愯鏈熼棿鎸?Cron 璁″垝鑷姩鎵ц锛涗换鍔″仠鐢ㄦ椂涓嶄細瑙﹀彂銆?/span>
                                     </div>
-                                    <label class="toggle"><input type="checkbox" id="task-schedule-enabled"><span class="toggle-track"></span><span class="toggle-label">开启定时</span></label>
+                                    <label class="toggle"><input type="checkbox" id="task-schedule-enabled"><span class="toggle-track"></span><span class="toggle-label">寮€鍚畾鏃?/span></label>
                                 </div>
                                 <div id="task-schedule-settings" class="task-schedule-settings" hidden>
-                                    <label class="task-cron-field">Cron 表达式
-                                        <input type="text" id="task-schedule-cron" value="0 3 * * *" placeholder="分 时 日 月 周，如 0 3 * * *" spellcheck="false" autocomplete="off">
-                                        <span id="task-schedule-description" class="task-cron-description" aria-live="polite">每天 03:00 执行</span>
+                                    <label class="task-cron-field">Cron 琛ㄨ揪寮?                                        <input type="text" id="task-schedule-cron" value="0 3 * * *" placeholder="鍒?鏃?鏃?鏈?鍛紝濡?0 3 * * *" spellcheck="false" autocomplete="off">
+                                        <span id="task-schedule-description" class="task-cron-description" aria-live="polite">姣忓ぉ 03:00 鎵ц</span>
                                     </label>
-                                    <div class="task-cron-presets" aria-label="常用 Cron 表达式">
-                                        <button type="button" class="small task-cron-preset" data-cron="0 */6 * * *">每 6 小时</button>
-                                        <button type="button" class="small task-cron-preset" data-cron="0 3 * * *">每天 03:00</button>
-                                        <button type="button" class="small task-cron-preset" data-cron="0 3 * * 1">每周一 03:00</button>
+                                    <div class="task-cron-presets" aria-label="甯哥敤 Cron 琛ㄨ揪寮?>
+                                        <button type="button" class="small task-cron-preset" data-cron="0 */6 * * *">姣?6 灏忔椂</button>
+                                        <button type="button" class="small task-cron-preset" data-cron="0 3 * * *">姣忓ぉ 03:00</button>
+                                        <button type="button" class="small task-cron-preset" data-cron="0 3 * * 1">姣忓懆涓€ 03:00</button>
                                     </div>
-                                    <p class="note task-cron-help">标准 5 段格式：分 时 日 月 周；支持 <code>*</code>、范围、列表和步长。</p>
+                                    <p class="note task-cron-help">鏍囧噯 5 娈垫牸寮忥細鍒?鏃?鏃?鏈?鍛紱鏀寔 <code>*</code>銆佽寖鍥淬€佸垪琛ㄥ拰姝ラ暱銆?/p>
                                 </div>
                             </section>
                             <div class="task-form-row task-source-heading">
-                                <label>维护来源<select id="task-library-source">
-                                    <option value="local">本地 IP 库</option>
-                                    <option value="official">官方 IP 段（本地缓存）</option>
-                                    <option value="remote">远程 URL 库</option>
+                                <label>缁存姢鏉ユ簮<select id="task-library-source">
+                                    <option value="local">鏈湴 IP 搴?/option>
+                                    <option value="official">瀹樻柟 IP 娈碉紙鏈湴缂撳瓨锛?/option>
+                                    <option value="remote">杩滅▼ URL 搴?/option>
                                 </select></label>
-                                <label>初始化<select id="task-input-mode">
-                                    <option value="none">无</option>
-                                    <option value="file">导入文件</option>
-                                    <option value="remote">远程 URL</option>
+                                <label>鍒濆鍖?select id="task-input-mode">
+                                    <option value="none">鏃?/option>
+                                    <option value="file">瀵煎叆鏂囦欢</option>
+                                    <option value="remote">杩滅▼ URL</option>
                                 </select></label>
                             </div>
                             <div class="task-source-panel" id="task-source-local" data-task-source="local" hidden>
-                                <label class="task-source-wide">本地 IP 库
-                                    <select id="task-library"></select>
-                                    <span class="hint">维护时从该库补充候选；检测失效的条目会从库中移除。</span>
+                                <label class="task-source-wide">鏈湴 IP 搴?                                    <select id="task-library"></select>
+                                    <span class="hint">缁存姢鏃朵粠璇ュ簱琛ュ厖鍊欓€夛紱妫€娴嬪け鏁堢殑鏉＄洰浼氫粠搴撲腑绉婚櫎銆?/span>
                                 </label>
                             </div>
                             <div class="task-source-panel task-official-source" id="task-source-official" data-task-source="official" hidden>
-                                <label>地址类型<select id="task-library-family"><option value="ipv4">IPv4</option><option value="ipv6">IPv6</option></select></label>
-                                <label >每段抽样 N<input type="number" id="task-library-sample-n" min="1" max="256" value="1"></label>
-                                <label>协议<select id="task-library-protocol"><option value="https">HTTPS</option><option value="http">HTTP</option></select></label>
-                                <label>端口<select id="task-library-port"></select></label>
-                                <span class="hint task-source-wide" id="task-sample-n-hint">每个 /24 网段抽样 N 个，N 最大 256（即该网段全部地址）；当前 N=1。</span>
-                                <span class="hint task-source-wide">官方 IP 段优先读取本地缓存/内置兜底数据，必要时自动更新；作为候选，失效不删除。</span>
+                                <label>鍦板潃绫诲瀷<select id="task-library-family"><option value="ipv4">IPv4</option><option value="ipv6">IPv6</option></select></label>
+                                <label >姣忔鎶芥牱 N<input type="number" id="task-library-sample-n" min="1" max="256" value="1"></label>
+                                <label>鍗忚<select id="task-library-protocol"><option value="https">HTTPS</option><option value="http">HTTP</option></select></label>
+                                <label>绔彛<select id="task-library-port"></select></label>
+                                <span class="hint task-source-wide" id="task-sample-n-hint">姣忎釜 /24 缃戞鎶芥牱 N 涓紝N 鏈€澶?256锛堝嵆璇ョ綉娈靛叏閮ㄥ湴鍧€锛夛紱褰撳墠 N=1銆?/span>
+                                <span class="hint task-source-wide">瀹樻柟 IP 娈典紭鍏堣鍙栨湰鍦扮紦瀛?鍐呯疆鍏滃簳鏁版嵁锛屽繀瑕佹椂鑷姩鏇存柊锛涗綔涓哄€欓€夛紝澶辨晥涓嶅垹闄ゃ€?/span>
                             </div>
                             <div class="task-source-panel" id="task-source-remote" data-task-source="remote" hidden>
-                                <label class="task-source-wide">远程 URL 库<input type="text" id="task-library-url" placeholder="https://example.com/ips.txt"></label>
-                                <span class="hint">运行时拉取该 URL 作为候选，自动补全 https；失效不删除。</span>
+                                <label class="task-source-wide">杩滅▼ URL 搴?input type="text" id="task-library-url" placeholder="https://example.com/ips.txt"></label>
+                                <span class="hint">杩愯鏃舵媺鍙栬 URL 浣滀负鍊欓€夛紝鑷姩琛ュ叏 https锛涘け鏁堜笉鍒犻櫎銆?/span>
                             </div>
                             <div class="task-source-panel" id="task-init-file" data-task-init="file" hidden>
-                                <label class="task-source-wide">初始化文件
-                                    <span class="task-file-row">
-                                        <input type="text" id="task-init-file-path" placeholder="data 相对路径，或运行程序主机上的绝对路径" spellcheck="false" autocomplete="off">
+                                <label class="task-source-wide">鍒濆鍖栨枃浠?                                    <span class="task-file-row">
+                                        <input type="text" id="task-init-file-path" placeholder="data 鐩稿璺緞锛屾垨杩愯绋嬪簭涓绘満涓婄殑缁濆璺緞" spellcheck="false" autocomplete="off">
                                         <span class="task-file-btns">
-                                            <label class="file-btn task-upload-button" for="task-init-upload">选择并导入</label>
+                                            <label class="file-btn task-upload-button" for="task-init-upload">閫夋嫨骞跺鍏?/label>
                                             <input type="file" id="task-init-upload" accept=".txt,.csv,text/plain,text/csv" hidden>
                                         </span>
                                     </span>
-                                    <span id="task-init-file-status" class="hint">可选：先用本地 TXT/CSV（选择并导入）或服务器已有文件，把基础 IP 导入 IP 库再开始维护。</span>
+                                    <span id="task-init-file-status" class="hint">鍙€夛細鍏堢敤鏈湴 TXT/CSV锛堥€夋嫨骞跺鍏ワ級鎴栨湇鍔″櫒宸叉湁鏂囦欢锛屾妸鍩虹 IP 瀵煎叆 IP 搴撳啀寮€濮嬬淮鎶ゃ€?/span>
                                 </label>
                             </div>
                             <div class="task-source-panel" id="task-init-remote" data-task-init="remote" hidden>
-                                <label class="task-source-wide">初始化远程 URL<input type="text" id="task-init-url" placeholder="https://example.com/ips.txt"></label>
-                                <span class="hint">可选：拉取该 URL 的基础 IP 导入本地 IP 库，自动补全 https。</span>
+                                <label class="task-source-wide">鍒濆鍖栬繙绋?URL<input type="text" id="task-init-url" placeholder="https://example.com/ips.txt"></label>
+                                <span class="hint">鍙€夛細鎷夊彇璇?URL 鐨勫熀纭€ IP 瀵煎叆鏈湴 IP 搴擄紝鑷姩琛ュ叏 https銆?/span>
                             </div>
                             <div class="task-form-row task-output-row">
-                                <label class="task-output-field">输出路径
-                                    <input type="text" id="task-output" placeholder="留空自动生成，或填写相对/绝对路径（如 abc、out/abc）" spellcheck="false" autocomplete="off">
-                                    <span id="task-output-preview" class="hint">实际输出：data/out/任务名.txt（服务器 data 目录；不是浏览器本机路径）</span>
-                                </label>
-                                <label>输出格式<select id="task-format"><option value="txt">txt</option><option value="csv">csv</option></select></label>
-                                <label class="task-template-label">输出模板
+                                
+                                <label>杈撳嚭鏍煎紡<select id="task-format"><option value="txt">txt</option><option value="csv">csv</option></select></label>
+                                <label class="task-template-label">杈撳嚭妯℃澘
                                     <span class="auto-template-row">
-                                        <select id="task-tpl-select" aria-label="选择模板"></select>
+                                        <select id="task-tpl-select" aria-label="閫夋嫨妯℃澘"></select>
                                         <input type="text" id="task-tpl-custom" placeholder="{ip}:{port}#{emoji}{country}" hidden>
-                                        <button type="button" id="task-tpl-save" class="small" hidden title="保存为我的模板（与导出页共用）">存为模板</button>
+                                        <button type="button" id="task-tpl-save" class="small" hidden title="淇濆瓨涓烘垜鐨勬ā鏉匡紙涓庡鍑洪〉鍏辩敤锛?>瀛樹负妯℃澘</button>
                                     </span>
                                 </label>
-                                <label title="输出文件内条目的排列顺序；速度排序时未测速条目排在最后">输出排序<select id="task-sort"><option value="latencyAsc">延迟升序（默认）</option><option value="latencyDesc">延迟降序</option><option value="speedDesc">速度降序</option><option value="speedAsc">速度升序</option><option value="ipAsc">IP 地址升序</option><option value="countryAsc">国家/地区升序</option></select></label>
-                                <label>总数限制<span class="input-with-unit"><input type="number" id="task-limit" min="0" placeholder="0 = 不限" value="200"> <span class="unit">条</span></span><span class="hint">各规则会持续检测，直到规则数量满足或候选耗尽。</span></label>
-                                <label class="checkbox"><input type="checkbox" id="task-speed" title="开启后各规则可选择速度范围"> 开启测速</label>
+                                <label title="杈撳嚭鏂囦欢鍐呮潯鐩殑鎺掑垪椤哄簭锛涢€熷害鎺掑簭鏃舵湭娴嬮€熸潯鐩帓鍦ㄦ渶鍚?>杈撳嚭鎺掑簭<select id="task-sort"><option value="latencyAsc">寤惰繜鍗囧簭锛堥粯璁わ級</option><option value="latencyDesc">寤惰繜闄嶅簭</option><option value="speedDesc">閫熷害闄嶅簭</option><option value="speedAsc">閫熷害鍗囧簭</option><option value="ipAsc">IP 鍦板潃鍗囧簭</option><option value="countryAsc">鍥藉/鍦板尯鍗囧簭</option></select></label>
+                                <label>鎬绘暟闄愬埗<span class="input-with-unit"><input type="number" id="task-limit" min="0" placeholder="0 = 涓嶉檺" value="200"> <span class="unit">鏉?/span></span><span class="hint">鍚勮鍒欎細鎸佺画妫€娴嬶紝鐩村埌瑙勫垯鏁伴噺婊¤冻鎴栧€欓€夎€楀敖銆?/span></label>
+                                <label class="checkbox"><input type="checkbox" id="task-speed" title="寮€鍚悗鍚勮鍒欏彲閫夋嫨閫熷害鑼冨洿"> 寮€鍚祴閫?/label>
                             </div>
+
+                            <details class="task-output-dir">
+                                <summary class="task-output-dir-summary">自定义输出目录</summary>
+                                <label class="task-output-dir-field"><input type="text" id="task-output" placeholder="留空自动生成（如 out/abc、C:/out/abc）" spellcheck="false" autocomplete="off"></label>
+                            </details>
+
                             <details class="task-rules-section" open>
-                                <summary class="task-rules-summary"><span>规则 <span class="rules-help" tabindex="0" role="button" aria-label="规则用法示例"><span class="rules-help-icon">?</span><span class="rules-help-pop">每条规则 = 一组筛选条件（国家 / 城市 / 端口 / ASN 等），字段多值=或、多字段=交集，每个组合取前 N 条。<br><b>示例：</b><br>· 国家:日本,新加坡 → 日本或新加坡<br>· 国家:日本 ＋ 端口:443 → 日本且 443 端口<br>· 每个组合取前 10 条 → 每组最多保留 10 条</span></span>（可选）</span><span class="task-rules-hint">字段多值=或、多字段=交集；每个组合取前 N 条</span></summary>
+                                <summary class="task-rules-summary"><span>瑙勫垯 <span class="rules-help" tabindex="0" role="button" aria-label="瑙勫垯鐢ㄦ硶绀轰緥"><span class="rules-help-icon">?</span><span class="rules-help-pop">姣忔潯瑙勫垯 = 涓€缁勭瓫閫夋潯浠讹紙鍥藉 / 鍩庡競 / 绔彛 / ASN 绛夛級锛屽瓧娈靛鍊?鎴栥€佸瀛楁=浜ら泦锛屾瘡涓粍鍚堝彇鍓?N 鏉°€?br><b>绀轰緥锛?/b><br>路 鍥藉:鏃ユ湰,鏂板姞鍧?鈫?鏃ユ湰鎴栨柊鍔犲潯<br>路 鍥藉:鏃ユ湰 锛?绔彛:443 鈫?鏃ユ湰涓?443 绔彛<br>路 姣忎釜缁勫悎鍙栧墠 10 鏉?鈫?姣忕粍鏈€澶氫繚鐣?10 鏉?/span></span>锛堝彲閫夛級</span><span class="task-rules-hint">瀛楁澶氬€?鎴栥€佸瀛楁=浜ら泦锛涙瘡涓粍鍚堝彇鍓?N 鏉?/span></summary>
                                 <div class="task-rules-body">
-                                    <button type="button" id="task-rule-add" class="small">+ 添加规则</button>
+                                    <button type="button" id="task-rule-add" class="small">+ 娣诲姞瑙勫垯</button>
                                     <div id="task-rules"></div>
                                 </div>
                             </details>
                             <div class="task-form-actions">
-                                <button type="button" id="task-save" class="primary">保存任务</button>
-                                <button type="button" id="task-delete" class="danger">删除任务</button>
+                                <button type="button" id="task-save" class="primary">淇濆瓨浠诲姟</button>
+                                <button type="button" id="task-delete" class="danger">鍒犻櫎浠诲姟</button>
                                 <span id="task-form-status" class="hint" aria-live="polite"></span>
                             </div>
                         </div>
@@ -483,67 +483,67 @@
         <section id="page-library" class="page">
             <div class="page-head">
                 <div>
-                    <h2>IP 库</h2>
-                    <p class="page-desc">维护任务与导入数据的仓库（多库），条目随检测自动更新：延迟失败移除、测速失败保留、结果回写。</p>
+                    <h2>IP 搴?/h2>
+                    <p class="page-desc">缁存姢浠诲姟涓庡鍏ユ暟鎹殑浠撳簱锛堝搴擄級锛屾潯鐩殢妫€娴嬭嚜鍔ㄦ洿鏂帮細寤惰繜澶辫触绉婚櫎銆佹祴閫熷け璐ヤ繚鐣欍€佺粨鏋滃洖鍐欍€?/p>
                 </div>
                 <div class="page-actions">
-                    <button type="button" id="lib-new" class="secondary-button">+ 新建库</button>
+                    <button type="button" id="lib-new" class="secondary-button">+ 鏂板缓搴?/button>
                 </div>
             </div>
             <div class="lib-layout">
                 <div class="lib-side">
-                    <div class="page-subhead">库列表</div>
+                    <div class="page-subhead">搴撳垪琛?/div>
                     <div id="lib-list" class="lib-list"></div>
                 </div>
                 <div class="lib-main">
                     <div class="lib-toolbar">
                         <div class="lib-filter-group">
-                            <input type="text" id="lib-filter" placeholder="筛选 IP、国家、城市、数据中心、ASN、状态、来源" aria-label="库筛选">
-                            <input type="text" id="lib-latency-range" placeholder="延迟范围 ms：100~500；单值=上限" aria-label="延迟范围">
-                            <input type="text" id="lib-speed-range" placeholder="速度范围 kB/s：10~100；单值=下限" aria-label="速度范围">
+                            <input type="text" id="lib-filter" placeholder="绛涢€?IP銆佸浗瀹躲€佸煄甯傘€佹暟鎹腑蹇冦€丄SN銆佺姸鎬併€佹潵婧? aria-label="搴撶瓫閫?>
+                            <input type="text" id="lib-latency-range" placeholder="寤惰繜鑼冨洿 ms锛?00~500锛涘崟鍊?涓婇檺" aria-label="寤惰繜鑼冨洿">
+                            <input type="text" id="lib-speed-range" placeholder="閫熷害鑼冨洿 kB/s锛?0~100锛涘崟鍊?涓嬮檺" aria-label="閫熷害鑼冨洿">
                         </div>
                         <div class="lib-view-controls">
-                            <span class="sort-bar"><label for="lib-sort-key">排序</label><select id="lib-sort-key"></select><button id="btn-lib-sort-dir" class="small">▲ 升序</button></span>
+                            <span class="sort-bar"><label for="lib-sort-key">鎺掑簭</label><select id="lib-sort-key"></select><button id="btn-lib-sort-dir" class="small">鈻?鍗囧簭</button></span>
                             <div class="lib-popover-group">
-                                <button type="button" id="lib-column-toggle" aria-expanded="false" aria-controls="lib-column-box">显示字段</button>
+                                <button type="button" id="lib-column-toggle" aria-expanded="false" aria-controls="lib-column-box">鏄剧ず瀛楁</button>
                                 <span id="lib-column-selected-count" class="hint" aria-live="polite"></span>
-                                <div id="lib-column-box" class="lib-column-box" aria-label="显示字段">
+                                <div id="lib-column-box" class="lib-column-box" aria-label="鏄剧ず瀛楁">
                                     <div class="lib-column-box-head">
-                                        <strong>显示字段</strong>
-                                        <button type="button" id="btn-lib-column-all" class="secondary-button">全选</button>
-                                        <button type="button" id="btn-lib-column-default" class="secondary-button">恢复默认</button>
+                                        <strong>鏄剧ず瀛楁</strong>
+                                        <button type="button" id="btn-lib-column-all" class="secondary-button">鍏ㄩ€?/button>
+                                        <button type="button" id="btn-lib-column-default" class="secondary-button">鎭㈠榛樿</button>
                                     </div>
                                     <div id="lib-column-options" class="lib-column-options"></div>
                                     <div class="lib-column-box-foot"><span id="lib-column-save-status" class="hint" aria-live="polite"></span></div>
                                 </div>
                             </div>
-                            <button id="lib-quota-toggle" aria-expanded="false" aria-controls="lib-quota-box">自定义展示规则</button>
+                            <button id="lib-quota-toggle" aria-expanded="false" aria-controls="lib-quota-box">鑷畾涔夊睍绀鸿鍒?/button>
                             <div class="lib-action-sep"></div>
-                            <button type="button" id="lib-import">导入</button>
-                            <button type="button" id="lib-export">导出</button>
+                            <button type="button" id="lib-import">瀵煎叆</button>
+                            <button type="button" id="lib-export">瀵煎嚭</button>
                             <div class="lib-action-sep"></div>
                             <div class="lib-popover-group">
                                 <span id="lib-selected-count" class="hint" aria-live="polite"></span>
-                                <button type="button" id="lib-more" aria-expanded="false" aria-haspopup="true">更多 ▾</button>
+                                <button type="button" id="lib-more" aria-expanded="false" aria-haspopup="true">鏇村 鈻?/button>
                                 <div id="lib-more-wrap" class="lib-more-wrap">
-                                    <button type="button" id="lib-rename">重命名</button>
-                                    <button type="button" id="lib-remove-selected" class="danger" disabled>移除勾选</button>
+                                    <button type="button" id="lib-rename">閲嶅懡鍚?/button>
+                                    <button type="button" id="lib-remove-selected" class="danger" disabled>绉婚櫎鍕鹃€?/button>
                                     <div class="lib-more-sep"></div>
-                                    <button type="button" id="lib-clear" class="danger">清空当前库</button>
-                                    <button type="button" id="lib-delete" class="danger">删除当前库</button>
+                                    <button type="button" id="lib-clear" class="danger">娓呯┖褰撳墠搴?/button>
+                                    <button type="button" id="lib-delete" class="danger">鍒犻櫎褰撳墠搴?/button>
                                 </div>
                             </div>
                         </div>
                     </div>
                     <div class="quota-box" id="lib-quota-box">
-                        <div class="quota-title">自定义展示规则</div>
+                        <div class="quota-title">鑷畾涔夊睍绀鸿鍒?/div>
                         <div class="quota-controls">
-                            <span>分组字段与取值顺序；多条规则自动合并并去重。</span>
-                            <button id="btn-lib-quota-add-rule" class="small">添加规则</button>
+                            <span>鍒嗙粍瀛楁涓庡彇鍊奸『搴忥紱澶氭潯瑙勫垯鑷姩鍚堝苟骞跺幓閲嶃€?/span>
+                            <button id="btn-lib-quota-add-rule" class="small">娣诲姞瑙勫垯</button>
                         </div>
                         <div class="quota-rules" id="lib-quota-rules"></div>
-                        <button id="btn-lib-quota-apply" class="small primary">应用规则</button>
-                        <button id="btn-lib-quota-clear" class="small">清除规则</button>
+                        <button id="btn-lib-quota-apply" class="small primary">搴旂敤瑙勫垯</button>
+                        <button id="btn-lib-quota-clear" class="small">娓呴櫎瑙勫垯</button>
                     </div>
                     <div id="lib-table-container" class="lib-table-container"></div>
                     <div id="lib-count" class="hint"></div>
@@ -551,49 +551,49 @@
             </div>
         </section>
 
-        <div id="lib-import-modal" class="help-overlay" hidden role="dialog" aria-modal="true" aria-label="导入 IP 到当前库">
+        <div id="lib-import-modal" class="help-overlay" hidden role="dialog" aria-modal="true" aria-label="瀵煎叆 IP 鍒板綋鍓嶅簱">
             <div class="help-panel lib-import-panel">
-                <div class="help-panel-head"><strong>导入 IP 到当前库</strong><button type="button" id="btn-lib-import-close" class="side-toggle" aria-label="关闭">×</button></div>
+                <div class="help-panel-head"><strong>瀵煎叆 IP 鍒板綋鍓嶅簱</strong><button type="button" id="btn-lib-import-close" class="side-toggle" aria-label="鍏抽棴">脳</button></div>
                 <div class="help-panel-body">
-                    <p class="hint">仅支持 CSV 全字段导入：选择本程序导出的 CSV，或表头含 IP、端口等字段的 CSV 文件，导入后保留国家、城市、ASN、延迟、速度等全部字段。</p>
+                    <p class="hint">浠呮敮鎸?CSV 鍏ㄥ瓧娈靛鍏ワ細閫夋嫨鏈▼搴忓鍑虹殑 CSV锛屾垨琛ㄥご鍚?IP銆佺鍙ｇ瓑瀛楁鐨?CSV 鏂囦欢锛屽鍏ュ悗淇濈暀鍥藉銆佸煄甯傘€丄SN銆佸欢杩熴€侀€熷害绛夊叏閮ㄥ瓧娈点€?/p>
                     <div class="lib-import-options">
-                        <label class="file-btn" for="lib-import-file">选择 CSV 文件</label>
+                        <label class="file-btn" for="lib-import-file">閫夋嫨 CSV 鏂囦欢</label>
                         <input type="file" id="lib-import-file" accept=".csv,text/csv" hidden>
                         <span id="lib-import-file-name" class="hint"></span>
                     </div>
-                    <div id="lib-import-dropzone" class="lib-import-dropzone">或将 CSV 文件拖拽到此处</div>
+                    <div id="lib-import-dropzone" class="lib-import-dropzone">鎴栧皢 CSV 鏂囦欢鎷栨嫿鍒版澶?/div>
                     <p id="lib-import-preview" class="hint" aria-live="polite"></p>
                     <div class="import-actions">
-                        <button type="button" id="btn-lib-import-cancel">取消</button>
-                        <button type="button" id="btn-lib-import-confirm" class="primary">导入</button>
+                        <button type="button" id="btn-lib-import-cancel">鍙栨秷</button>
+                        <button type="button" id="btn-lib-import-confirm" class="primary">瀵煎叆</button>
                     </div>
                 </div>
             </div>
         </div>
 
-        <div id="lib-export-modal" class="help-overlay" hidden role="dialog" aria-modal="true" aria-label="导出当前库">
+        <div id="lib-export-modal" class="help-overlay" hidden role="dialog" aria-modal="true" aria-label="瀵煎嚭褰撳墠搴?>
             <div class="help-panel lib-export-panel">
-                <div class="help-panel-head"><strong>导出当前库（按当前筛选）</strong><button type="button" id="btn-lib-export-close" class="side-toggle" aria-label="关闭">×</button></div>
+                <div class="help-panel-head"><strong>瀵煎嚭褰撳墠搴擄紙鎸夊綋鍓嶇瓫閫夛級</strong><button type="button" id="btn-lib-export-close" class="side-toggle" aria-label="鍏抽棴">脳</button></div>
                 <div class="help-panel-body">
                     <div class="export-config-section">
-                        <div class="export-config-label">导出格式</div>
+                        <div class="export-config-label">瀵煎嚭鏍煎紡</div>
                         <div class="export-segmented">
                             <label class="radio"><input type="radio" name="lib-export-format" value="txt" checked> TXT</label>
                             <label class="radio"><input type="radio" name="lib-export-format" value="csv"> CSV</label>
                         </div>
                     </div>
                     <div id="lib-export-template-section">
-                        <label class="export-lib-field">导出模板
+                        <label class="export-lib-field">瀵煎嚭妯℃澘
                             <select id="lib-export-preset">
-                                <optgroup label="内置模板"></optgroup>
+                                <optgroup label="鍐呯疆妯℃澘"></optgroup>
                             </select>
                         </label>
-                        <label id="lib-export-template-field">模板内容<input type="text" id="lib-export-template" value="{ip}:{port}#{country}"></label>
+                        <label id="lib-export-template-field">妯℃澘鍐呭<input type="text" id="lib-export-template" value="{ip}:{port}#{country}"></label>
                     </div>
-                    <p class="hint">CSV 导出全部字段；TXT 按模板逐行输出，支持 {ip} {port} {country} {city} {emoji} {latency} {speed} 等占位符。</p>
+                    <p class="hint">CSV 瀵煎嚭鍏ㄩ儴瀛楁锛汿XT 鎸夋ā鏉块€愯杈撳嚭锛屾敮鎸?{ip} {port} {country} {city} {emoji} {latency} {speed} 绛夊崰浣嶇銆?/p>
                     <div class="export-actions export-actions-right">
-                        <button type="button" id="btn-lib-export-cancel">取消</button>
-                        <button type="button" id="btn-lib-export-confirm" class="primary">导出</button>
+                        <button type="button" id="btn-lib-export-cancel">鍙栨秷</button>
+                        <button type="button" id="btn-lib-export-confirm" class="primary">瀵煎嚭</button>
                     </div>
                 </div>
             </div>
@@ -602,142 +602,142 @@
         <section id="page-logs" class="page">
             <div class="page-head">
                 <div>
-                    <h2>日志</h2>
-                    <p class="page-desc">调试日志总开关：开启后记录请求、任务阶段、错误与耗时到 data/logs/app.log；关闭时立即清空，磁盘不保留日志。</p>
+                    <h2>鏃ュ織</h2>
+                    <p class="page-desc">璋冭瘯鏃ュ織鎬诲紑鍏筹細寮€鍚悗璁板綍璇锋眰銆佷换鍔￠樁娈点€侀敊璇笌鑰楁椂鍒?data/logs/app.log锛涘叧闂椂绔嬪嵆娓呯┖锛岀鐩樹笉淇濈暀鏃ュ織銆?/p>
                 </div>
                 <div class="page-actions">
-                    <label class="toggle" title="总开关：关闭时停止记录并清空日志文件"><input type="checkbox" id="log-enable"><span class="toggle-track"></span><span class="toggle-label">记录调试日志</span></label>
-                    <label title="debug 显示全部级别（含 info/warn/error），便于分析排查">级别<select id="log-level">
+                    <label class="toggle" title="鎬诲紑鍏筹細鍏抽棴鏃跺仠姝㈣褰曞苟娓呯┖鏃ュ織鏂囦欢"><input type="checkbox" id="log-enable"><span class="toggle-track"></span><span class="toggle-label">璁板綍璋冭瘯鏃ュ織</span></label>
+                    <label title="debug 鏄剧ず鍏ㄩ儴绾у埆锛堝惈 info/warn/error锛夛紝渚夸簬鍒嗘瀽鎺掓煡">绾у埆<select id="log-level">
                         <option value="debug" selected>debug</option>
                         <option value="info">info</option>
                         <option value="warn">warn</option>
                         <option value="error">error</option>
                     </select></label>
-                    <button type="button" id="log-refresh" class="secondary-button">刷新</button>
-                    <button type="button" id="log-clear" class="danger">清空日志</button>
+                    <button type="button" id="log-refresh" class="secondary-button">鍒锋柊</button>
+                    <button type="button" id="log-clear" class="danger">娓呯┖鏃ュ織</button>
                 </div>
             </div>
-            <div id="log-status" class="note" aria-live="polite">调试日志已关闭，不记录也不显示新的日志。</div>
+            <div id="log-status" class="note" aria-live="polite">璋冭瘯鏃ュ織宸插叧闂紝涓嶈褰曚篃涓嶆樉绀烘柊鐨勬棩蹇椼€?/div>
             <div id="log-viewer" class="log-viewer" aria-live="polite"></div>
         </section>
 
         <section id="page-settings" class="page">
     <div class="page-head">
         <div>
-            <h2>设置</h2>
-            <p class="page-desc">全局默认检测参数、本地数据源与颜色阈值，直接编辑后保存到本地。</p>
+            <h2>璁剧疆</h2>
+            <p class="page-desc">鍏ㄥ眬榛樿妫€娴嬪弬鏁般€佹湰鍦版暟鎹簮涓庨鑹查槇鍊硷紝鐩存帴缂栬緫鍚庝繚瀛樺埌鏈湴銆?/p>
         </div>
     </div>
 <div class="advanced-config-grid">
-    <div class="settings-section-title">通用设置</div>
+    <div class="settings-section-title">閫氱敤璁剧疆</div>
 
-                    <label>IPS 检测地址 <input type="text" id="advanced-ips-url" placeholder="使用 {ip} 表示被测 IP"></label>
-                    <label>测速地址 <input type="text" id="advanced-speed-url"></label>
-                    <label>Trace 地址 <input type="text" id="advanced-trace-url"></label>
-                    <label>地理位置数据源 <textarea id="advanced-location-sources" rows="3" placeholder="每行一个地址"></textarea></label>
-                    <label>ASN 数据源 <textarea id="advanced-asn-sources" rows="3" placeholder="每行一个地址"></textarea></label>
+                    <label>IPS 妫€娴嬪湴鍧€ <input type="text" id="advanced-ips-url" placeholder="浣跨敤 {ip} 琛ㄧず琚祴 IP"></label>
+                    <label>娴嬮€熷湴鍧€ <input type="text" id="advanced-speed-url"></label>
+                    <label>Trace 鍦板潃 <input type="text" id="advanced-trace-url"></label>
+                    <label>鍦扮悊浣嶇疆鏁版嵁婧?<textarea id="advanced-location-sources" rows="3" placeholder="姣忚涓€涓湴鍧€"></textarea></label>
+                    <label>ASN 鏁版嵁婧?<textarea id="advanced-asn-sources" rows="3" placeholder="姣忚涓€涓湴鍧€"></textarea></label>
                     <div class="advanced-group">
-                        <div class="advanced-group-title">自动维护</div>
+                        <div class="advanced-group-title">鑷姩缁存姢</div>
                         <div class="advanced-inline-grid auto-maintenance-grid">
-                            <label>延迟并发 <input type="number" id="auto-lat-concurrency" min="1" max="1000" step="1" placeholder="默认 50"></label>
-                            <label>延迟超时 <span class="input-with-unit"><input type="number" id="auto-lat-timeout" min="200" max="60000" step="100" placeholder="默认 3000"> <span class="unit">ms</span></span></label>
-                            <label>TCP 探测次数 <input type="number" id="auto-lat-probes" min="1" max="10" step="1" placeholder="默认 4"></label>
-                            <label>HTTP 校验次数 <input type="number" id="auto-lat-http-probes" min="1" max="10" step="1" placeholder="默认 1"></label>
-                            <label>HTTP 校验超时 <span class="input-with-unit"><input type="number" id="auto-lat-http-timeout" min="200" max="60000" step="100" placeholder="默认 3000"> <span class="unit">ms</span></span></label>
-                            <label>连续失败移除阈值 <input type="number" id="auto-lat-remove-after" min="1" max="20" step="1" placeholder="默认 3"></label>
-                            <label>测速并发 <input type="number" id="auto-spd-concurrency" min="1" max="100" step="1" placeholder="默认 5"></label>
-                            <label>测速时长 <span class="input-with-unit"><input type="number" id="auto-spd-duration" min="1" max="120" step="1" placeholder="默认 5"> <span class="unit">秒</span></span></label>
+                            <label>寤惰繜骞跺彂 <input type="number" id="auto-lat-concurrency" min="1" max="1000" step="1" placeholder="榛樿 50"></label>
+                            <label>寤惰繜瓒呮椂 <span class="input-with-unit"><input type="number" id="auto-lat-timeout" min="200" max="60000" step="100" placeholder="榛樿 3000"> <span class="unit">ms</span></span></label>
+                            <label>TCP 鎺㈡祴娆℃暟 <input type="number" id="auto-lat-probes" min="1" max="10" step="1" placeholder="榛樿 4"></label>
+                            <label>HTTP 鏍￠獙娆℃暟 <input type="number" id="auto-lat-http-probes" min="1" max="10" step="1" placeholder="榛樿 1"></label>
+                            <label>HTTP 鏍￠獙瓒呮椂 <span class="input-with-unit"><input type="number" id="auto-lat-http-timeout" min="200" max="60000" step="100" placeholder="榛樿 3000"> <span class="unit">ms</span></span></label>
+                            <label>杩炵画澶辫触绉婚櫎闃堝€?<input type="number" id="auto-lat-remove-after" min="1" max="20" step="1" placeholder="榛樿 3"></label>
+                            <label>娴嬮€熷苟鍙?<input type="number" id="auto-spd-concurrency" min="1" max="100" step="1" placeholder="榛樿 5"></label>
+                            <label>娴嬮€熸椂闀?<span class="input-with-unit"><input type="number" id="auto-spd-duration" min="1" max="120" step="1" placeholder="榛樿 5"> <span class="unit">绉?/span></span></label>
                         </div>
-                    <label class="task-source-wide">官方 IP 段源（优先级：本地 IP 库 > 官方 IP 段 > 远程 URL）<textarea id="advanced-official-sources" rows="2" placeholder="每行一个地址"></textarea></label>
-                    <label class="task-source-wide">官方 IPv6 活跃段源（默认内置 baipiao /48 列表，可留空）<textarea id="advanced-official-v6-sources" rows="3" placeholder="每行一个地址"></textarea></label>
-                        <div class="note">详细说明见「使用说明 · 设置」；并发过高可能漏测或误判，建议延迟 50 / 测速 5 起步再调整。</div>
+                    <label class="task-source-wide">瀹樻柟 IP 娈垫簮锛堜紭鍏堢骇锛氭湰鍦?IP 搴?> 瀹樻柟 IP 娈?> 杩滅▼ URL锛?textarea id="advanced-official-sources" rows="2" placeholder="姣忚涓€涓湴鍧€"></textarea></label>
+                    <label class="task-source-wide">瀹樻柟 IPv6 娲昏穬娈垫簮锛堥粯璁ゅ唴缃?baipiao /48 鍒楄〃锛屽彲鐣欑┖锛?textarea id="advanced-official-v6-sources" rows="3" placeholder="姣忚涓€涓湴鍧€"></textarea></label>
+                        <div class="note">璇︾粏璇存槑瑙併€屼娇鐢ㄨ鏄?路 璁剧疆銆嶏紱骞跺彂杩囬珮鍙兘婕忔祴鎴栬鍒わ紝寤鸿寤惰繜 50 / 娴嬮€?5 璧锋鍐嶈皟鏁淬€?/div>
                     </div>
-                    <div class="settings-section-title">结果颜色阈值</div>
+                    <div class="settings-section-title">缁撴灉棰滆壊闃堝€?/div>
                     <div class="advanced-group">
                         <div class="threshold-grid">
                             <div class="threshold-card latency-thresholds">
-                                <div class="threshold-card-head"><strong>延迟</strong><span>数值越低越好</span></div>
+                                <div class="threshold-card-head"><strong>寤惰繜</strong><span>鏁板€艰秺浣庤秺濂?/span></div>
                                 <div class="threshold-range-list">
                                     <label class="threshold-range range-fast">
-                                        <span class="threshold-label"><i class="threshold-swatch fast"></i>绿色</span>
-                                        <span class="threshold-expression">延迟 &lt;</span>
-                                        <span class="threshold-end"><input type="number" id="badge-latency-green-end" min="1" step="1" placeholder="200" aria-label="绿色延迟区间右端值"><em>ms</em></span>
+                                        <span class="threshold-label"><i class="threshold-swatch fast"></i>缁胯壊</span>
+                                        <span class="threshold-expression">寤惰繜 &lt;</span>
+                                        <span class="threshold-end"><input type="number" id="badge-latency-green-end" min="1" step="1" placeholder="200" aria-label="缁胯壊寤惰繜鍖洪棿鍙崇鍊?><em>ms</em></span>
                                     </label>
                                     <label class="threshold-range range-mid">
-                                        <span class="threshold-label"><i class="threshold-swatch mid"></i>黄色</span>
-                                        <span class="threshold-expression"><span id="badge-latency-yellow-start">200 ms</span> ≤ 延迟 ≤</span>
-                                        <span class="threshold-end"><input type="number" id="badge-latency-yellow-end" min="2" step="1" placeholder="1000" aria-label="黄色延迟区间右端值"><em>ms</em></span>
+                                        <span class="threshold-label"><i class="threshold-swatch mid"></i>榛勮壊</span>
+                                        <span class="threshold-expression"><span id="badge-latency-yellow-start">200 ms</span> 鈮?寤惰繜 鈮?/span>
+                                        <span class="threshold-end"><input type="number" id="badge-latency-yellow-end" min="2" step="1" placeholder="1000" aria-label="榛勮壊寤惰繜鍖洪棿鍙崇鍊?><em>ms</em></span>
                                     </label>
                                     <div class="threshold-range range-slow">
-                                        <span class="threshold-label"><i class="threshold-swatch slow"></i>红色</span>
-                                        <span class="threshold-expression">延迟 &gt;</span>
+                                        <span class="threshold-label"><i class="threshold-swatch slow"></i>绾㈣壊</span>
+                                        <span class="threshold-expression">寤惰繜 &gt;</span>
                                         <span class="threshold-derived" id="badge-latency-red-range">1000 ms</span>
                                     </div>
                                 </div>
                             </div>
                             <div class="threshold-card speed-thresholds">
-                                <div class="threshold-card-head"><strong>下载速度</strong><span>数值越高越好</span></div>
+                                <div class="threshold-card-head"><strong>涓嬭浇閫熷害</strong><span>鏁板€艰秺楂樿秺濂?/span></div>
                                 <div class="threshold-range-list">
                                     <label class="threshold-range range-slow">
-                                        <span class="threshold-label"><i class="threshold-swatch slow"></i>红色</span>
-                                        <span class="threshold-expression">0 &lt; 速度 &lt;</span>
-                                        <span class="threshold-end"><input type="number" id="badge-speed-red-end" min="1" step="1" placeholder="100" aria-label="红色速度区间右端值"><em>kB/s</em></span>
+                                        <span class="threshold-label"><i class="threshold-swatch slow"></i>绾㈣壊</span>
+                                        <span class="threshold-expression">0 &lt; 閫熷害 &lt;</span>
+                                        <span class="threshold-end"><input type="number" id="badge-speed-red-end" min="1" step="1" placeholder="100" aria-label="绾㈣壊閫熷害鍖洪棿鍙崇鍊?><em>kB/s</em></span>
                                     </label>
                                     <label class="threshold-range range-mid">
-                                        <span class="threshold-label"><i class="threshold-swatch mid"></i>黄色</span>
-                                        <span class="threshold-expression"><span id="badge-speed-yellow-start">100 kB/s</span> ≤ 速度 &lt;</span>
-                                        <span class="threshold-end"><input type="number" id="badge-speed-yellow-end" min="2" step="1" placeholder="1000" aria-label="黄色速度区间右端值"><em>kB/s</em></span>
+                                        <span class="threshold-label"><i class="threshold-swatch mid"></i>榛勮壊</span>
+                                        <span class="threshold-expression"><span id="badge-speed-yellow-start">100 kB/s</span> 鈮?閫熷害 &lt;</span>
+                                        <span class="threshold-end"><input type="number" id="badge-speed-yellow-end" min="2" step="1" placeholder="1000" aria-label="榛勮壊閫熷害鍖洪棿鍙崇鍊?><em>kB/s</em></span>
                                     </label>
                                     <div class="threshold-range range-fast">
-                                        <span class="threshold-label"><i class="threshold-swatch fast"></i>绿色</span>
-                                        <span class="threshold-expression">速度 ≥</span>
+                                        <span class="threshold-label"><i class="threshold-swatch fast"></i>缁胯壊</span>
+                                        <span class="threshold-expression">閫熷害 鈮?/span>
                                         <span class="threshold-derived" id="badge-speed-green-range">1000 kB/s</span>
                                     </div>
                                 </div>
                             </div>
                         </div>
-                        <div class="note">输入框编辑所在区间的右端值，其余区间会自动衔接；未测速显示灰色。</div>
+                        <div class="note">杈撳叆妗嗙紪杈戞墍鍦ㄥ尯闂寸殑鍙崇鍊硷紝鍏朵綑鍖洪棿浼氳嚜鍔ㄨ鎺ワ紱鏈祴閫熸樉绀虹伆鑹层€?/div>
                     </div>
                 </div>
-            <div class="settings-actions"><button id="btn-save-settings" class="primary">保存到本地</button><span id="settings-status" class="hint">保存在 data/config.json 与 data/settings.json</span></div>
+            <div class="settings-actions"><button id="btn-save-settings" class="primary">淇濆瓨鍒版湰鍦?/button><span id="settings-status" class="hint">淇濆瓨鍦?data/config.json 涓?data/settings.json</span></div>
         </section>
     </main>
 </div><
 <div id="help-overlay" class="help-overlay" hidden>
-        <div class="help-panel" role="dialog" aria-modal="true" aria-label="使用说明">
+        <div class="help-panel" role="dialog" aria-modal="true" aria-label="浣跨敤璇存槑">
             <div class="help-panel-head">
-                <strong>使用说明</strong>
-                <button type="button" id="btn-help-close" class="side-toggle" aria-label="关闭">×</button>
+                <strong>浣跨敤璇存槑</strong>
+                <button type="button" id="btn-help-close" class="side-toggle" aria-label="鍏抽棴">脳</button>
             </div>
             <div class="help-panel-body">
-                <h4>① 测速工作台</h4>
-                <p>三步流水线：<b>准备候选</b>（粘贴 / 文件 / 远程 URL / 官方段，或「从本地库导入」）→ <b>检测规则</b>（延迟、测速、数量）→ <b>检测及结果</b>（筛选、排序、自定义展示）。结果可复制、下载，或按<b>导出范围</b>（全部 / 当前规则 / 自定义）导入到指定 IP 库。</p>
-<p><b>整体约束</b>：达到数量即停止检测；只测延迟按延迟合格数计数，继续测速按同时满足延迟与速度条件的数量计数；清空结果后可继续检测。</p>
-<p><b>结果范围筛选</b>：填「100~500」为区间；延迟只填一个数为上限（小于该值），速度只填一个数为下限（大于该值）。</p>
-<p><b>官方 IP 模式</b>：IPv4 按每个 /24 抽样，避免直接检测百万级地址；可选择 Cloudflare 支持的 HTTP/HTTPS 端口。</p>
-                <h4>② 自动维护</h4>
-<p>新建任务 → 绑定 IP 库，设<b>规则</b>：字段（国家/城市/端口）多值=或、多字段=交集，每个组合取前 N 条；延迟/速度范围（测速总开关开启后可用）；总数限制。保存并勾选「启用」后，点顶部「一键维护」依次执行；输出按模板写入 data/out/（输出文件名留空时使用独立默认路径，不会覆盖初始化文件）。</p>
-<p><b>维护来源</b>：本地库检测后会回写状态（失效移除、测速失败保留）；官方 IP 段与远程 URL 只作为本次候选，不写回、不删除来源。系统会持续检测，直到规则配额满足或候选耗尽。</p>
-                <h4>③ IP 库</h4>
-                <p>多个命名库（data/ipdb/），可新建/改名/删除/清空。库内条目随检测自动更新：延迟失败移除、测速失败保留、结果回写。</p>
-                <h4>④ 运行记录</h4>
-                <p>每次维护的摘要与明细（data/runs.jsonl），可追溯。</p>
-                <h4>⑤ 设置</h4>
-                <p>全局默认检测参数、数据源与颜色阈值（data/config.json、data/settings.json）。</p>
-<p><b>自动维护默认值</b>：延迟对每个 IP 独立探测多次并对成功结果取平均，HTTP 校验 1 次、单请求超时默认 3 秒；连续失败达到阈值（默认 3 次）才从库移除，达到阈值前保留并累计。并发过高可能造成漏测或误判，建议从延迟 50 / 测速 5 开始，再按机器和网络逐步调整。</p>
-<p><b>结果颜色阈值</b>：输入框编辑所在区间的右端值，其余区间会自动衔接；未测速显示灰色。</p>
-                <p class="help-note">提示：本程序为本地单机应用，双击 exe 即启动服务。重复启动时会自动打开已运行的实例，不会重复占用端口；需要退出时点击右上角红色电源按钮，再点「确认退出」，或关闭黑色控制台窗口。</p>
+                <h4>鈶?娴嬮€熷伐浣滃彴</h4>
+                <p>涓夋娴佹按绾匡細<b>鍑嗗鍊欓€?/b>锛堢矘璐?/ 鏂囦欢 / 杩滅▼ URL / 瀹樻柟娈碉紝鎴栥€屼粠鏈湴搴撳鍏ャ€嶏級鈫?<b>妫€娴嬭鍒?/b>锛堝欢杩熴€佹祴閫熴€佹暟閲忥級鈫?<b>妫€娴嬪強缁撴灉</b>锛堢瓫閫夈€佹帓搴忋€佽嚜瀹氫箟灞曠ず锛夈€傜粨鏋滃彲澶嶅埗銆佷笅杞斤紝鎴栨寜<b>瀵煎嚭鑼冨洿</b>锛堝叏閮?/ 褰撳墠瑙勫垯 / 鑷畾涔夛級瀵煎叆鍒版寚瀹?IP 搴撱€?/p>
+<p><b>鏁翠綋绾︽潫</b>锛氳揪鍒版暟閲忓嵆鍋滄妫€娴嬶紱鍙祴寤惰繜鎸夊欢杩熷悎鏍兼暟璁℃暟锛岀户缁祴閫熸寜鍚屾椂婊¤冻寤惰繜涓庨€熷害鏉′欢鐨勬暟閲忚鏁帮紱娓呯┖缁撴灉鍚庡彲缁х画妫€娴嬨€?/p>
+<p><b>缁撴灉鑼冨洿绛涢€?/b>锛氬～銆?00~500銆嶄负鍖洪棿锛涘欢杩熷彧濉竴涓暟涓轰笂闄愶紙灏忎簬璇ュ€硷級锛岄€熷害鍙～涓€涓暟涓轰笅闄愶紙澶т簬璇ュ€硷級銆?/p>
+<p><b>瀹樻柟 IP 妯″紡</b>锛欼Pv4 鎸夋瘡涓?/24 鎶芥牱锛岄伩鍏嶇洿鎺ユ娴嬬櫨涓囩骇鍦板潃锛涘彲閫夋嫨 Cloudflare 鏀寔鐨?HTTP/HTTPS 绔彛銆?/p>
+                <h4>鈶?鑷姩缁存姢</h4>
+<p>鏂板缓浠诲姟 鈫?缁戝畾 IP 搴擄紝璁?b>瑙勫垯</b>锛氬瓧娈碉紙鍥藉/鍩庡競/绔彛锛夊鍊?鎴栥€佸瀛楁=浜ら泦锛屾瘡涓粍鍚堝彇鍓?N 鏉★紱寤惰繜/閫熷害鑼冨洿锛堟祴閫熸€诲紑鍏冲紑鍚悗鍙敤锛夛紱鎬绘暟闄愬埗銆備繚瀛樺苟鍕鹃€夈€屽惎鐢ㄣ€嶅悗锛岀偣椤堕儴銆屼竴閿淮鎶ゃ€嶄緷娆℃墽琛岋紱杈撳嚭鎸夋ā鏉垮啓鍏?data/out/锛堣緭鍑烘枃浠跺悕鐣欑┖鏃朵娇鐢ㄧ嫭绔嬮粯璁よ矾寰勶紝涓嶄細瑕嗙洊鍒濆鍖栨枃浠讹級銆?/p>
+<p><b>缁存姢鏉ユ簮</b>锛氭湰鍦板簱妫€娴嬪悗浼氬洖鍐欑姸鎬侊紙澶辨晥绉婚櫎銆佹祴閫熷け璐ヤ繚鐣欙級锛涘畼鏂?IP 娈典笌杩滅▼ URL 鍙綔涓烘湰娆″€欓€夛紝涓嶅啓鍥炪€佷笉鍒犻櫎鏉ユ簮銆傜郴缁熶細鎸佺画妫€娴嬶紝鐩村埌瑙勫垯閰嶉婊¤冻鎴栧€欓€夎€楀敖銆?/p>
+                <h4>鈶?IP 搴?/h4>
+                <p>澶氫釜鍛藉悕搴擄紙data/ipdb/锛夛紝鍙柊寤?鏀瑰悕/鍒犻櫎/娓呯┖銆傚簱鍐呮潯鐩殢妫€娴嬭嚜鍔ㄦ洿鏂帮細寤惰繜澶辫触绉婚櫎銆佹祴閫熷け璐ヤ繚鐣欍€佺粨鏋滃洖鍐欍€?/p>
+                <h4>鈶?杩愯璁板綍</h4>
+                <p>姣忔缁存姢鐨勬憳瑕佷笌鏄庣粏锛坉ata/runs.jsonl锛夛紝鍙拷婧€?/p>
+                <h4>鈶?璁剧疆</h4>
+                <p>鍏ㄥ眬榛樿妫€娴嬪弬鏁般€佹暟鎹簮涓庨鑹查槇鍊硷紙data/config.json銆乨ata/settings.json锛夈€?/p>
+<p><b>鑷姩缁存姢榛樿鍊?/b>锛氬欢杩熷姣忎釜 IP 鐙珛鎺㈡祴澶氭骞跺鎴愬姛缁撴灉鍙栧钩鍧囷紝HTTP 鏍￠獙 1 娆°€佸崟璇锋眰瓒呮椂榛樿 3 绉掞紱杩炵画澶辫触杈惧埌闃堝€硷紙榛樿 3 娆★級鎵嶄粠搴撶Щ闄わ紝杈惧埌闃堝€煎墠淇濈暀骞剁疮璁°€傚苟鍙戣繃楂樺彲鑳介€犳垚婕忔祴鎴栬鍒わ紝寤鸿浠庡欢杩?50 / 娴嬮€?5 寮€濮嬶紝鍐嶆寜鏈哄櫒鍜岀綉缁滈€愭璋冩暣銆?/p>
+<p><b>缁撴灉棰滆壊闃堝€?/b>锛氳緭鍏ユ缂栬緫鎵€鍦ㄥ尯闂寸殑鍙崇鍊硷紝鍏朵綑鍖洪棿浼氳嚜鍔ㄨ鎺ワ紱鏈祴閫熸樉绀虹伆鑹层€?/p>
+                <p class="help-note">鎻愮ず锛氭湰绋嬪簭涓烘湰鍦板崟鏈哄簲鐢紝鍙屽嚮 exe 鍗冲惎鍔ㄦ湇鍔°€傞噸澶嶅惎鍔ㄦ椂浼氳嚜鍔ㄦ墦寮€宸茶繍琛岀殑瀹炰緥锛屼笉浼氶噸澶嶅崰鐢ㄧ鍙ｏ紱闇€瑕侀€€鍑烘椂鐐瑰嚮鍙充笂瑙掔孩鑹茬數婧愭寜閽紝鍐嶇偣銆岀‘璁ら€€鍑恒€嶏紝鎴栧叧闂粦鑹叉帶鍒跺彴绐楀彛銆?/p>
             </div>
         </div>
     </div>
     <div id="toast" role="status" aria-live="polite"></div>
     <script type="module" src="js/app.js"></script>
 <div id="exit-overlay" class="exit-overlay" hidden>
-    <div class="exit-dialog" role="dialog" aria-modal="true" aria-label="退出程序">
-        <p class="exit-dialog-title">退出程序</p><p class="exit-dialog-text">确认要退出吗？退出后服务将停止，需要重新启动才能继续使用。</p>
+    <div class="exit-dialog" role="dialog" aria-modal="true" aria-label="閫€鍑虹▼搴?>
+        <p class="exit-dialog-title">閫€鍑虹▼搴?/p><p class="exit-dialog-text">纭瑕侀€€鍑哄悧锛熼€€鍑哄悗鏈嶅姟灏嗗仠姝紝闇€瑕侀噸鏂板惎鍔ㄦ墠鑳界户缁娇鐢ㄣ€?/p>
         <div class="exit-dialog-actions">
-            <button type="button" id="btn-exit-confirm" class="exit-confirm-btn danger">确认退出</button>
-            <button type="button" id="btn-exit-cancel" class="exit-confirm-cancel">取消</button>
+            <button type="button" id="btn-exit-confirm" class="exit-confirm-btn danger">纭閫€鍑?/button>
+            <button type="button" id="btn-exit-cancel" class="exit-confirm-cancel">鍙栨秷</button>
         </div>
     </div>
 </div>
