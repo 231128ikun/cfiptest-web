@@ -122,6 +122,7 @@ func (s *Server) registerRoutes() {
 	s.mux.Handle("/", http.FileServer(http.FS(s.assets)))
 	s.mux.HandleFunc("GET /api/config", s.handleConfig)
 	s.mux.HandleFunc("PUT /api/config", s.handleSaveConfig)
+	s.mux.HandleFunc("POST /api/config/reset", s.handleResetConfig)
 	s.mux.HandleFunc("PUT /api/settings", s.handleSaveSettings)
 	s.mux.HandleFunc("GET /api/official-ranges", s.handleOfficialRanges)
 	s.mux.HandleFunc("POST /api/import/remote", s.handleImportRemote)

@@ -277,7 +277,8 @@ check('设置修改后自动防抖保存，刷新不再丢', () => {
     assert.ok(/scheduleConfigAutoSave\(\)/.test(rules), '数据源字段未接入 config 自动保存');
     const settingsBody = fnBody('function bindSettingsAutoSave');
     assert.ok(/auto-lat-concurrency/.test(settingsBody) && /auto-spd-duration/.test(settingsBody), '设置页维护参数未接入自动保存');
-    assert.ok(/advanced-trace-url/.test(settingsBody) && /advanced-official-sources/.test(settingsBody), '设置页数据源字段未接入自动保存');
+    assert.ok(/advanced-trace-url/.test(settingsBody) && /bindListEditor/.test(settingsBody), '设置页数据源字段未接入自动保存');
+    assert.ok(/btn-reset-settings[\s\S]{0,80}resetSettingsToDefaults/.test(appJs), '恢复默认设置按钮未绑定');
     assert.ok(/debugLog: \$\('log-enable'\)\.checked/.test(appJs), '整表保存会冲掉日志开关');
 });
 check('手动「保存到本地」按钮保留为立即保存', () => {

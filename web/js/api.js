@@ -18,6 +18,8 @@ export async function fetchConfig() {
 }
 
 export function saveConfig(config, init = {}) { return postJSON('/api/config', config, 'PUT', init); }
+/** 恢复默认配置：后端直接落盘 config.Default()，返回默认 config。 */
+export function resetConfig() { return postJSON('/api/config/reset', {}); }
 export function saveSettings(settings, init = {}) { return postJSON('/api/settings', settings, 'PUT', init); }
 
 /** 合并补丁保存设置：先取当前完整设置再合并补丁，避免覆盖其他设置项（模板、日志等共存于 settings.json）。 */

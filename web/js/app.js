@@ -756,9 +756,24 @@ function bindSettingsAutoSave() {
      'auto-lat-http-timeout', 'auto-lat-remove-after', 'auto-spd-concurrency', 'auto-spd-duration']
         .forEach(id => $(id).addEventListener('change', scheduleSettingsAutoSave));
     // 设置页：数据源 / URL 类字段改动后自动保存到 config
-    ['advanced-trace-url', 'advanced-ips-url', 'advanced-location-sources',
-     'advanced-asn-sources', 'advanced-official-sources', 'advanced-official-v6-sources']
+    ['advanced-trace-url', 'advanced-ips-url', 'advanced-speed-url']
         .forEach(id => $(id).addEventListener('input', scheduleConfigAutoSave));
+    // 多地址数据源：逐行编辑，增删行也会自动保存
+    document.querySelectorAll('.list-editor').forEach(container => {
+        bindListEditor(container, scheduleConfigAutoSave);
+    });
+    // 单地址行的清空按钮：清空后保存即回退默认
+    document.querySelectorAll('[data-clear]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const input = $(btn.dataset.clear);
+            if (!input) return;
+            input.value = '';
+            if (input.id === 'advanced-speed-url') $('spd-url').value = '';
+            scheduleConfigAutoSave();
+            toast('已清空，保存后将恢复默认');
+        });
+    });
+    $('btn-reset-settings').addEventListener('click', resetSettingsToDefaults);
 }
 
 async function reconcileTaskStatus({ reconnected = false } = {}) {
@@ -1037,16 +1052,118 @@ function fillBadgeThresholdFields(settings = {}) {
     setBadgeThresholds(normalized);
 }
 
+/** 设置页自动维护参数的内置默认值（与后端 subscription 默认一致）。 */
+const RESET_MAINTENANCE_DEFAULTS = {
+    latencyConcurrency: 50,
+    latencyTimeoutMs: 3000,
+    latencyProbes: 4,
+    latencyHTTPProbes: 1,
+    latencyHTTPTimeoutMs: 3000,
+    removeAfterFailures: 3,
+    speedConcurrency: 5,
+    speedDurationSec: 5,
+};
+
+function createListEditorRow(value = '') {
+    const row = document.createElement('div');
+    row.className = 'list-editor-row';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = value;
+    input.spellcheck = false;
+    input.placeholder = '输入地址，如 https://…';
+    input.setAttribute('aria-label', '数据源地址');
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'row-action list-del';
+    del.textContent = '×';
+    del.title = '删除该地址';
+    del.setAttribute('aria-label', '删除该地址');
+    row.append(input, del);
+    return row;
+}
+
+function setListEditor(containerId, values) {
+    const container = $(containerId);
+    if (!container) return;
+    const rows = container.querySelector('[data-role="rows"]');
+    if (!rows) return;
+    rows.textContent = '';
+    const items = Array.isArray(values) && values.length ? values : [''];
+    items.forEach(value => rows.append(createListEditorRow(value)));
+}
+
+function getListEditor(containerId) {
+    const container = $(containerId);
+    if (!container) return [];
+    return [...container.querySelectorAll('[data-role="rows"] input')]
+        .map(input => input.value.trim())
+        .filter(Boolean);
+}
+
+function bindListEditor(container, onChange) {
+    container.addEventListener('input', event => {
+        if (event.target.matches('input[type="text"]')) onChange();
+    });
+    container.addEventListener('click', event => {
+        const add = event.target.closest('[data-role="add"]');
+        if (add) {
+            const rows = container.querySelector('[data-role="rows"]');
+            const row = createListEditorRow();
+            rows.append(row);
+            row.querySelector('input').focus();
+            onChange();
+            return;
+        }
+        const del = event.target.closest('.list-del');
+        if (del) {
+            const row = del.closest('.list-editor-row');
+            row.remove();
+            const rows = container.querySelector('[data-role="rows"]');
+            if (!rows.querySelector('.list-editor-row')) rows.append(createListEditorRow());
+            onChange();
+        }
+    });
+}
+
+function resetMaintenanceFieldsToDefaults() {
+    const d = RESET_MAINTENANCE_DEFAULTS;
+    $('auto-lat-concurrency').value = d.latencyConcurrency;
+    $('auto-lat-timeout').value = d.latencyTimeoutMs;
+    $('auto-lat-probes').value = d.latencyProbes;
+    $('auto-lat-http-probes').value = d.latencyHTTPProbes;
+    $('auto-lat-http-timeout').value = d.latencyHTTPTimeoutMs;
+    $('auto-lat-remove-after').value = d.removeAfterFailures;
+    $('auto-spd-concurrency').value = d.speedConcurrency;
+    $('auto-spd-duration').value = d.speedDurationSec;
+    fillBadgeThresholdFields({});
+}
+
+async function resetSettingsToDefaults() {
+    if (!confirm('确定恢复全部默认设置吗？当前「设置」页内容将被覆盖并立即保存。')) return;
+    try {
+        const response = await api.resetConfig();
+        fillConfigFields(response.config);
+        resetMaintenanceFieldsToDefaults();
+        $('spd-url').value = $('advanced-speed-url').value;
+        await saveLocalSettings();
+        $('settings-status').textContent = '已恢复为默认设置并保存';
+        toast('已恢复全部默认设置');
+    } catch (error) {
+        toast(error.message);
+    }
+}
+
 function fillConfigFields(config) {
     appConfig = config || {};
     const sources = appConfig.sources || {};
     $('advanced-speed-url').value = appConfig.speedTestURL || '';
     $('advanced-trace-url').value = appConfig.traceURL || '';
     $('advanced-ips-url').value = appConfig.ipsTypeURL || '';
-    $('advanced-location-sources').value = (sources.locations || []).join('\n');
-    $('advanced-asn-sources').value = (sources.asnDatabase || []).join('\n');
-    $('advanced-official-sources').value = (sources.officialRanges || []).join('\n');
-    $('advanced-official-v6-sources').value = (sources.activeIPv6RangeSources || []).join('\n');
+    setListEditor('editor-locations', sources.locations);
+    setListEditor('editor-asn', sources.asnDatabase);
+    setListEditor('editor-official', sources.officialRanges);
+    setListEditor('editor-official-v6', sources.activeIPv6RangeSources);
 }
 
 function applySavedSettings(settings = {}) {
@@ -1131,10 +1248,10 @@ function readConfigFields() {
         ipsTypeURL: $('advanced-ips-url').value.trim(),
         speedTestURL: $('advanced-speed-url').value.trim(),
         sources: {
-            locations: $('advanced-location-sources').value.split(/\r?\n/).map(v => v.trim()).filter(Boolean),
-            asnDatabase: $('advanced-asn-sources').value.split(/\r?\n/).map(v => v.trim()).filter(Boolean),
-            officialRanges: $('advanced-official-sources').value.split(/\r?\n/).map(v => v.trim()).filter(Boolean),
-            activeIPv6RangeSources: $('advanced-official-v6-sources').value.split(/\r?\n/).map(v => v.trim()).filter(Boolean),
+            locations: getListEditor('editor-locations'),
+            asnDatabase: getListEditor('editor-asn'),
+            officialRanges: getListEditor('editor-official'),
+            activeIPv6RangeSources: getListEditor('editor-official-v6'),
         },
     };
 }

@@ -868,6 +868,42 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 
 .settings-actions { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
 
+/* ---------- 17b. 设置页卡片化布局 ---------- */
+.settings-layout { display: grid; gap: 16px; margin-top: 12px; max-width: 920px; }
+.settings-card { border: 1px solid var(--border-light); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-sm); overflow: hidden; }
+.settings-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 14px 18px 12px; border-bottom: 1px solid var(--border-light); background: var(--surface-soft); }
+.settings-card-head h3 { margin: 0; font-size: 14px; font-weight: 700; letter-spacing: .2px; }
+.settings-card-head p { margin: 3px 0 0; color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
+.settings-card-body { display: grid; gap: 2px; padding: 4px 18px 14px; }
+
+.settings-row { display: grid; grid-template-columns: 168px minmax(0, 1fr); align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px dashed var(--border-light); }
+.settings-row:last-of-type { border-bottom: 0; }
+.settings-label { font-size: 12px; font-weight: 650; color: var(--text-secondary); }
+.settings-control { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.settings-control input { flex: 1; min-width: 0; }
+.settings-hint { margin-top: 3px; color: var(--text-tertiary); font-size: 11px; }
+.settings-note { margin: 8px 0 0; color: var(--text-tertiary); font-size: 12px; line-height: 1.55; }
+
+/* 行内操作按钮（× 清空 / 删除） */
+.row-action {
+    flex: none; width: 28px; height: 28px; padding: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: var(--text-tertiary); font-size: 16px; line-height: 1;
+    background: transparent; border: 1px solid var(--border-light); border-radius: var(--radius-sm);
+    cursor: pointer; transition: color .15s ease, background .15s ease, border-color .15s ease;
+}
+.row-action:hover:not(:disabled) { color: var(--danger); background: var(--danger-soft); border-color: var(--danger); }
+
+/* 多地址列表编辑器 */
+.list-editor { padding: 10px 0; border-bottom: 1px dashed var(--border-light); }
+.list-editor:last-of-type { border-bottom: 0; }
+.list-editor-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.list-editor-head .settings-label { font-size: 12px; }
+.list-add { flex: none; }
+.list-editor-rows { display: grid; gap: 8px; }
+.list-editor-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.list-editor-row input { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 12px; }
+
 /* ---------- 18. Toast ---------- */
 #toast { position: fixed; left: 50%; bottom: 24px; z-index: 100; padding: 10px 16px; border: 1px solid var(--hairline); border-radius: var(--pill); background: var(--glass-strong); -webkit-backdrop-filter: blur(18px) saturate(1.8); backdrop-filter: blur(18px) saturate(1.8); color: var(--text-strong); box-shadow: var(--shadow-lg); opacity: 0; pointer-events: none; transform: translate(-50%, 70px); transition: opacity .25s ease, transform .25s ease; font-size: 13px; }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
@@ -1264,3 +1300,12 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 .lib-empty-state strong { font-size: 15px; color: var(--text); }
 .lib-empty-state span { font-size: 13px; }
 .lib-empty-state .secondary-button { min-width: 0; }
+
+/* 设置页窄屏适配 */
+@media (max-width: 640px) {
+    .settings-row { grid-template-columns: 1fr; gap: 6px; }
+    .settings-card-head { flex-direction: column; gap: 6px; }
+    .settings-card-body { padding: 4px 14px 12px; }
+    .list-editor-head { flex-direction: column; align-items: stretch; gap: 6px; }
+    .list-add { align-self: flex-start; }
+}

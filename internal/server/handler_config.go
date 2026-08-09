@@ -54,6 +54,20 @@ func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"saved": true, "config": cfg})
 }
 
+// handleResetConfig 将 config.json 恢复为内置默认值（检测地址与全部数据源），并同步内存态。
+func (s *Server) handleResetConfig(w http.ResponseWriter, r *http.Request) {
+	cfg := config.Default()
+	if err := config.Save(s.dataDir, cfg); err != nil {
+		writeError(w, http.StatusInternalServerError, "恢复默认配置失败: "+err.Error())
+		return
+	}
+	s.configMu.Lock()
+	s.cfg = cfg
+	s.speedDefaults.DownloadURL = cfg.SpeedTestURL
+	s.configMu.Unlock()
+	writeJSON(w, http.StatusOK, map[string]any{"saved": true, "config": cfg})
+}
+
 func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	var settings map[string]any
 	if !decodeJSON(w, r, &settings) {

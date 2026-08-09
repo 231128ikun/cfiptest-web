@@ -637,82 +637,169 @@
     <div class="page-head">
         <div>
             <h2>设置</h2>
-            <p class="page-desc">全局默认检测参数、本地数据源与颜色阈值，直接编辑后保存到本地。</p>
+            <p class="page-desc">全局默认检测参数、本地数据源与颜色阈值；编辑后自动保存到本地，也可一键恢复默认。</p>
         </div>
     </div>
-<div class="advanced-config-grid">
-    <div class="settings-section-title">通用设置</div>
+    <div class="settings-layout">
 
-                    <label>IPS 检测地址 <input type="text" id="advanced-ips-url" placeholder="使用 {ip} 表示被测 IP"></label>
-                    <label>测速地址 <input type="text" id="advanced-speed-url"></label>
-                    <label>Trace 地址 <input type="text" id="advanced-trace-url"></label>
-                    <label>地理位置数据源 <textarea id="advanced-location-sources" rows="3" placeholder="每行一个地址"></textarea></label>
-                    <label>ASN 数据源 <textarea id="advanced-asn-sources" rows="3" placeholder="每行一个地址"></textarea></label>
-                    <div class="advanced-group">
-                        <div class="advanced-group-title">自动维护</div>
-                        <div class="advanced-inline-grid auto-maintenance-grid">
-                            <label>延迟并发 <input type="number" id="auto-lat-concurrency" min="1" max="1000" step="1" placeholder="默认 50"></label>
-                            <label>延迟超时 <span class="input-with-unit"><input type="number" id="auto-lat-timeout" min="200" max="60000" step="100" placeholder="默认 3000"> <span class="unit">ms</span></span></label>
-                            <label>TCP 探测次数 <input type="number" id="auto-lat-probes" min="1" max="10" step="1" placeholder="默认 4"></label>
-                            <label>HTTP 校验次数 <input type="number" id="auto-lat-http-probes" min="1" max="10" step="1" placeholder="默认 1"></label>
-                            <label>HTTP 校验超时 <span class="input-with-unit"><input type="number" id="auto-lat-http-timeout" min="200" max="60000" step="100" placeholder="默认 3000"> <span class="unit">ms</span></span></label>
-                            <label>连续失败移除阈值 <input type="number" id="auto-lat-remove-after" min="1" max="20" step="1" placeholder="默认 3"></label>
-                            <label>测速并发 <input type="number" id="auto-spd-concurrency" min="1" max="100" step="1" placeholder="默认 5"></label>
-                            <label>测速时长 <span class="input-with-unit"><input type="number" id="auto-spd-duration" min="1" max="120" step="1" placeholder="默认 5"> <span class="unit">秒</span></span></label>
-                        </div>
-                    <label class="task-source-wide">官方 IP 段源（优先级：本地 IP 库 > 官方 IP 段 > 远程 URL）<textarea id="advanced-official-sources" rows="2" placeholder="每行一个地址"></textarea></label>
-                    <label class="task-source-wide">官方 IPv6 活跃段源（默认内置 baipiao /48 列表，可留空）<textarea id="advanced-official-v6-sources" rows="3" placeholder="每行一个地址"></textarea></label>
-                        <div class="note">详细说明见「使用说明 · 设置」；并发过高可能漏测或误判，建议延迟 50 / 测速 5 起步再调整。</div>
-                    </div>
-                    <div class="settings-section-title">结果颜色阈值</div>
-                    <div class="advanced-group">
-                        <div class="threshold-grid">
-                            <div class="threshold-card latency-thresholds">
-                                <div class="threshold-card-head"><strong>延迟</strong><span>数值越低越好</span></div>
-                                <div class="threshold-range-list">
-                                    <label class="threshold-range range-fast">
-                                        <span class="threshold-label"><i class="threshold-swatch fast"></i>绿色</span>
-                                        <span class="threshold-expression">延迟 &lt;</span>
-                                        <span class="threshold-end"><input type="number" id="badge-latency-green-end" min="1" step="1" placeholder="200" aria-label="绿色延迟区间右端值"><em>ms</em></span>
-                                    </label>
-                                    <label class="threshold-range range-mid">
-                                        <span class="threshold-label"><i class="threshold-swatch mid"></i>黄色</span>
-                                        <span class="threshold-expression"><span id="badge-latency-yellow-start">200 ms</span> ≤ 延迟 ≤</span>
-                                        <span class="threshold-end"><input type="number" id="badge-latency-yellow-end" min="2" step="1" placeholder="1000" aria-label="黄色延迟区间右端值"><em>ms</em></span>
-                                    </label>
-                                    <div class="threshold-range range-slow">
-                                        <span class="threshold-label"><i class="threshold-swatch slow"></i>红色</span>
-                                        <span class="threshold-expression">延迟 &gt;</span>
-                                        <span class="threshold-derived" id="badge-latency-red-range">1000 ms</span>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="threshold-card speed-thresholds">
-                                <div class="threshold-card-head"><strong>下载速度</strong><span>数值越高越好</span></div>
-                                <div class="threshold-range-list">
-                                    <label class="threshold-range range-slow">
-                                        <span class="threshold-label"><i class="threshold-swatch slow"></i>红色</span>
-                                        <span class="threshold-expression">0 &lt; 速度 &lt;</span>
-                                        <span class="threshold-end"><input type="number" id="badge-speed-red-end" min="1" step="1" placeholder="100" aria-label="红色速度区间右端值"><em>kB/s</em></span>
-                                    </label>
-                                    <label class="threshold-range range-mid">
-                                        <span class="threshold-label"><i class="threshold-swatch mid"></i>黄色</span>
-                                        <span class="threshold-expression"><span id="badge-speed-yellow-start">100 kB/s</span> ≤ 速度 &lt;</span>
-                                        <span class="threshold-end"><input type="number" id="badge-speed-yellow-end" min="2" step="1" placeholder="1000" aria-label="黄色速度区间右端值"><em>kB/s</em></span>
-                                    </label>
-                                    <div class="threshold-range range-fast">
-                                        <span class="threshold-label"><i class="threshold-swatch fast"></i>绿色</span>
-                                        <span class="threshold-expression">速度 ≥</span>
-                                        <span class="threshold-derived" id="badge-speed-green-range">1000 kB/s</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="note">输入框编辑所在区间的右端值，其余区间会自动衔接；未测速显示灰色。</div>
+        <div class="settings-card">
+            <div class="settings-card-head">
+                <div>
+                    <h3>检测地址与数据源</h3>
+                    <p>单地址支持直接编辑或清空；多地址来源每行一个，可增删。</p>
+                </div>
+            </div>
+            <div class="settings-card-body">
+                <div class="settings-row">
+                    <label class="settings-label" for="advanced-ips-url">IPS 检测地址</label>
+                    <div class="settings-control">
+                        <input type="text" id="advanced-ips-url" placeholder="使用 {ip} 表示被测 IP">
+                        <button type="button" class="row-action" data-clear="advanced-ips-url" title="清空并恢复默认" aria-label="清空 IPS 检测地址">×</button>
                     </div>
                 </div>
-            <div class="settings-actions"><button id="btn-save-settings" class="primary">保存到本地</button><span id="settings-status" class="hint">保存在 data/config.json 与 data/settings.json</span></div>
-        </section>
+                <div class="settings-row">
+                    <label class="settings-label" for="advanced-trace-url">Trace 地址</label>
+                    <div class="settings-control">
+                        <input type="text" id="advanced-trace-url" placeholder="默认由内置数据源决定">
+                        <button type="button" class="row-action" data-clear="advanced-trace-url" title="清空并恢复默认" aria-label="清空 Trace 地址">×</button>
+                    </div>
+                </div>
+                <div class="settings-row">
+                    <label class="settings-label" for="advanced-speed-url">测速地址</label>
+                    <div class="settings-control">
+                        <input type="text" id="advanced-speed-url" placeholder="如 speed.cloudflare.com/__down?bytes=500000000">
+                        <button type="button" class="row-action" data-clear="advanced-speed-url" title="清空并恢复默认" aria-label="清空测速地址">×</button>
+                    </div>
+                </div>
+
+                <div class="list-editor" id="editor-locations">
+                    <div class="list-editor-head">
+                        <div>
+                            <div class="settings-label">地理位置数据源</div>
+                            <div class="settings-hint">每行一个地址，用于 IP 归属地查询</div>
+                        </div>
+                        <button type="button" class="small list-add" data-role="add">+ 添加地址</button>
+                    </div>
+                    <div class="list-editor-rows" data-role="rows"></div>
+                </div>
+
+                <div class="list-editor" id="editor-asn">
+                    <div class="list-editor-head">
+                        <div>
+                            <div class="settings-label">ASN 数据源</div>
+                            <div class="settings-hint">每行一个地址，用于 ASN 归属查询</div>
+                        </div>
+                        <button type="button" class="small list-add" data-role="add">+ 添加地址</button>
+                    </div>
+                    <div class="list-editor-rows" data-role="rows"></div>
+                </div>
+
+                <div class="list-editor" id="editor-official">
+                    <div class="list-editor-head">
+                        <div>
+                            <div class="settings-label">官方 IP 段源</div>
+                            <div class="settings-hint">优先级：本地 IP 库 > 官方 IP 段 > 远程 URL；每行一个</div>
+                        </div>
+                        <button type="button" class="small list-add" data-role="add">+ 添加地址</button>
+                    </div>
+                    <div class="list-editor-rows" data-role="rows"></div>
+                </div>
+
+                <div class="list-editor" id="editor-official-v6">
+                    <div class="list-editor-head">
+                        <div>
+                            <div class="settings-label">官方 IPv6 活跃段源</div>
+                            <div class="settings-hint">默认内置 baipiao /48 列表，可留空；每行一个</div>
+                        </div>
+                        <button type="button" class="small list-add" data-role="add">+ 添加地址</button>
+                    </div>
+                    <div class="list-editor-rows" data-role="rows"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="settings-card">
+            <div class="settings-card-head">
+                <div>
+                    <h3>自动维护参数</h3>
+                    <p>留空使用内置默认；并发过高可能漏测或误判，建议延迟 50 / 测速 5 起步再调整。</p>
+                </div>
+            </div>
+            <div class="settings-card-body">
+                <div class="advanced-inline-grid auto-maintenance-grid">
+                    <label>延迟并发 <input type="number" id="auto-lat-concurrency" min="1" max="1000" step="1" placeholder="默认 50"></label>
+                    <label>延迟超时 <span class="input-with-unit"><input type="number" id="auto-lat-timeout" min="200" max="60000" step="100" placeholder="默认 3000"> <span class="unit">ms</span></span></label>
+                    <label>TCP 探测次数 <input type="number" id="auto-lat-probes" min="1" max="10" step="1" placeholder="默认 4"></label>
+                    <label>HTTP 校验次数 <input type="number" id="auto-lat-http-probes" min="1" max="10" step="1" placeholder="默认 1"></label>
+                    <label>HTTP 校验超时 <span class="input-with-unit"><input type="number" id="auto-lat-http-timeout" min="200" max="60000" step="100" placeholder="默认 3000"> <span class="unit">ms</span></span></label>
+                    <label>连续失败移除阈值 <input type="number" id="auto-lat-remove-after" min="1" max="20" step="1" placeholder="默认 3"></label>
+                    <label>测速并发 <input type="number" id="auto-spd-concurrency" min="1" max="100" step="1" placeholder="默认 5"></label>
+                    <label>测速时长 <span class="input-with-unit"><input type="number" id="auto-spd-duration" min="1" max="120" step="1" placeholder="默认 5"> <span class="unit">秒</span></span></label>
+                </div>
+                <p class="settings-note">详细说明见「使用说明 · 设置」；这些参数是新建维护任务时的全局默认值。</p>
+            </div>
+        </div>
+
+        <div class="settings-card">
+            <div class="settings-card-head">
+                <div>
+                    <h3>结果颜色阈值</h3>
+                    <p>输入框编辑所在区间的右端值，其余区间会自动衔接；未测速显示灰色。</p>
+                </div>
+            </div>
+            <div class="settings-card-body">
+                <div class="threshold-grid">
+                    <div class="threshold-card latency-thresholds">
+                        <div class="threshold-card-head"><strong>延迟</strong><span>数值越低越好</span></div>
+                        <div class="threshold-range-list">
+                            <label class="threshold-range range-fast">
+                                <span class="threshold-label"><i class="threshold-swatch fast"></i>绿色</span>
+                                <span class="threshold-expression">延迟 &lt;</span>
+                                <span class="threshold-end"><input type="number" id="badge-latency-green-end" min="1" step="1" placeholder="200" aria-label="绿色延迟区间右端值"><em>ms</em></span>
+                            </label>
+                            <label class="threshold-range range-mid">
+                                <span class="threshold-label"><i class="threshold-swatch mid"></i>黄色</span>
+                                <span class="threshold-expression"><span id="badge-latency-yellow-start">200 ms</span> ≤ 延迟 ≤</span>
+                                <span class="threshold-end"><input type="number" id="badge-latency-yellow-end" min="2" step="1" placeholder="1000" aria-label="黄色延迟区间右端值"><em>ms</em></span>
+                            </label>
+                            <div class="threshold-range range-slow">
+      <span class="threshold-label"><i class="threshold-swatch slow"></i>红色</span>
+      <span class="threshold-expression">延迟 &gt;</span>
+      <span class="threshold-derived" id="badge-latency-red-range">1000 ms</span>
+  </div>
+                        </div>
+                    </div>
+                    <div class="threshold-card speed-thresholds">
+                        <div class="threshold-card-head"><strong>下载速度</strong><span>数值越高越好</span></div>
+                        <div class="threshold-range-list">
+                            <label class="threshold-range range-slow">
+                                <span class="threshold-label"><i class="threshold-swatch slow"></i>红色</span>
+                                <span class="threshold-expression">0 &lt; 速度 &lt;</span>
+                                <span class="threshold-end"><input type="number" id="badge-speed-red-end" min="1" step="1" placeholder="100" aria-label="红色速度区间右端值"><em>kB/s</em></span>
+                            </label>
+                            <label class="threshold-range range-mid">
+                                <span class="threshold-label"><i class="threshold-swatch mid"></i>黄色</span>
+                                <span class="threshold-expression"><span id="badge-speed-yellow-start">100 kB/s</span> ≤ 速度 &lt;</span>
+                                <span class="threshold-end"><input type="number" id="badge-speed-yellow-end" min="2" step="1" placeholder="1000" aria-label="黄色速度区间右端值"><em>kB/s</em></span>
+                            </label>
+                            <label class="threshold-range range-fast">
+                                <span class="threshold-label"><i class="threshold-swatch fast"></i>绿色</span>
+                                <span class="threshold-expression">速度 ≥</span>
+                                <span class="threshold-derived" id="badge-speed-green-range">1000 kB/s</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+    <div class="settings-actions">
+        <button id="btn-save-settings" class="primary">保存到本地</button>
+        <button id="btn-reset-settings" class="danger">恢复默认设置</button>
+        <span id="settings-status" class="hint">保存在 data/config.json 与 data/settings.json</span>
+    </div>
+</section>
     </main>
 </div>
 <div id="help-overlay" class="help-overlay" hidden>
