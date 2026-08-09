@@ -906,14 +906,14 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 .task-badge.none { background: var(--surface-strong); color: var(--text-secondary); }
 .task-detail { background: var(--surface); border: 1px solid var(--border-light); border-radius: var(--radius-lg); padding: 16px; box-shadow: var(--shadow-sm); }
 .task-detail-empty { padding: 60px 0; text-align: center; color: var(--text-secondary); }
-.task-editor-panel { width: min(980px, 100%); }
+.task-editor-panel { width: min(940px, 100%); }
 .task-editor-panel .help-panel-body { max-height: none; }
-.task-schedule-section { display: grid; gap: 10px; margin-bottom: 12px; padding: 12px 13px; border: 1px solid var(--border-light); border-radius: var(--radius); background: var(--surface-soft); }
+.task-schedule-section { display: grid; gap: 8px; margin-bottom: 10px; padding: 10px 12px; border: 1px solid var(--border-light); border-radius: var(--radius); background: var(--surface-soft); }
 .task-schedule-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .task-schedule-head > div { display: grid; gap: 2px; min-width: 0; }
 .task-schedule-head strong { font-size: 12px; color: var(--text-strong); }
 .task-schedule-head span { font-size: 11px; color: var(--text-secondary); }
-.task-schedule-settings { display: grid; grid-template-columns: minmax(220px, 1fr) auto; gap: 10px; align-items: end; }
+.task-schedule-settings { display: grid; grid-template-columns: minmax(220px, 1fr) auto; gap: 8px; align-items: end; }
 .task-schedule-settings[hidden] { display: none; }
 .task-cron-field { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--text-secondary); }
 .task-cron-field input { font-family: var(--font-mono); }
@@ -921,28 +921,34 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 .task-cron-description.error { color: var(--danger); }
 .task-cron-presets { display: flex; flex-wrap: wrap; gap: 6px; align-self: end; }
 .task-cron-help code { padding: 1px 5px; border-radius: 4px; background: var(--surface-strong); font-family: var(--font-mono); font-size: 10px; }
-.task-form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px 12px; margin-bottom: 12px; }
+.task-form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px 10px; margin-bottom: 10px; }
 .task-primary-row { grid-template-columns: minmax(0, 1fr); align-items: end; }
 
 .task-form-row label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-secondary); }
 .task-form-row label.checkbox { flex-direction: row; align-items: center; gap: 6px; padding-top: 16px; color: var(--text); }
 .task-template-label { grid-column: span 2; }
-.task-output-row { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+.task-output-row { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 .task-output-row .auto-template-row { display: flex; gap: 6px; flex-wrap: wrap; }
 .task-output-row .auto-template-row select { flex: 1; min-width: 120px; }
 .task-output-row .auto-template-row input { flex: 1; min-width: 160px; }
+.task-speed-row { display: flex; align-items: center; gap: 10px; margin: -2px 0 10px; flex-wrap: wrap; }
+.task-speed-toggle { padding: 3px 14px 3px 10px; border: 1px solid var(--border-light); border-radius: 999px; background: var(--surface-soft); transition: border-color .15s ease, background .15s ease; }
+.task-speed-toggle:hover { border-color: var(--border); background: var(--surface-strong); }
+.task-speed-toggle .toggle-label { color: var(--text); font-weight: 600; }
+.task-speed-hint { font-size: 11px; color: var(--text-tertiary); min-width: 0; }
+.task-output-dir-hint { display: block; margin-top: 6px; font-size: 11px; }
 /* Output directory toggle */
-.task-output-dir { margin: 6px 0 2px; }
+.task-output-dir { margin: 0 0 8px; }
 .task-output-dir > summary { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: var(--radius-sm); background: var(--surface-soft); border: 1px solid var(--border-light); cursor: pointer; font-size: 12px; font-weight: 500; color: var(--text-tertiary); transition: color .15s ease, background .15s ease; list-style: none; }
 .task-output-dir > summary:hover { color: var(--text-secondary); background: var(--surface-strong); }
 .task-output-dir > summary::-webkit-details-marker { display: none; }
 .task-output-dir[open] > summary { margin-bottom: 8px; }
-.task-output-dir-field { display: block; }
-.task-output-dir-field input { width: 100%; max-width: 420px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: 13px; font-family: var(--font-mono); }
+.task-output-dir-field { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.task-output-dir-field input { flex: 1; min-width: 200px; max-width: 420px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: 13px; font-family: var(--font-mono); }
 .task-output-dir-field input:focus { outline: 2px solid var(--primary); outline-offset: -1px; border-color: var(--primary); }
 
-.task-rules-section { margin: 8px 0; }
-.task-rules-section > summary { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-radius: var(--radius-sm); background: var(--surface-soft); border: 1px solid var(--border-light); cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text-secondary); transition: background .15s ease; list-style: none; }
+.task-rules-section { margin: 0 0 8px; }
+.task-rules-section > summary { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: var(--radius-sm); background: var(--surface-soft); border: 1px solid var(--border-light); cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text-secondary); transition: background .15s ease; list-style: none; }
 .task-rules-section > summary:hover { background: var(--surface-strong); }
 .task-rules-section > summary::-webkit-details-marker { display: none; }
 .task-rules-hint { font-weight: 400; font-size: 12px; color: var(--text-tertiary); }
@@ -970,7 +976,7 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 .rules-help:hover .rules-help-pop,
 .rules-help:focus .rules-help-pop,
 .rules-help:focus-within .rules-help-pop { display: block; }
-.task-rules-body { padding: 10px 0 0; }
+.task-rules-body { padding: 8px 0 0; }
 .task-rule { border: 1px solid var(--border-light); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 8px; background: var(--surface-soft); }
 .task-rule-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 .task-rule-head strong { font-size: 12px; }
@@ -980,11 +986,11 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 .task-rule-params { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-size: 12px; color: var(--text-secondary); }
 .task-rule-params input { width: 90px; }
 .task-rule-params input[type="number"] { width: 80px; }
-.task-form-actions { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+.task-form-actions { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
 .task-log-block { margin-top: 16px; }
 .task-log-block .auto-log { max-height: 260px; }
 .task-source-heading { margin-bottom: 8px; }
-.task-source-panel { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 12px; margin: 0 0 12px; padding: 12px; border: 1px solid var(--border-light); border-radius: var(--radius); background: var(--surface-soft); }
+.task-source-panel { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 10px; margin: 0 0 10px; padding: 10px 12px; border: 1px solid var(--border-light); border-radius: var(--radius); background: var(--surface-soft); }
 .task-source-panel[hidden] { display: none; }
 .task-source-panel label { display: flex; flex-direction: column; gap: 4px; color: var(--text-secondary); font-size: 12px; }
 .task-source-wide { grid-column: 1 / -1; }

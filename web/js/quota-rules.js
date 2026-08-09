@@ -1,4 +1,4 @@
-﻿// quota-rules.js —— 自定义展示规则：供测速工作台和 IP 库页共用。
+// quota-rules.js —— 自定义展示规则：供测速工作台和 IP 库页共用。
 //
 // 从 app.js 中抽取 addQuotaRule / readQuotaRules / clearQuotaEditors / refreshQuotaEditors，
 // 使两个页面都能使用同一套「分组字段 + 取值顺序」规则编辑器，无需维护两份代码。
@@ -24,7 +24,8 @@ function addQuotaRule(container, table, seed = {}) {
     const row = document.createElement('div');
     row.className = 'quota-rule';
     row.dataset.id = id;
-    row.innerHTML = `<div class="quota-rule-head"><strong>规则 ${seq}</strong><span class="hint">每个值取前</span><input class="quota-rule-limit" type="number" min="0" value="${Number(seed.limit) || ''}" placeholder="无限制"><span class="hint">个</span><button class="small quota-rule-add-condition" type="button">添加限制字段</button><button class="small quota-rule-remove" type="button">删除规则</button></div><div class="quota-conditions"></div>`;
+    const position = container.querySelectorAll('.quota-rule').length + 1;
+    row.innerHTML = `<div class="quota-rule-head"><strong>规则 ${position}</strong><span class="hint">每个值取前</span><input class="quota-rule-limit" type="number" min="0" value="${Number(seed.limit) || ''}" placeholder="无限制"><span class="hint">个</span><button class="small quota-rule-add-condition" type="button">添加限制字段</button><button class="small quota-rule-remove" type="button">删除规则</button></div><div class="quota-conditions"></div>`;
     container.appendChild(row);
     const conditions = [];
 
@@ -87,8 +88,12 @@ function readQuotaRules() {
 
 /** 清空所有规则编辑器（销毁 picker 监听器）。 */
 function clearQuotaEditors(container) {
-    for (const { conditions } of editors.values()) conditions.forEach(item => item.picker.destroy());
-    editors.clear();
+    for (const [id, { row, conditions }] of [...editors]) {
+        if (container && !container.contains(row)) continue;
+        conditions.forEach(item => item.picker.destroy());
+        editors.delete(id);
+        row.remove();
+    }
     if (container) container.innerHTML = '';
 }
 

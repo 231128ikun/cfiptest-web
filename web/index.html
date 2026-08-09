@@ -457,11 +457,22 @@
                                 </label>
                                 <label title="输出文件内条目的排列顺序；速度排序时未测速条目排在最后">输出排序<select id="task-sort"><option value="latencyAsc">延迟升序（默认）</option><option value="latencyDesc">延迟降序</option><option value="speedDesc">速度降序</option><option value="speedAsc">速度升序</option><option value="ipAsc">IP 地址升序</option><option value="countryAsc">国家/地区升序</option></select></label>
                                 <label>总数限制<span class="input-with-unit"><input type="number" id="task-limit" min="0" placeholder="0 = 不限" value="200"> <span class="unit">条</span></span><span class="hint">各规则会持续检测，直到规则数量满足或候选耗尽。</span></label>
-                                <label class="checkbox"><input type="checkbox" id="task-speed" title="开启后各规则可选择速度范围"> 开启测速</label>
+                            </div>
+                            <div class="task-speed-row">
+                                <label class="toggle task-speed-toggle" title="开启后各规则可选择速度范围">
+                                    <span class="toggle-label">开启测速</span>
+                                    <input type="checkbox" id="task-speed">
+                                    <span class="toggle-track"></span>
+                                </label>
+                                <span class="hint task-speed-hint">开启后，各规则可选择速度范围进行筛选。</span>
                             </div>
                             <details class="task-output-dir">
-                                <summary class="task-output-dir-summary">自定义输出目录</summary>
-                                <label class="task-output-dir-field"><input type="text" id="task-output" placeholder="留空自动生成（如 out/abc、C:/out/abc）" spellcheck="false" autocomplete="off"></label>
+                                <summary class="task-output-dir-summary">输出位置 <span class="hint">默认自动生成，可手动指定</span></summary>
+                                <div class="task-output-dir-field">
+                                    <input type="text" id="task-output" placeholder="留空自动生成（如 out/abc、C:/out/abc）" spellcheck="false" autocomplete="off">
+                                    <button type="button" id="btn-task-output-pick" class="small">选择文件夹…</button>
+                                </div>
+                                <span class="hint task-output-dir-hint">通过本机系统对话框选择输出目录；留空时按模板自动生成到 data/out/。</span>
                             </details>
                             <details class="task-rules-section" open>
                                 <summary class="task-rules-summary"><span>规则 <span class="rules-help" tabindex="0" role="button" aria-label="规则用法示例"><span class="rules-help-icon">?</span><span class="rules-help-pop">每条规则 = 一组筛选条件（国家 / 城市 / 端口 / ASN 等），字段多值=或、多字段=交集，每个组合取前 N 条。<br><b>示例：</b><br>· 国家:日本,新加坡 → 日本或新加坡<br>· 国家:日本 ＋ 端口:443 → 日本且 443 端口<br>· 每个组合取前 10 条 → 每组最多保留 10 条</span></span>（可选）</span><span class="task-rules-hint">字段多值=或、多字段=交集；每个组合取前 N 条</span></summary>

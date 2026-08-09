@@ -1,5 +1,6 @@
 // tasks.js —— 自动维护页：任务卡片网格 + 编辑弹窗（规则编辑器）+ 一键维护
 import { escapeHTML } from './columns.js';
+import { download } from './exporter.js';
 import { loadSavedTemplates, fetchSettingsTemplates as fetchSettingsTpls, persistTemplates, templateOptionFor, templateContentFor, renderTemplateSelect } from './templates.js';
 import * as api from './api.js';
 
@@ -142,6 +143,7 @@ export function initTasks({ toast }) {
                     <div class="task-card-flags"><span>${limit}</span><span>${outputSort}</span><span>${speed}</span><span class="${task.schedule?.enabled ? 'is-scheduled' : ''}">${escapeHTML(schedule)}</span></div>
                 </div>
                 <div class="task-card-actions">
+                    <button type="button" class="small task-download" data-i="${i}">下载结果</button>
                     <button type="button" class="small task-edit" data-i="${i}">编辑配置</button>
                     <button type="button" class="small primary task-run-one" data-i="${i}">立即维护</button>
                     <button type="button" class="small danger task-del" data-i="${i}">删除</button>
@@ -443,6 +445,24 @@ export function initTasks({ toast }) {
         }
     }
 
+    // ---- 输出下载 ----
+    async function downloadOutput(task) {
+        const path = task?.output?.path;
+        if (!path) { toast('该任务还没有输出文件，先保存任务并运行一次'); return; }
+        const name = String(path).split(/[\\/]/).pop() || 'output.txt';
+        try {
+            const resp = await fetch(api.autoOutputUrl(path));
+            if (!resp.ok) {
+                const data = await resp.json().catch(() => null);
+                toast(data?.error || `下载失败：HTTP ${resp.status}`);
+                return;
+            }
+            download(await resp.blob(), name);
+        } catch (error) {
+            toast(`下载失败：${error.message}`);
+        }
+    }
+
     // ---- 运行 ----
     async function runTaskId(taskId) {
         try {
@@ -530,12 +550,40 @@ export function initTasks({ toast }) {
         }
     });
     $('task-init-file-path').addEventListener('input', updateTaskInitFileStatus);
+    $('btn-task-output-pick').addEventListener('click', async () => {
+        const task = currentTask();
+        if (!task) return;
+        const btn = $('btn-task-output-pick');
+        btn.disabled = true;
+        try {
+            const data = await api.pickOutputDir();
+            if (data.path) {
+                $('task-output').value = data.path;
+                task.output = task.output || {};
+                task.output.path = data.path;
+                const details = $('task-output').closest('details');
+                if (details) details.open = true;
+                toast(`已选择输出目录：${data.path}`);
+            } else {
+                toast('已取消选择');
+            }
+        } catch (error) {
+            toast(`选择失败：${error.message}`);
+        } finally {
+            btn.disabled = false;
+        }
+    });
     $('task-grid').addEventListener('change', e => {
         const enable = e.target.closest('.task-enable');
         if (!enable) return;
         updateTaskEnabled(Number(enable.dataset.i), enable.checked);
     });
     $('task-grid').addEventListener('click', e => {
+        const downloadBtn = e.target.closest('.task-download');
+        if (downloadBtn) {
+            downloadOutput(state.tasks[Number(downloadBtn.dataset.i)]);
+            return;
+        }
         const edit = e.target.closest('.task-edit');
         if (edit) { openEditor(state.tasks[Number(edit.dataset.i)]); return; }
         const runOne = e.target.closest('.task-run-one');

@@ -98,6 +98,8 @@ export function importAutoLibrary({ lib, targets, text, source, results }) {
 export function removeAutoLibrary(lib, keys) { return postJSON('/api/auto/library/remove', { lib, keys }); }
 
 export function runAuto(taskId) { return postJSON('/api/auto/run', { taskId }); }
+export function pickOutputDir() { return postJSON('/api/auto/pick-dir', {}); }
+export function autoOutputUrl(path) { return `/api/auto/output?path=${encodeURIComponent(path)}`; }
 
 // 调试日志
 export function fetchLog(lines = 200) { return postJSON(`/api/log?lines=${lines}`, {}, 'GET'); }

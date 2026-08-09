@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -725,6 +727,8 @@ func (s *Server) runAutoTask(ctx context.Context, taskID string, task subscripti
 		s.log.Log("error", "维护任务 %s 出错: %v", task.Name, err)
 		return
 	}
+	// 把实际输出文件路径回写任务，自动生成的路径也能在卡片上直接下载。
+	s.persistTaskOutputPath(task, report.OutputPath)
 	summary := fmt.Sprintf("自动化完成：%d 条输出 → %s", report.TotalLines, report.OutputPath)
 	if len(report.Shortages) > 0 {
 		summary += "；" + strings.Join(report.Shortages, "；")
@@ -798,4 +802,66 @@ func (s *Server) handleAutoOutput(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", ct)
 	w.Header().Set("Content-Disposition", "attachment; filename="+name)
 	w.Write(body)
+}
+
+// ---- 本机目录选择（仅 Windows） ----
+
+// handleAutoPickDir 弹出本机文件夹选择对话框，返回用户选中的目录（取消时返回空）。
+// 仅打开系统对话框并回填路径，不暴露任何服务器端目录浏览能力。
+func (s *Server) handleAutoPickDir(w http.ResponseWriter, r *http.Request) {
+	if runtime.GOOS != "windows" {
+		writeError(w, http.StatusNotImplemented, "仅 Windows 支持本机目录选择")
+		return
+	}
+	if !s.pickDirMu.TryLock() {
+		writeError(w, http.StatusConflict, "已有目录选择对话框在打开")
+		return
+	}
+	defer s.pickDirMu.Unlock()
+	dir, err := pickDirectoryWindows()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "打开目录选择失败: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"path": dir})
+}
+
+// pickDirectoryWindows 通过 PowerShell 弹出 FolderBrowserDialog；
+// 返回所选目录的绝对路径，用户取消时返回空字符串。
+func pickDirectoryWindows() (string, error) {
+	script := `Add-Type -AssemblyName System.Windows.Forms
+$d = New-Object System.Windows.Forms.FolderBrowserDialog
+$d.Description = '选择任务输出目录（留空 = 自动生成）'
+$d.ShowNewFolderButton = $true
+if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+	Write-Output $d.SelectedPath
+}`
+	out, err := exec.Command("powershell", "-NoProfile", "-STA", "-Command", script).Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// persistTaskOutputPath 将一次运行实际写出的文件路径保存回任务配置，
+// 这样未手动指定输出目录的任务（自动生成到 data/out/）也能用「下载结果」直接导出。
+func (s *Server) persistTaskOutputPath(task subscription.Task, outputPath string) {
+	if outputPath == "" {
+		return
+	}
+	tasks, err := subscription.LoadTasks(s.dataDir)
+	if err != nil {
+		return
+	}
+	updated := false
+	for i := range tasks {
+		if tasks[i].ID == task.ID || (task.ID == "" && tasks[i].Name == task.Name) {
+			tasks[i].Output.Path = outputPath
+			updated = true
+			break
+		}
+	}
+	if updated {
+		_ = subscription.SaveTasks(s.dataDir, tasks)
+	}
 }

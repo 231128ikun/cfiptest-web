@@ -53,6 +53,9 @@ type Server struct {
 	scheduleMu    sync.Mutex
 	scheduleRuns  map[string]string
 
+	// 本机目录选择对话框：仅允许同时打开一个，防止重复弹出。
+	pickDirMu sync.Mutex
+
 	// SSE 订阅者
 	sseMu      sync.Mutex
 	sseClients map[chan engine.Event]struct{}
@@ -144,6 +147,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/auto/library/remove", s.handleLibraryRemove)
 	s.mux.HandleFunc("POST /api/auto/run", s.handleAutoRun)
 	s.mux.HandleFunc("GET /api/auto/output", s.handleAutoOutput)
+	s.mux.HandleFunc("POST /api/auto/pick-dir", s.handleAutoPickDir)
 	s.mux.HandleFunc("GET /api/log", s.handleLogGet)
 	s.mux.HandleFunc("POST /api/log/clear", s.handleLogClear)
 	s.mux.HandleFunc("POST /api/shutdown", s.handleShutdown)
