@@ -36,7 +36,7 @@ var webFS embed.FS
 
 // version 是当前版本号（形如 2026.07.31-22.06），随每次代码修改更新为当前时间。
 // build.bat / build.sh 直接读取此值命名产物，不再另行生成。
-var version = "2026.08.09-00.27"
+var version = "2026.08.09-09.55"
 
 func main() {
 	port := flag.Int("port", 18080, "HTTP 服务监听端口")
