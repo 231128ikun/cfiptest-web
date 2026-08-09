@@ -298,4 +298,36 @@ check('official port hint distinguishes explicit and fallback ports', () => {
     assert.ok(body.includes("$('lat-tls').checked ? 443 : 80"));
 });
 
+
+check('unit-in-box: number inputs keep the unit suffix inside the bordered wrapper', () => {
+    const cases = [
+        ['lat-concurrency', '\u4e2a'],
+        ['lat-maxlatency', 'ms'],
+        ['spd-concurrency', '\u4e2a'],
+        ['spd-duration', '\u79d2'],
+        ['spd-minspeed', 'kB/s'],
+        ['rule-maxresults', '\u4e2a'],
+        ['sample-n', '\u4e2a'],
+        ['task-library-sample-n', '\u4e2a'],
+        ['task-limit', '\u6761'],
+        ['auto-lat-concurrency', '\u4e2a'],
+        ['auto-lat-timeout', 'ms'],
+        ['auto-lat-probes', '\u6b21'],
+        ['auto-lat-http-probes', '\u6b21'],
+        ['auto-lat-http-timeout', 'ms'],
+        ['auto-lat-remove-after', '\u6b21'],
+        ['auto-spd-concurrency', '\u4e2a'],
+        ['auto-spd-duration', '\u79d2'],
+        ['badge-latency-green-end', 'ms'],
+        ['badge-latency-yellow-end', 'ms'],
+        ['badge-speed-red-end', 'kB/s'],
+        ['badge-speed-yellow-end', 'kB/s'],
+    ];
+    for (const [id, unit] of cases) {
+        const re = new RegExp('class="input-with-unit"><input type="number" id="' + id + '"[^>]*>\\s*<span class="unit">' + unit + '</span>');
+        assert.ok(re.test(html), id + ' unit ' + unit + ' must sit inside .input-with-unit');
+    }
+    assert.equal(/<em>/.test(html), false, 'no loose <em> unit labels should remain');
+});
+
 console.log(`\n通过 ${pass} 项（引用 ${referencedIds.length} 个 id / 声明 ${idSet.size} 个）`);
