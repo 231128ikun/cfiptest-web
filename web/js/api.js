@@ -153,3 +153,11 @@ export function subscribeEvents(handlers) {
     });
     return es;
 }
+// ---- 云端存储（edgeone 等渠道） ----
+
+export function fetchCloudConfigs() { return postJSON('/api/cloud/configs', {}, 'GET'); }
+export function createCloudConfig(config) { return postJSON('/api/cloud/configs', config); }
+export function updateCloudConfig(id, config) { return postJSON('/api/cloud/configs/' + encodeURIComponent(id), config, 'PUT'); }
+export function deleteCloudConfig(id) { return postJSON('/api/cloud/configs/' + encodeURIComponent(id), {}, 'DELETE'); }
+export function testCloud(config) { return postJSON('/api/cloud/test', config); }
+export function uploadCloud(configId, key, content) { return postJSON('/api/cloud/upload', { configId, key, content }); }

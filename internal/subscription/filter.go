@@ -51,6 +51,17 @@ func (g Group) CandidatePriority(e library.Entry) int {
 	return 2
 }
 
+// candidateMaxPriority 返回条目在全部分组中的最高候选优先级（0=不匹配任何分组，1=未知待测，2=已知匹配）。
+func candidateMaxPriority(groups []Group, e library.Entry) int {
+	mp := 0
+	for _, g := range groups {
+		if p := g.CandidatePriority(e); p > mp {
+			mp = p
+		}
+	}
+	return mp
+}
+
 // LatencyOK 判断实测延迟是否满足分组范围；0 表示不限。
 func (g Group) LatencyOK(ms int64) bool {
 	if g.LatencyMinMs > 0 && ms < g.LatencyMinMs {

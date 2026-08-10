@@ -15,6 +15,7 @@ import (
 
 	"time"
 
+	"iptest-web/internal/cloud"
 	"iptest-web/internal/config"
 	"iptest-web/internal/engine"
 	"iptest-web/internal/library"
@@ -206,7 +207,7 @@ func (s *Server) handleLibraryGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	status := strings.TrimSpace(r.URL.Query().Get("status"))
-	country := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("country")))
+	country := engine.NormalizeCountry(r.URL.Query().Get("country"))
 	city := strings.TrimSpace(r.URL.Query().Get("city"))
 	dc := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("dc")))
 	asn := strings.TrimSpace(r.URL.Query().Get("asn"))
@@ -686,7 +687,7 @@ func (s *Server) inMemoryStoreFromTargets(targets []engine.Target, source string
 	now := time.Now()
 	entries := make([]library.Entry, 0, len(targets))
 	for _, t := range targets {
-		entries = append(entries, library.Entry{IP: t.IP, Port: t.Port, Source: source, Status: library.StatusNew, FirstSeenAt: now})
+		entries = append(entries, library.Entry{IP: t.IP, Port: t.Port, CountryCode: t.CountryCode, Source: source, Status: library.StatusNew, FirstSeenAt: now})
 	}
 	return library.NewInMemory(filepath.Join(s.dataDir, library.ManagerDir), entries)
 }
@@ -727,9 +728,42 @@ func (s *Server) runAutoTask(ctx context.Context, taskID string, task subscripti
 		s.log.Log("error", "维护任务 %s 出错: %v", task.Name, err)
 		return
 	}
-	// 把实际输出文件路径回写任务，自动生成的路径也能在卡片上直接下载。
+	// 把实际输出文件路径回写任务，供后续云端同步及状态展示使用。
 	s.persistTaskOutputPath(task, report.OutputPath)
 	summary := fmt.Sprintf("自动化完成：%d 条输出 → %s", report.TotalLines, report.OutputPath)
+	if cloudID := strings.TrimSpace(task.Output.Cloud); cloudID != "" {
+		cloudKey := strings.TrimSpace(task.Output.CloudKey)
+		if cloudKey == "" {
+			cloudKey = filepath.Base(report.OutputPath)
+		}
+		cloudEvent := func(status, cloudURL string, syncErr error) {
+			payload := map[string]any{
+				"stage":  "cloud",
+				"status": status,
+				"task":   task.Name,
+				"key":    cloudKey,
+			}
+			if cloudURL != "" {
+				payload["url"] = cloudURL
+			}
+			if syncErr != nil {
+				payload["error"] = syncErr.Error()
+			}
+			body, _ := json.Marshal(payload)
+			s.broadcast(engine.Event{Type: engine.EventAuto, Message: string(body)})
+		}
+		s.log.Log("info", "维护任务 %s 开始上传云端: config=%s key=%s path=%s", task.Name, cloudID, cloudKey, report.OutputPath)
+		cloudEvent("uploading", "", nil)
+		if cloudURL, syncErr := s.syncOutputToCloud(task, report.OutputPath); syncErr != nil {
+			summary += "；云端同步失败：" + syncErr.Error()
+			s.log.Log("error", "维护任务 %s 云端同步失败: %v", task.Name, syncErr)
+			cloudEvent("error", "", syncErr)
+		} else {
+			summary += "；已同步云端 → " + cloudURL
+			s.log.Log("info", "维护任务 %s 云端同步成功: %s", task.Name, cloudURL)
+			cloudEvent("success", cloudURL, nil)
+		}
+	}
 	if len(report.Shortages) > 0 {
 		summary += "；" + strings.Join(report.Shortages, "；")
 	}
@@ -844,7 +878,7 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
 }
 
 // persistTaskOutputPath 将一次运行实际写出的文件路径保存回任务配置，
-// 这样未手动指定输出目录的任务（自动生成到 data/out/）也能用「下载结果」直接导出。
+// 这样未手动指定输出目录的任务（自动生成到 data/out/）也能用于云端同步与状态展示。
 func (s *Server) persistTaskOutputPath(task subscription.Task, outputPath string) {
 	if outputPath == "" {
 		return
@@ -864,4 +898,37 @@ func (s *Server) persistTaskOutputPath(task subscription.Task, outputPath string
 	if updated {
 		_ = subscription.SaveTasks(s.dataDir, tasks)
 	}
+}
+
+// syncOutputToCloud 把任务输出文件上传到配置的云端存储，返回公开访问 URL。
+// 上传失败不阻塞任务整体，只把错误并入完成摘要。
+func (s *Server) syncOutputToCloud(task subscription.Task, outputPath string) (string, error) {
+	if strings.TrimSpace(outputPath) == "" {
+		return "", fmt.Errorf("没有可上传的输出文件")
+	}
+	if s.cloudStore == nil {
+		return "", fmt.Errorf("云端存储未初始化")
+	}
+	cfg, ok, err := s.cloudStore.Get(strings.TrimSpace(task.Output.Cloud))
+	if err != nil {
+		return "", fmt.Errorf("读取云端配置失败: %w", err)
+	}
+	if !ok {
+		return "", fmt.Errorf("云端配置不存在（id=%s）", task.Output.Cloud)
+	}
+	ch, err := cloud.NewChannel(cfg.Channel)
+	if err != nil {
+		return "", err
+	}
+	body, err := os.ReadFile(outputPath)
+	if err != nil {
+		return "", fmt.Errorf("读取输出文件失败: %w", err)
+	}
+	key := task.Output.CloudKey
+	if strings.TrimSpace(key) == "" {
+		key = filepath.Base(outputPath)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return ch.Upload(ctx, cfg, key, body)
 }

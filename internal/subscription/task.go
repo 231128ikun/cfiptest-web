@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"iptest-web/internal/engine"
 	"iptest-web/internal/library"
 )
 
@@ -61,6 +62,8 @@ type TaskOutput struct {
 	Format   string `json:"format,omitempty"`   // txt | csv
 	Template string `json:"template,omitempty"` // 占位符模板
 	Sort     string `json:"sort,omitempty"`     // 输出排序：latencyAsc（默认）| latencyDesc | speedDesc | speedAsc | ipAsc
+	Cloud    string `json:"cloud,omitempty"`    // 云端同步配置 ID（设置页「云端存储配置」）；空 = 不同步
+	CloudKey string `json:"cloudKey,omitempty"` // 云端路径（如 iptest/final.txt）；空 = 使用输出文件名
 }
 
 // TaskSchedule 描述程序运行期间的自动维护计划。Cron 使用标准 5 段格式：分 时 日 月 周。
@@ -272,6 +275,13 @@ func (t *Task) Validate() error {
 			default:
 				return fmt.Errorf("任务 %q 规则 %s 含未知条件字段 %q", t.Name, r.Name, c.Field)
 			}
+			if c.Field == "country" {
+				c.Values = normalizeCountryValues(c.Values)
+				if len(c.Values) == 0 {
+					c.Values = nil
+				}
+				continue
+			}
 			cleaned := make([]string, 0, len(c.Values))
 			for _, v := range c.Values {
 				if v = strings.TrimSpace(v); v != "" {
@@ -354,6 +364,27 @@ func (t *Task) Validate() error {
 }
 
 var cronNumberPattern = regexp.MustCompile(`^\d+$`)
+
+// normalizeCountryValues 把 country 条件取值拆分为大写二字码（ISO 3166-1 alpha-2）：
+// 兼容旧任务把 “香港；日本；韩国；新加坡；美国” 一整串写在一个 value 的情况，
+// 也兼容 US / us / USA / 美国 / United States 等常见写法。
+func normalizeCountryValues(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := map[string]bool{}
+	for _, v := range values {
+		for _, part := range strings.FieldsFunc(v, func(r rune) bool {
+			return r == ',' || r == '，' || r == ';' || r == '；'
+		}) {
+			code := engine.NormalizeCountry(part)
+			if code == "" || seen[code] {
+				continue
+			}
+			seen[code] = true
+			out = append(out, code)
+		}
+	}
+	return out
+}
 
 // ValidateCron 校验标准 5 段 Cron 表达式。支持 *、列表、范围和步长。
 func ValidateCron(expr string) error {

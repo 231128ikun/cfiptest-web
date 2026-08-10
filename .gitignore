@@ -31,3 +31,6 @@ Desktop.ini
 *~
 *.swp
 *.bak
+
+# codex build cache
+.codex_tmp/

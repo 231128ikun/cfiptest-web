@@ -1,8 +1,8 @@
 // tasks.js —— 自动维护页：任务卡片网格 + 编辑弹窗（规则编辑器）+ 一键维护
 import { escapeHTML } from './columns.js';
-import { download } from './exporter.js';
 import { loadSavedTemplates, fetchSettingsTemplates as fetchSettingsTpls, persistTemplates, templateOptionFor, templateContentFor, renderTemplateSelect } from './templates.js';
 import * as api from './api.js';
+import { fillCloudSelect, loadCloudConfigsInto, cloudConfigs } from './cloud.js';
 
 const $ = id => document.getElementById(id);
 const FIELD_OPTIONS = [
@@ -79,6 +79,7 @@ export function initTasks({ toast }) {
                 api.fetchLibraries(),
                 api.fetchOfficialRanges(1).catch(() => null),
             ]);
+            loadCloudConfigsInto($('task-cloud-select')).then(() => updateCloudOpenButton()).catch(() => {});
             state.tasks = tasksData.tasks || [];
             state.libraries = libsData.libraries || [];
             if (rangesData?.ports) state.officialPorts = rangesData.ports;
@@ -114,9 +115,23 @@ export function initTasks({ toast }) {
                 : task.librarySource === 'remote'
                     ? '远程 URL 库'
                     : (state.libNames[task.libraryId] || task.libraryId || '默认库');
-            const outputPath = task.output?.path
-                ? (isServerAbsolutePath(task.output.path) ? task.output.path.replace(/\\/g, '/') : 'data/' + task.output.path)
-                : '保存后自动生成';
+            const cloudMode = Boolean(task.output?.cloud);
+            let outputHtml;
+            if (cloudMode) {
+                const cloudLabel = task.output?.cloudKey || '输出文件名（自动）';
+                let cloudHref = '';
+                const cfg = cloudConfigs().find(c => c.id === task.output?.cloud);
+                const key = (task.output?.cloudKey || '').trim().replace(/^\/+|\/+$/g, '');
+                if (cfg && key) {
+                    cloudHref = cfg.baseUrl.replace(/\/+$/, '') + '/' + key.split('/').map(encodeURIComponent).join('/');
+                }
+                outputHtml = '☁ 云端 · ' + escapeHTML(cloudLabel)
+                    + (cloudHref ? ' <a class="task-cloud-link" href="' + escapeHTML(cloudHref) + '" target="_blank" rel="noopener" title="打开云端链接">打开 ↗</a>' : '');
+            } else {
+                outputHtml = escapeHTML(task.output?.path
+                    ? (isServerAbsolutePath(task.output.path) ? task.output.path.replace(/\\/g, '/') : 'data/' + task.output.path)
+                    : '保存后自动生成（本地）');
+            }
             const outputSort = ({ latencyAsc: '延迟升序', latencyDesc: '延迟降序', speedDesc: '速度降序', speedAsc: '速度升序', ipAsc: 'IP 升序', countryAsc: '国家/地区升序' })[task.output?.sort] || '延迟升序';
             const schedule = scheduleLabel(task.schedule);
             const pendingKey = task.id || String(i);
@@ -139,11 +154,10 @@ export function initTasks({ toast }) {
                 <div class="task-card-summary">
                     <div class="task-meta-row"><span class="task-meta-label">规则</span><span class="task-meta-value">${escapeHTML(ruleSummary || '任意')}</span></div>
                     <div class="task-meta-row"><span class="task-meta-label">维护来源</span><span class="task-meta-value">${escapeHTML(libraryName)}</span></div>
-                    <div class="task-meta-row"><span class="task-meta-label">输出</span><span class="task-meta-value task-output-path">${escapeHTML(outputPath)}</span></div>
-                    <div class="task-card-flags"><span>${limit}</span><span>${outputSort}</span><span>${speed}</span><span class="${task.schedule?.enabled ? 'is-scheduled' : ''}">${escapeHTML(schedule)}</span></div>
+                    <div class="task-meta-row"><span class="task-meta-label">输出</span><span class="task-meta-value task-output-path">${outputHtml}</span></div>
+                    <div class="task-card-flags"><span>${limit}</span><span>${outputSort}</span><span>${speed}</span><span class="${task.schedule?.enabled ? 'is-scheduled' : ''}">${escapeHTML(schedule)}</span>${task.output?.cloud ? '<span class="task-cloud-badge" title="输出文件将同步到云端">☁ 云同步</span>' : ''}</div>
                 </div>
                 <div class="task-card-actions">
-                    <button type="button" class="small task-download" data-i="${i}">下载结果</button>
                     <button type="button" class="small task-edit" data-i="${i}">编辑配置</button>
                     <button type="button" class="small primary task-run-one" data-i="${i}">立即维护</button>
                     <button type="button" class="small danger task-del" data-i="${i}">删除</button>
@@ -242,6 +256,31 @@ export function initTasks({ toast }) {
             panel.hidden = panel.dataset.taskInit !== initMode;
         });
     }
+    function updateTaskExportUI() {
+        const mode = $('task-export-mode').value || 'local';
+        document.querySelectorAll('[data-export-mode]').forEach(panel => {
+            panel.hidden = panel.dataset.exportMode !== mode;
+        });
+        updateCloudOpenButton();
+    }
+    function cloudLinkFor() {
+        const cfg = cloudConfigs().find(c => c.id === $('task-cloud-select').value);
+        if (!cfg) return { url: '', reason: '请先选择云端配置' };
+        const key = $('task-cloud-key').value.trim().replace(/^\/+|\/+$/g, '');
+        if (!key) return { url: '', reason: '留空时自动使用输出文件名，无法预知链接' };
+        return { url: cfg.baseUrl.replace(/\/+$/, '') + '/' + key.split('/').map(encodeURIComponent).join('/'), reason: '' };
+    }
+    function updateCloudOpenButton() {
+        const btn = $('btn-task-cloud-open');
+        const { url, reason } = cloudLinkFor();
+        btn.disabled = !url;
+        btn.title = url ? '打开 ' + url : reason;
+    }
+    function openCloudLink() {
+        const { url, reason } = cloudLinkFor();
+        if (!url) { toast(reason); return; }
+        window.open(url, '_blank', 'noopener');
+    }
     function isServerAbsolutePath(p) {
         p = (p || '').trim();
         return /^[a-zA-Z]:[\\/]/.test(p) || p.startsWith('/') || p.startsWith('\\\\');
@@ -282,7 +321,11 @@ export function initTasks({ toast }) {
         $('task-init-url').value = input.url || '';
         updateTaskSourceUI();
         updateTaskInitFileStatus();
+        fillCloudSelect($('task-cloud-select'), task.output?.cloud || '');
+        $('task-cloud-key').value = task.output?.cloudKey || '';
         $('task-output').value = task.output?.path || '';
+        $('task-export-mode').value = task.output?.cloud ? 'cloud' : 'local';
+        updateTaskExportUI();
         $('task-format').value = task.output?.format === 'csv' ? 'csv' : 'txt';
         $('task-sort').value = task.output?.sort || 'latencyAsc';
         $('task-limit').value = task.limit > 0 ? task.limit : 200;
@@ -357,12 +400,21 @@ export function initTasks({ toast }) {
         } else {
             task.input = { mode: 'none' };
         }
+        const exportMode = $('task-export-mode').value || 'local';
         task.output = {
-            path: $('task-output').value.trim() || undefined,
             format: $('task-format').value,
             template: $('task-tpl-custom').value.trim(),
             sort: $('task-sort').value,
         };
+        if (exportMode === 'cloud') {
+            task.output.cloud = $('task-cloud-select').value;
+            task.output.cloudKey = $('task-cloud-key').value.trim() || undefined;
+            delete task.output.path;
+        } else {
+            task.output.path = $('task-output').value.trim() || undefined;
+            delete task.output.cloud;
+            delete task.output.cloudKey;
+        }
         const limitRaw = $('task-limit').value.trim();
         task.limit = limitRaw === '' ? 200 : Math.max(0, Number(limitRaw) || 0);
         task.speedEnabled = $('task-speed').checked;
@@ -381,7 +433,7 @@ export function initTasks({ toast }) {
             const conditions = [...row.querySelectorAll('.task-condition')].map(cRow => ({
                 field: cRow.querySelector('.c-field').value,
                 values: (cRow.querySelector('.c-values').value || '')
-                    .split(/[,，]/).map(s => s.trim()).filter(Boolean),
+                    .split(/[,，;；]/).map(s => s.trim()).filter(Boolean),
             })).filter(c => c.values.length > 0);
             const num = sel => { const v = Number(row.querySelector(sel).value); return Number.isFinite(v) && v > 0 ? v : 0; };
             const rule = {
@@ -406,6 +458,10 @@ export function initTasks({ toast }) {
         const task = collectForm();
         if (!task.name) { toast('任务名称不能为空'); return; }
         if (!task.rules.length) { toast('至少需要一条规则'); return; }
+        if ($('task-export-mode').value === 'cloud' && !task.output?.cloud) {
+            toast('请先在「设置 → 云端存储」添加并选择云端站点');
+            return;
+        }
         try {
             await api.validateTask(task);
         } catch (error) {
@@ -445,24 +501,6 @@ export function initTasks({ toast }) {
         }
     }
 
-    // ---- 输出下载 ----
-    async function downloadOutput(task) {
-        const path = task?.output?.path;
-        if (!path) { toast('该任务还没有输出文件，先保存任务并运行一次'); return; }
-        const name = String(path).split(/[\\/]/).pop() || 'output.txt';
-        try {
-            const resp = await fetch(api.autoOutputUrl(path));
-            if (!resp.ok) {
-                const data = await resp.json().catch(() => null);
-                toast(data?.error || `下载失败：HTTP ${resp.status}`);
-                return;
-            }
-            download(await resp.blob(), name);
-        } catch (error) {
-            toast(`下载失败：${error.message}`);
-        }
-    }
-
     // ---- 运行 ----
     async function runTaskId(taskId) {
         try {
@@ -492,12 +530,24 @@ export function initTasks({ toast }) {
 
     function stop() { api.stopTask('').catch(() => {}); }
 
+    function onAuto(message) {
+        if (!state.running || !message) return;
+        let event;
+        try { event = JSON.parse(message); } catch { return; }
+        if (event.stage !== 'cloud') return;
+        const taskName = event.task ? `任务「${event.task}」` : '维护任务';
+        if (event.status === 'uploading') toast(`${taskName}正在上传至云端…`);
+        else if (event.status === 'success') toast(`${taskName}云端同步成功`);
+        else if (event.status === 'error') toast(`${taskName}云端同步失败：${event.error || '未知错误'}`);
+    }
+
     function onDone(message, reason) {
         if (!state.running) return;
         if (reason === 'stopped') {
             setRunning(false);
             state.runQueue = [];
         }
+        toast(message || (reason === 'stopped' ? '维护任务已停止' : '维护任务已完成'));
         loadAll();
         if (state.runQueue.length) {
             setTimeout(runNextInQueue, 600);
@@ -579,11 +629,6 @@ export function initTasks({ toast }) {
         updateTaskEnabled(Number(enable.dataset.i), enable.checked);
     });
     $('task-grid').addEventListener('click', e => {
-        const downloadBtn = e.target.closest('.task-download');
-        if (downloadBtn) {
-            downloadOutput(state.tasks[Number(downloadBtn.dataset.i)]);
-            return;
-        }
         const edit = e.target.closest('.task-edit');
         if (edit) { openEditor(state.tasks[Number(edit.dataset.i)]); return; }
         const runOne = e.target.closest('.task-run-one');
@@ -613,6 +658,10 @@ export function initTasks({ toast }) {
     });
     $('btn-task-editor-close').addEventListener('click', closeEditor);
     $('task-editor-overlay').addEventListener('click', e => { if (e.target === $('task-editor-overlay')) closeEditor(); });
+    $('task-export-mode').addEventListener('change', updateTaskExportUI);
+    $('task-cloud-select').addEventListener('change', updateCloudOpenButton);
+    $('task-cloud-key').addEventListener('input', updateCloudOpenButton);
+    $('btn-task-cloud-open').addEventListener('click', openCloudLink);
     $('task-save').addEventListener('click', saveTask);
     $('task-delete').addEventListener('click', deleteTask);
     $('btn-run-all').addEventListener('click', runAll);
@@ -677,10 +726,10 @@ export function initTasks({ toast }) {
             rule.conditions[ci].field = e.target.value;
             // 更新占位符提示
             const input = e.target.closest('.task-condition').querySelector('.c-values');
-            input.placeholder = (e.target.value === 'country' || e.target.value === 'dataCenter') ? '多值逗号分隔；留空 = 任意' : '多值逗号分隔';
+            input.placeholder = (e.target.value === 'country' || e.target.value === 'dataCenter') ? '多值逗号/分号分隔；留空 = 任意' : '多值逗号/分号分隔';
         } else if (cls.contains('c-values')) {
             const ci = Number(e.target.dataset.ci);
-            rule.conditions[ci].values = (e.target.value || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
+            rule.conditions[ci].values = (e.target.value || '').split(/[,，;；]/).map(s => s.trim()).filter(Boolean);
         }
     });
 
@@ -699,5 +748,5 @@ export function initTasks({ toast }) {
     fetchSettingsTemplates();
     loadAll();
 
-    return { onAuto: () => {}, onDone, isAutoRunning: () => state.running, refreshLibrary: () => {} };
+    return { onAuto, onDone, isAutoRunning: () => state.running, refreshLibrary: () => {} };
 }

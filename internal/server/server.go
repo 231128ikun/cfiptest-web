@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"iptest-web/internal/cloud"
 	"iptest-web/internal/config"
 	"iptest-web/internal/engine"
 	"iptest-web/internal/library"
@@ -35,6 +36,9 @@ type Server struct {
 	// 前端 /api/config 读它做表单初值，请求里缺省的字段也回落到它。
 	latencyDefaults engine.LatencyOptions
 	speedDefaults   engine.SpeedOptions
+
+	// 云端存储渠道配置（data/clouds.json）
+	cloudStore *cloud.Store
 
 	// IP 库管理器（惰性初始化）
 	libMgr   *library.Manager
@@ -85,6 +89,7 @@ func New(runner *engine.Runner, assets fs.FS, version string, cfg config.Config,
 		schedulerStop:   make(chan struct{}),
 		scheduleRuns:    make(map[string]string),
 		log:             NewLogger(dataDir, logEnabled),
+		cloudStore:      cloud.NewStore(dataDir),
 	}
 	s.registerRoutes()
 	go s.runScheduler()
@@ -149,6 +154,12 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/auto/run", s.handleAutoRun)
 	s.mux.HandleFunc("GET /api/auto/output", s.handleAutoOutput)
 	s.mux.HandleFunc("POST /api/auto/pick-dir", s.handleAutoPickDir)
+	s.mux.HandleFunc("GET /api/cloud/configs", s.handleCloudConfigsGet)
+	s.mux.HandleFunc("POST /api/cloud/configs", s.handleCloudConfigsCreate)
+	s.mux.HandleFunc("PUT /api/cloud/configs/{id}", s.handleCloudConfigsUpdate)
+	s.mux.HandleFunc("DELETE /api/cloud/configs/{id}", s.handleCloudConfigsDelete)
+	s.mux.HandleFunc("POST /api/cloud/test", s.handleCloudTest)
+	s.mux.HandleFunc("POST /api/cloud/upload", s.handleCloudUpload)
 	s.mux.HandleFunc("GET /api/log", s.handleLogGet)
 	s.mux.HandleFunc("POST /api/log/clear", s.handleLogClear)
 	s.mux.HandleFunc("POST /api/shutdown", s.handleShutdown)

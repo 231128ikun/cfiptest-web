@@ -8,24 +8,24 @@ func TestParseTargets(t *testing.T) {
 		input string
 		want  []Target
 	}{
-		{"标准 IPv4:端口", "1.2.3.4:443", []Target{{"1.2.3.4", 443, ""}}},
-		{"纯 IPv4 保持未指定端口", "1.2.3.4", []Target{{"1.2.3.4", 0, ""}}},
-		{"空格分隔", "1.2.3.4 2053", []Target{{"1.2.3.4", 2053, ""}}},
-		{"中文冒号", "1.2.3.4：8443", []Target{{"1.2.3.4", 8443, ""}}},
-		{"IPv6 带端口", "[2001:db8::1]:443", []Target{{"2001:db8::1", 443, ""}}},
-		{"纯 IPv6 保持未指定端口", "2001:db8::1", []Target{{"2001:db8::1", 0, ""}}},
-		{"带注释", "1.2.3.4:443 # 香港节点", []Target{{"1.2.3.4", 443, ""}}},
+		{"标准 IPv4:端口", "1.2.3.4:443", []Target{{IP: "1.2.3.4", Port: 443}}},
+		{"纯 IPv4 保持未指定端口", "1.2.3.4", []Target{{IP: "1.2.3.4"}}},
+		{"空格分隔", "1.2.3.4 2053", []Target{{IP: "1.2.3.4", Port: 2053}}},
+		{"中文冒号", "1.2.3.4：8443", []Target{{IP: "1.2.3.4", Port: 8443}}},
+		{"IPv6 带端口", "[2001:db8::1]:443", []Target{{IP: "2001:db8::1", Port: 443}}},
+		{"纯 IPv6 保持未指定端口", "2001:db8::1", []Target{{IP: "2001:db8::1"}}},
+		{"带注释", "1.2.3.4:443 # 香港节点", []Target{{IP: "1.2.3.4", Port: 443}}},
 		{"注释行跳过", "# 这是注释", nil},
 		{"空行跳过", "  ", nil},
-		{"CSV 元数据取首列", "1.2.3.4:443,US,AS13335", []Target{{"1.2.3.4", 443, ""}}},
-		{"去重", "1.2.3.4:443\n1.2.3.4:443\n1.2.3.4 443", []Target{{"1.2.3.4", 443, ""}}},
+		{"CSV 元数据取首列", "1.2.3.4:443,US,AS13335", []Target{{IP: "1.2.3.4", Port: 443, CountryCode: "US"}}},
+		{"去重", "1.2.3.4:443\n1.2.3.4:443\n1.2.3.4 443", []Target{{IP: "1.2.3.4", Port: 443}}},
 		{"无效端口", "1.2.3.4:0", nil},
 		{"端口超界", "1.2.3.4:99999", nil},
 		{"无效 IP 段", "1.2.3.999:443", nil},
 		{"垃圾文本", "hello world", nil},
 		{"多行混合", "1.1.1.1:443\n\n# 注释\n2.2.2.2 2053\n[2606:4700::1]:443",
-			[]Target{{"1.1.1.1", 443, ""}, {"2.2.2.2", 2053, ""}, {"2606:4700::1", 443, ""}}},
-		{"CRLF 换行", "1.1.1.1:443\r\n2.2.2.2:2053\r", []Target{{"1.1.1.1", 443, ""}, {"2.2.2.2", 2053, ""}}},
+			[]Target{{IP: "1.1.1.1", Port: 443}, {IP: "2.2.2.2", Port: 2053}, {IP: "2606:4700::1", Port: 443}}},
+		{"CRLF 换行", "1.1.1.1:443\r\n2.2.2.2:2053\r", []Target{{IP: "1.1.1.1", Port: 443}, {IP: "2.2.2.2", Port: 2053}}},
 	}
 
 	for _, tt := range tests {
@@ -176,10 +176,47 @@ func TestParseTargetsCSVUsesPortColumn(t *testing.T) {
 	if len(targets) != 2 {
 		t.Fatalf("CSV 解析得到 %d 个目标，期望 2: %+v", len(targets), targets)
 	}
-	if targets[0].IP != "1.1.1.1" || targets[0].Port != 2053 {
+	if targets[0].IP != "1.1.1.1" || targets[0].Port != 2053 || targets[0].CountryCode != "US" {
 		t.Fatalf("IPv4 CSV 端口解析错误: %+v", targets[0])
 	}
-	if targets[1].IP != "2001:db8::1" || targets[1].Port != 8443 {
+	if targets[1].IP != "2001:db8::1" || targets[1].Port != 8443 || targets[1].CountryCode != "JP" {
 		t.Fatalf("IPv6 CSV 端口解析错误: %+v", targets[1])
+	}
+}
+
+// TestParseTargetsCountryTags 覆盖远程库行尾国家标记与 CSV 国家列的保留逻辑：
+//   - "IP:端口#US" 视为国家标记保留（这是 zip.cm.edu.kg/all.txt 的格式）
+//   - "# 香港节点" 仍视为注释丢弃
+//   - CSV 第 2/3 列中的 2~3 位字母视为国家代码
+func TestParseTargetsCountryTags(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  []Target
+	}{
+		{"行尾国家标记", "101.99.76.88:2053#NL", []Target{{IP: "101.99.76.88", Port: 2053, CountryCode: "NL"}}},
+		{"行尾国家标记小写转大写", "103.11.76.196:443#us", []Target{{IP: "103.11.76.196", Port: 443, CountryCode: "US"}}},
+		{"标记前有空格", "1.2.3.4:443 #HK", []Target{{IP: "1.2.3.4", Port: 443, CountryCode: "HK"}}},
+		{"行尾中文国家标记", "101.99.76.88:2053#香港", []Target{{IP: "101.99.76.88", Port: 2053, CountryCode: "HK"}}},
+		{"行尾三字码收敛二字码", "1.2.3.4:443#usa", []Target{{IP: "1.2.3.4", Port: 443, CountryCode: "US"}}},
+		{"CSV 中文国家列", "1.1.1.1,2053,美国", []Target{{IP: "1.1.1.1", Port: 2053, CountryCode: "US"}}},
+		{"中文注释仍丢弃", "1.2.3.4:443 # 香港节点", []Target{{IP: "1.2.3.4", Port: 443}}},
+		{"长注释仍丢弃", "1.2.3.4:443 #HK 备注", []Target{{IP: "1.2.3.4", Port: 443}}},
+		{"CSV 第三列国家", "1.1.1.1,2053,US", []Target{{IP: "1.1.1.1", Port: 2053, CountryCode: "US"}}},
+		{"CSV 第二列国家", "1.2.3.4:443,JP,AS13335", []Target{{IP: "1.2.3.4", Port: 443, CountryCode: "JP"}}},
+		{"CSV 非字母元数据不误判", "1.2.3.4:443,AS13335", []Target{{IP: "1.2.3.4", Port: 443}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ParseTargets(tt.input)
+			if len(got) != len(tt.want) {
+				t.Fatalf("ParseTargets(%q) 得到 %d 条: %+v, 期望 %d 条: %+v", tt.input, len(got), got, len(tt.want), tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("第 %d 条: 得到 %+v, 期望 %+v", i, got[i], tt.want[i])
+				}
+			}
+		})
 	}
 }

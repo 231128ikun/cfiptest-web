@@ -449,6 +449,30 @@ func TestSortOutputCountryAsc(t *testing.T) {
 	}
 }
 
+// TestSortOutputGrouped 验证输出按规则分组顺序排列（先写的国家排前面），
+// 组内按配置排序键（默认延迟升序）排序。
+func TestSortOutputGrouped(t *testing.T) {
+	entries := []library.Entry{
+		{IP: "9.9.9.9", Port: 443, CountryCode: "US", TCPLatencyMs: 300},
+		{IP: "1.1.1.1", Port: 443, CountryCode: "JP", TCPLatencyMs: 50},
+		{IP: "2.2.2.2", Port: 443, CountryCode: "JP", TCPLatencyMs: 10},
+		{IP: "8.8.8.8", Port: 443, CountryCode: "HK", TCPLatencyMs: 200},
+	}
+	groupOf := map[string]int{
+		library.Key("8.8.8.8", 443): 0, // 规则顺序：香港
+		library.Key("2.2.2.2", 443): 1, // 日本
+		library.Key("1.1.1.1", 443): 1,
+		library.Key("9.9.9.9", 443): 2, // 美国
+	}
+	sortOutputGrouped(entries, OutputSortLatencyAsc, groupOf)
+	want := []string{"8.8.8.8", "2.2.2.2", "1.1.1.1", "9.9.9.9"}
+	for i, e := range entries {
+		if e.IP != want[i] {
+			t.Fatalf("第 %d 条=%s，期望 %s（按 香港→日本→美国 分组、组内延迟升序）", i, e.IP, want[i])
+		}
+	}
+}
+
 func TestImportInputTargetsKeepsExistingMetadata(t *testing.T) {
 	lib := mkLib(t, library.Entry{
 		IP: "1.0.0.1", Port: 443, Source: library.SourceOfficial,
@@ -456,8 +480,8 @@ func TestImportInputTargetsKeepsExistingMetadata(t *testing.T) {
 		Status: library.StatusActive, Checks: 5, SpeedValid: true, DownloadSpeedKBs: 1000,
 	})
 	added, updated := importInputTargets(lib, []engine.Target{
-		{IP: "1.0.0.1", Port: 443}, // 已存在：应保留元数据
-		{IP: "1.0.0.2", Port: 443}, // 新条目
+		{IP: "1.0.0.1", Port: 443, CountryCode: "SG"}, // 已存在且已有国家：保留原元数据，不覆盖为 SG
+		{IP: "1.0.0.2", Port: 443, CountryCode: "JP"}, // 新条目：国家标记应入库
 	}, time.Now(), library.SourceOfficial)
 	if added != 1 || updated != 1 {
 		t.Fatalf("期望新增 1 / 更新 1，实际 %d/%d", added, updated)
@@ -468,8 +492,9 @@ func TestImportInputTargetsKeepsExistingMetadata(t *testing.T) {
 		t.Fatalf("已有条目元数据被重置: %+v", got)
 	}
 	entry, ok := lib.Get("1.0.0.2", 443)
-	if !ok || entry.Status != library.StatusNew || entry.Source != library.SourceOfficial || entry.FirstSeenAt.IsZero() {
-		t.Fatalf("新条目应以 StatusNew 入库: %+v", entry)
+	if !ok || entry.Status != library.StatusNew || entry.Source != library.SourceOfficial ||
+		entry.CountryCode != "JP" || entry.FirstSeenAt.IsZero() {
+		t.Fatalf("新条目应以 StatusNew 并携带国家标记入库: %+v", entry)
 	}
 }
 

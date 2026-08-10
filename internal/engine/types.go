@@ -15,6 +15,10 @@ type Target struct {
 	IP   string `json:"ip"`
 	Port int    `json:"port"`
 
+	// CountryCode 是解析阶段保留的国家代码（远程库 "IP:端口#US" 或 CSV 第 3 列），
+	// 供自动维护按国家预筛候选；不参与 String()/去重键/JSON 前端回显。
+	CountryCode string `json:"countryCode,omitempty"`
+
 	// Key 是可选的前端候选原始键（例如"1.2.3.4|0"），仅由 server 层在发起
 	// 任务时补充，用于把 target_done 事件精确对应回前端候选列表。
 	Key string `json:"key,omitempty"`
@@ -190,22 +194,22 @@ const (
 
 // Event 是流式回调的统一事件载体，直接序列化为 SSE data。
 type Event struct {
-	Type       EventType      `json:"type"`
-	Result     *Result        `json:"result,omitempty"`
-	Target     *Target        `json:"target,omitempty"`
-	TargetKeys []string       `json:"targetKeys,omitempty"` // server 补充的原始候选键，可与默认端口别名同时覆盖
-	Progress   *Progress      `json:"progress,omitempty"`
-	Message    string         `json:"message,omitempty"`
-	Reason     DoneReason     `json:"reason,omitempty"`  // 仅 EventDone 携带
-	Failure    *ProbeFailure  `json:"failure,omitempty"` // 仅 target_done 携带：该目标未通过检测的原因
+	Type       EventType     `json:"type"`
+	Result     *Result       `json:"result,omitempty"`
+	Target     *Target       `json:"target,omitempty"`
+	TargetKeys []string      `json:"targetKeys,omitempty"` // server 补充的原始候选键，可与默认端口别名同时覆盖
+	Progress   *Progress     `json:"progress,omitempty"`
+	Message    string        `json:"message,omitempty"`
+	Reason     DoneReason    `json:"reason,omitempty"`  // 仅 EventDone 携带
+	Failure    *ProbeFailure `json:"failure,omitempty"` // 仅 target_done 携带：该目标未通过检测的原因
 }
 
 // ProbeFailureStage 标记单个目标检测失败发生在哪一步，用于前端/日志诊断。
 type ProbeFailureStage string
 
 const (
-	FailureTCPConnect   ProbeFailureStage = "tcp_connect_failed" // TCP 握手全部失败（大概率该地址没有部署服务）
-	FailureLatency      ProbeFailureStage = "delay_exceeded"     // TCP 成功但平均延迟超过 MaxLatencyMs
+	FailureTCPConnect   ProbeFailureStage = "tcp_connect_failed"   // TCP 握手全部失败（大概率该地址没有部署服务）
+	FailureLatency      ProbeFailureStage = "delay_exceeded"       // TCP 成功但平均延迟超过 MaxLatencyMs
 	FailureTraceRequest ProbeFailureStage = "trace_request_failed" // TCP 成功但 /cdn-cgi/trace 请求失败
 	FailureTraceColo    ProbeFailureStage = "trace_missing_colo"   // trace 响应里没有 colo 字段（不是 CF 节点）
 )

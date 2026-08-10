@@ -12,6 +12,7 @@ import { initTasks } from './tasks.js';
 import { initLibrary } from './library.js';
 import { addQuotaRule as addQuotaRuleShared, readQuotaRules as readQuotaRulesShared, clearQuotaEditors as clearQuotaEditorsShared, refreshQuotaEditors as refreshQuotaEditorsShared } from './quota-rules.js';
 import { SAVED_TEMPLATE_KEY, loadSavedTemplates as loadTemplatesFromStorage, templateOptionsHTML } from './templates.js';
+import { refreshCloudConfigs, cloudConfigs, cloudChannels, channelLabel, fillCloudSelect } from './cloud.js';
 
 const $ = id => document.getElementById(id);
 
@@ -881,6 +882,13 @@ function sideLogFromAuto(message) {
     if (!message) return;
     let p;
     try { p = JSON.parse(message); } catch { return; }
+    if (p.stage === 'cloud') {
+        const task = p.task ? `任务「${p.task}」` : '维护任务';
+        if (p.status === 'uploading') sideLog(`${task}开始上传至云端：${p.key || '默认路径'}`);
+        else if (p.status === 'success') sideLog(`${task}云端同步成功：${p.url || p.key || '已完成'}`, 'ok');
+        else if (p.status === 'error') sideLog(`${task}云端同步失败：${p.error || '未知错误'}`, 'error');
+        return;
+    }
     if (p.stage === 'report' && p.report) {
         const r = p.report;
         const shortage = (r.shortages || []).length ? `，缺口 ${r.shortages.length} 项` : '';
@@ -889,7 +897,6 @@ function sideLogFromAuto(message) {
     }
     if (p.log) sideLog(`[${p.group || '维护'}] ${p.log}`);
 }
-
 function selectedColumns() {
     return visibleColumnKeys.map(key => ALL_COLUMNS.find(column => column.key === key)).filter(Boolean);
 }
@@ -1468,6 +1475,9 @@ function regenerateOutput() {
     $('output-count').textContent = `${results.length} 条`;
     $('output-title').textContent = `${exportFormat() === 'csv' ? 'CSV' : 'TXT'} 预览`;
     updateCustomExportUI();
+    const cloudBtn = $('btn-export-cloud');
+    if (cloudBtn) cloudBtn.disabled = !content || !$('export-cloud-config').value;
+    if (!content) { const cr = $('cloud-export-result'); if (cr) cr.hidden = true; }
 }
 
 function renderCSVPreview(results) {
@@ -1705,6 +1715,16 @@ function bindExport() {
             toast(`已下载 ${results.length} 条 TXT`);
         }
     });
+    // ---- 导出至云端 ----
+    $('export-cloud-config').addEventListener('change', () => {
+        $('btn-export-cloud').disabled = !$('export-cloud-config').value || !$('output-box').value;
+    });
+    $('btn-export-cloud').addEventListener('click', handleCloudExport);
+    $('btn-cloud-export-copy').addEventListener('click', async () => {
+        const url = $('cloud-export-url').getAttribute('href');
+        if (!url) return;
+        try { await copyToClipboard(url); toast('云端链接已复制'); } catch (error) { toast(error.message); }
+    });
     regenerateOutput();
 }
 
@@ -1924,6 +1944,177 @@ function bindExportPopovers() {
     });
 }
 
+// ---- 云端存储：设置页配置管理 + 导出至云端 ----
+async function refreshCloudUI() {
+    const note = $('cloud-export-note');
+    try {
+        await refreshCloudConfigs();
+    } catch (error) {
+        if (note) note.textContent = `云端配置加载失败：${error.message}`;
+        return;
+    }
+    const configs = cloudConfigs();
+    const channels = cloudChannels();
+    fillCloudSelect($('export-cloud-config'));
+    fillCloudSelect($('task-cloud-select'));
+    const channelSel = $('cloud-config-channel');
+    if (channelSel) {
+        channelSel.innerHTML = channels.map(c => `<option value="${escapeHTML(c.id)}">${escapeHTML(c.name)}</option>`).join('') || '<option value="">（无可用渠道）</option>';
+    }
+    renderCloudConfigList();
+    if (note) {
+        note.textContent = configs.length
+            ? `已配置 ${configs.length} 个云端配置；单文件 ≤ 1MB，路径建议使用字母/数字/下划线/点/斜杠。`
+            : '尚未配置云端存储，请前往「设置 → 云端存储」添加配置。';
+    }
+    $('btn-export-cloud').disabled = !$('export-cloud-config').value || !$('output-box').value;
+}
+
+function renderCloudConfigList() {
+    const wrap = $('cloud-config-list');
+    const configs = cloudConfigs();
+    if (!configs.length) {
+        wrap.innerHTML = '<p class="cloud-config-empty">暂无云端配置。展开上方「＋ 添加 / 编辑配置」添加第一个（EdgeOne Blob）。</p>';
+        return;
+    }
+    wrap.innerHTML = configs.map(c => `
+        <div class="cloud-config-item">
+            <div class="cloud-config-item-main">
+                <div class="cloud-config-item-name">${escapeHTML(c.name)}</div>
+                <div class="cloud-config-item-meta">${escapeHTML(channelLabel(c.channel))} · ${escapeHTML(c.baseUrl)} · Token ${escapeHTML(c.token || '')}</div>
+            </div>
+            <div class="cloud-config-item-actions">
+                <button type="button" class="small" data-cloud-edit="${escapeHTML(c.id)}">编辑</button>
+                <button type="button" class="small danger" data-cloud-del="${escapeHTML(c.id)}">删除</button>
+            </div>
+        </div>`).join('');
+    wrap.querySelectorAll('[data-cloud-edit]').forEach(btn => btn.addEventListener('click', () => openCloudEditor(btn.dataset.cloudEdit)));
+    wrap.querySelectorAll('[data-cloud-del]').forEach(btn => btn.addEventListener('click', () => deleteCloudConfig(btn.dataset.cloudDel)));
+}
+
+function cloudFormPayload() {
+    return {
+        name: $('cloud-config-name').value.trim(),
+        channel: $('cloud-config-channel').value,
+        baseUrl: $('cloud-config-base-url').value.trim(),
+        token: $('cloud-config-token').value.trim(),
+    };
+}
+
+function openCloudEditor(id = '') {
+    const cfg = cloudConfigs().find(c => c.id === id) || {};
+    $('cloud-config-id').value = cfg.id || '';
+    $('cloud-config-name').value = cfg.name || '';
+    if (cfg.channel) $('cloud-config-channel').value = cfg.channel;
+    $('cloud-config-base-url').value = cfg.baseUrl || '';
+    $('cloud-config-token').value = '';
+    $('cloud-config-status').textContent = '';
+    $('cloud-config-editor').open = true;
+    $('cloud-config-name').focus();
+}
+
+function closeCloudEditor() {
+    $('cloud-config-editor').open = false;
+    $('cloud-config-id').value = '';
+    $('cloud-config-name').value = '';
+    $('cloud-config-channel').value = cloudChannels()[0]?.id || '';
+    $('cloud-config-base-url').value = '';
+    $('cloud-config-token').value = '';
+    $('cloud-config-status').textContent = '';
+}
+
+async function saveCloudConfig() {
+    const status = $('cloud-config-status');
+    const id = $('cloud-config-id').value;
+    const payload = cloudFormPayload();
+    if (!payload.name) { status.textContent = '请填写配置名称'; return; }
+    if (!payload.baseUrl) { status.textContent = '请填写站点地址'; return; }
+    if (!id && !payload.token) { status.textContent = '新配置需要填写 Token'; return; }
+    status.textContent = '保存中…';
+    try {
+        if (id) await api.updateCloudConfig(id, payload);
+        else await api.createCloudConfig(payload);
+        await refreshCloudUI();
+        status.textContent = '已保存';
+        closeCloudEditor();
+        toast('云端配置已保存');
+    } catch (error) {
+        status.textContent = `保存失败：${error.message}`;
+    }
+}
+
+async function testCloudConfig() {
+    const status = $('cloud-config-status');
+    const id = $('cloud-config-id').value;
+    const payload = cloudFormPayload();
+    if (!payload.baseUrl) { status.textContent = '请填写站点地址'; return; }
+    if (!id && !payload.token) { status.textContent = '新配置需要填写 Token 才能测试'; return; }
+    status.textContent = '测试中…';
+    try {
+        const data = await api.testCloud(id ? { id } : payload);
+        status.textContent = data.ok ? '连接成功 ✓' : `连接失败：${data.error || '未知错误'}`;
+        toast(data.ok ? '云端连接成功' : '云端连接失败');
+    } catch (error) {
+        status.textContent = `测试失败：${error.message}`;
+    }
+}
+
+async function deleteCloudConfig(id) {
+    const cfg = cloudConfigs().find(c => c.id === id);
+    if (!cfg) return;
+    if (!confirm(`确认删除云端配置「${cfg.name}」？`)) return;
+    try {
+        await api.deleteCloudConfig(id);
+        await refreshCloudUI();
+        toast('云端配置已删除');
+    } catch (error) {
+        toast(`删除失败：${error.message}`);
+    }
+}
+
+async function handleCloudExport() {
+    const configId = $('export-cloud-config').value;
+    if (!configId) { toast('请先选择云端配置（设置 → 云端存储）'); return; }
+    const content = currentExportContent();
+    if (!content) { toast('没有可导出的内容'); return; }
+    const btn = $('btn-export-cloud');
+    const status = $('cloud-export-status');
+    const urlEl = $('cloud-export-url');
+    const resultBox = $('cloud-export-result');
+    btn.disabled = true;
+    btn.textContent = '上传中…';
+    resultBox.hidden = false;
+    urlEl.hidden = true;
+    urlEl.removeAttribute('href');
+    status.textContent = '正在上传至云端…';
+    try {
+        const extension = exportFormat() === 'csv' ? 'csv' : 'txt';
+        const key = $('export-cloud-key').value.trim() || `iptest-result.${extension}`;
+        const data = await api.uploadCloud(configId, key, content);
+        const url = data.url || '';
+        urlEl.href = url;
+        urlEl.textContent = url;
+        urlEl.hidden = !url;
+        const size = Number(data.size) || content.length;
+        status.textContent = size >= 1024 * 1024
+            ? `已上传 ${(size / 1024 / 1024).toFixed(2)} MB`
+            : size >= 1024 ? `已上传 ${(size / 1024).toFixed(1)} KB` : `已上传 ${size} B`;
+        toast('已导出至云端');
+    } catch (error) {
+        status.textContent = `上传失败：${error.message}`;
+        toast(`导出至云端失败：${error.message}`);
+    } finally {
+        btn.textContent = '上传至云端';
+        btn.disabled = !currentExportContent() || !$('export-cloud-config').value;
+    }
+}
+
+function bindCloudSettings() {
+    $('btn-cloud-save').addEventListener('click', saveCloudConfig);
+    $('btn-cloud-test').addEventListener('click', testCloudConfig);
+    $('btn-cloud-cancel').addEventListener('click', closeCloudEditor);
+}
+
 // 库变更后各入口实时刷新
 function bindLibraryChanged() {
     window.addEventListener('library-changed', () => {
@@ -1961,6 +2152,8 @@ async function init() {
     bindRulesAndRun();
     bindSettingsAutoSave();
     bindExport();
+    bindCloudSettings();
+    refreshCloudUI();
     bindEvents();
     renderRawSummary();
     renderCandidates();

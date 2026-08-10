@@ -30,10 +30,11 @@ type Output struct {
 	Path     string `json:"path"`               // 相对 dataDir 的文件路径（如 out/sub.txt）
 	Format   string `json:"format,omitempty"`   // txt | csv，默认 txt
 	Template string `json:"template,omitempty"` // 占位符模板，默认 {ip}:{port}#{country}
-	Sort     string `json:"sort,omitempty"`     // 输出排序，默认 latencyAsc（见 OutputSort* 常量）
+	Sort     string `json:"sort,omitempty"`     // 输出排序（组内排序），默认 latencyAsc（见 OutputSort* 常量）；输出始终按规则顺序分组
 }
 
-// 输出排序方式（Output.Sort / TaskOutput.Sort）。
+// 输出排序方式（Output.Sort / TaskOutput.Sort）。排序只作用于规则分组内部：
+// 输出文件始终按规则/分组顺序排列（规则里先写的国家排前面），组内再按该键排序。
 const (
 	OutputSortLatencyAsc  = "latencyAsc"  // 延迟升序（默认）
 	OutputSortLatencyDesc = "latencyDesc" // 延迟降序

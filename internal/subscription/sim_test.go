@@ -1,0 +1,318 @@
+package subscription
+
+import (
+	"context"
+	"fmt"
+	"math/rand"
+	"os"
+	"slices"
+	"strings"
+	"testing"
+
+	"iptest-web/internal/engine"
+	"iptest-web/internal/library"
+)
+
+// simTester mimics a remote list with unknown geo until tested.
+type simTester struct {
+	countries     map[string]string
+	pass          map[string]bool
+	latencyCalled []string
+}
+
+func (f *simTester) RunLatencyTest(_ context.Context, targets []engine.Target, opts engine.LatencyOptions, cb engine.EventCallback) ([]engine.Result, error) {
+	var out []engine.Result
+	for _, t := range targets {
+		key := library.Key(t.IP, t.Port)
+		f.latencyCalled = append(f.latencyCalled, key)
+		if !f.pass[key] {
+			continue
+		}
+		out = append(out, engine.Result{IP: t.IP, Port: t.Port, TCPLatencyMs: 100, CountryCode: f.countries[key], Country: f.countries[key]})
+		cb(engine.Event{Type: engine.EventResult, Result: &out[len(out)-1]})
+	}
+	return out, nil
+}
+
+func (f *simTester) RunSpeedTest(_ context.Context, targets []engine.Target, opts engine.SpeedOptions, cb engine.EventCallback) error {
+	return nil
+}
+
+// buildRemoteSim 构造 200 条“未知地区”候选（模拟远程 URL 库，库内无国家元数据）：
+// cluster=false 时五国交错（i%5），true 时按国家聚类（每 40 条一个地区）；
+// 每条 ~60% 概率延迟通过，通过后回填对应国家码。
+func buildRemoteSim(t *testing.T, cluster bool) (*simTester, *library.Store) {
+	sim := &simTester{countries: map[string]string{}, pass: map[string]bool{}}
+	rng := rand.New(rand.NewSource(1))
+	codes := []string{"HK", "JP", "KR", "SG", "US"}
+	entries := make([]library.Entry, 0, 200)
+	for i := 0; i < 200; i++ {
+		ip := fmt.Sprintf("1.0.0.%d", i+1)
+		entries = append(entries, library.Entry{IP: ip, Port: 0, Status: library.StatusNew})
+		key := library.Key(ip, 443)
+		ci := i % 5
+		if cluster {
+			ci = i / 40
+		}
+		sim.countries[key] = codes[ci]
+		sim.pass[key] = rng.Intn(10) < 6
+	}
+	lib := library.NewInMemory(t.TempDir(), entries)
+	return sim, lib
+}
+
+// runRemoteSim 以远程库模式（不回写、不删除）执行单轮编排，返回报告。
+func runRemoteSim(t *testing.T, sim *simTester, lib *library.Store, count int) *Report {
+	t.Helper()
+	codes := []string{"HK", "JP", "KR", "SG", "US"}
+	var groups []Group
+	for _, c := range codes {
+		groups = append(groups, Group{Name: c, CountryCode: c, Country: c, Count: count})
+	}
+	prog := func(p Progress) error {
+		if p.Log != "" {
+			t.Log(p.Log)
+		}
+		return nil
+	}
+	report, err := runCore(context.Background(), sim, lib, groups, "", Output{Path: "out/sim.txt", Template: "{ip}:{port}"}, false, 72, RunOptions{RemoteLibrary: true}, prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return report
+}
+
+func TestSimulateRemoteRounds(t *testing.T) {
+	t.Run("interleaved_full_budget", func(t *testing.T) {
+		// 五国交错 + 配额 10：单组预算 40，5 组合计 200 = 全候选，逐条检测后按实测国家填满。
+		sim, lib := buildRemoteSim(t, false)
+		report := runRemoteSim(t, sim, lib, 10)
+		if len(sim.latencyCalled) != 200 {
+			t.Fatalf("交错排列、配额 10 时应全量检测 200 条，实际 %d", len(sim.latencyCalled))
+		}
+		if report.TotalLines != 50 {
+			t.Fatalf("应每国 10 条共 50 条，实际 %d", report.TotalLines)
+		}
+		for _, gr := range report.Groups {
+			if gr.Filled != 10 || gr.Shortage != 0 {
+				t.Fatalf("group %s 应填满 10 条，实际 %+v", gr.Name, gr)
+			}
+		}
+	})
+
+	t.Run("clustered_equal_sampling", func(t *testing.T) {
+		// 按国家聚类（前 40 条全是 HK，最后 40 条是 US）+ 配额 5：单组预算 25，5 组合计 125，
+		// 等距抽样必须覆盖候选池头尾，否则 US/SG 永远测不到（旧多轮逻辑的缺陷）。
+		sim, lib := buildRemoteSim(t, true)
+		report := runRemoteSim(t, sim, lib, 5)
+		if len(sim.latencyCalled) != 125 {
+			t.Fatalf("配额 5 时应等距抽样 125 条，实际 %d", len(sim.latencyCalled))
+		}
+		if report.TotalLines != 25 {
+			t.Fatalf("等距抽样应覆盖头尾聚类，每国 5 条共 25 条，实际 %d", report.TotalLines)
+		}
+		for _, gr := range report.Groups {
+			if gr.Filled != 5 || gr.Shortage != 0 {
+				t.Fatalf("group %s 应填满 5 条，实际 %+v", gr.Name, gr)
+			}
+		}
+	})
+
+	t.Run("interleaved_budget_sampling", func(t *testing.T) {
+		// 五国交错 + 配额 5：预算 125 抽样后每国约 15 条通过，足够填满 5 条。
+		sim, lib := buildRemoteSim(t, false)
+		report := runRemoteSim(t, sim, lib, 5)
+		if len(sim.latencyCalled) != 125 {
+			t.Fatalf("配额 5 时应等距抽样 125 条，实际 %d", len(sim.latencyCalled))
+		}
+		if report.TotalLines != 25 {
+			t.Fatalf("应每国 5 条共 25 条，实际 %d", report.TotalLines)
+		}
+		for _, gr := range report.Groups {
+			if gr.Filled != 5 || gr.Shortage != 0 {
+				t.Fatalf("group %s 应填满 5 条，实际 %+v", gr.Name, gr)
+			}
+		}
+	})
+}
+
+// TestSimulateRemoteCountryPrefilter 验证“先加载远程库 → 按国家预筛 → 再检测”：
+// 远程列表自带国家标记（模拟 all.txt 的 IP:端口#国家），库条目直接带 CountryCode；
+// 只检测目标国家的候选（非目标国家一条都不测），并按分组配额填满。
+func TestSimulateRemoteCountryPrefilter(t *testing.T) {
+	target := []string{"HK", "JP", "KR", "SG", "US"}
+	sim := &simTester{countries: map[string]string{}, pass: map[string]bool{}}
+	entries := make([]library.Entry, 0, 300)
+	// 200 条目标国家（每国 40）+ 100 条非目标国家（NL/DE/FR/IN/BR 各 20）。
+	for i := 0; i < 200; i++ {
+		ip := fmt.Sprintf("2.0.0.%d", i+1)
+		c := target[i%5]
+		entries = append(entries, library.Entry{IP: ip, Port: 0, CountryCode: c, Status: library.StatusNew})
+		key := library.Key(ip, 443)
+		sim.countries[key] = c
+		sim.pass[key] = true
+	}
+	others := []string{"NL", "DE", "FR", "IN", "BR"}
+	for i := 0; i < 100; i++ {
+		ip := fmt.Sprintf("2.0.1.%d", i+1)
+		c := others[i%5]
+		entries = append(entries, library.Entry{IP: ip, Port: 0, CountryCode: c, Status: library.StatusNew})
+		key := library.Key(ip, 443)
+		sim.countries[key] = c
+		sim.pass[key] = true
+	}
+	lib := library.NewInMemory(t.TempDir(), entries)
+
+	var groups []Group
+	for _, c := range target {
+		groups = append(groups, Group{Name: c, CountryCode: c, Country: c, Count: 10})
+	}
+	report, err := runCore(context.Background(), sim, lib, groups, "",
+		Output{Path: "out/sim.txt", Template: "{ip}:{port}"}, false, 72,
+		RunOptions{RemoteLibrary: true}, func(p Progress) error {
+			if p.Log != "" {
+				t.Log(p.Log)
+			}
+			return nil
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sim.latencyCalled) != 200 {
+		t.Fatalf("带国家标记时应仅检测目标国家候选 200 条（5 国 × 每组预算 40），实际 %d", len(sim.latencyCalled))
+	}
+	for _, key := range sim.latencyCalled {
+		c := sim.countries[key]
+		if !foldContains(target, c) {
+			t.Fatalf("预筛失效：非目标国家 %s 的候选被检测: %s", c, key)
+		}
+	}
+	if report.TotalLines != 50 {
+		t.Fatalf("应每国 10 条共 50 条，实际 %d", report.TotalLines)
+	}
+	for _, gr := range report.Groups {
+		if gr.Filled != 10 || gr.Shortage != 0 {
+			t.Fatalf("group %s 应填满 10 条，实际 %+v", gr.Name, gr)
+		}
+	}
+
+}
+
+func foldContains(list []string, v string) bool {
+	for _, x := range list {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+
+// TestSimulateUserScenarioFullChain 复现用户实际配置的完整链路：
+// tasks.json 里 country 值是一整串 "香港；日本；韩国；新加坡；美国"（分号分隔），
+// 远程库行格式为 "IP:端口#国家"（all.txt 格式）。
+// 链路：Validate 拆分并归一化 → expandTaskRules 得到 5 个分组 →
+// 远程文本 ParseTargets 带国家码 → 候选预筛只测目标国 → 每国 10 条共 50 条输出。
+func TestSimulateUserScenarioFullChain(t *testing.T) {
+	var sb strings.Builder
+	target := []string{"HK", "JP", "KR", "SG", "US"}
+	others := []string{"NL", "DE"}
+	n := 0
+	for _, c := range target {
+		for i := 0; i < 12; i++ {
+			n++
+			fmt.Fprintf(&sb, "10.%d.%d.%d:443#%s\n", n/25000, (n/250)%250, n%250+1, c)
+		}
+	}
+	for _, c := range others {
+		for i := 0; i < 10; i++ {
+			n++
+			fmt.Fprintf(&sb, "10.%d.%d.%d:443#%s\n", n/25000, (n/250)%250, n%250+1, c)
+		}
+	}
+	targets := engine.ParseTargets(sb.String())
+	if len(targets) != 12*5+10*2 {
+		t.Fatalf("解析远程库条目数错误: %d", len(targets))
+	}
+	entries := make([]library.Entry, 0, len(targets))
+	for _, tt := range targets {
+		entries = append(entries, library.Entry{IP: tt.IP, Port: tt.Port, CountryCode: tt.CountryCode, Status: library.StatusNew})
+	}
+	lib := library.NewInMemory(t.TempDir(), entries)
+
+	sim := &simTester{countries: map[string]string{}, pass: map[string]bool{}}
+	for _, tt := range targets {
+		key := library.Key(tt.IP, tt.Port)
+		sim.countries[key] = tt.CountryCode
+		sim.pass[key] = true
+	}
+
+	// 用户实际保存的任务：country 值是一整串中文，分号分隔
+	task := Task{
+		Name:          "test",
+		Enabled:       true,
+		LibrarySource: LibrarySourceRemote,
+		LibraryURL:    "https://zip.cm.edu.kg/all.txt",
+		Output:        TaskOutput{Path: "out/test.txt", Template: "{ip}:{port}#{country}"},
+		Rules: []TaskRule{{Name: "\u89c4\u5219 1", Limit: 10, Conditions: []Condition{
+			{Field: "country", Values: []string{"\u9999\u6e2f\uff1b\u65e5\u672c\uff1b\u97e9\u56fd\uff1b\u65b0\u52a0\u5761\uff1b\u7f8e\u56fd"}},
+		}}},
+	}
+	if err := task.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	groups, err := expandTaskRules(task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(groups) != 5 {
+		t.Fatalf("应展开 5 个分组, 得到 %d", len(groups))
+	}
+	report, err := runCore(context.Background(), sim, lib, groups, "",
+		Output{Path: "out/sim.txt", Template: "{ip}:{port}#{country}"}, false, 72,
+		RunOptions{RemoteLibrary: true}, func(p Progress) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sim.latencyCalled) != 60 {
+		t.Fatalf("仅应检测目标国候选 60 条, 实际 %d", len(sim.latencyCalled))
+	}
+	if report.TotalLines != 50 {
+		t.Fatalf("应每国 10 条共 50 条, 实际 %d", report.TotalLines)
+	}
+	for _, gr := range report.Groups {
+		if gr.Filled != 10 || gr.Shortage != 0 {
+			t.Fatalf("group %s 应填满 10 条, 实际 %+v", gr.Name, gr)
+		}
+	}
+
+	// 输出应按规则国家顺序分组：香港→日本→韩国→新加坡→美国，组内延迟升序。
+	body, err := os.ReadFile(report.OutputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantSeq := []string{"HK", "JP", "KR", "SG", "US"}
+	prev := 0
+	count := 0
+	for _, line := range strings.Split(strings.TrimSpace(string(body)), "\n") {
+		if line == "" {
+			continue
+		}
+		idx := strings.LastIndex(line, "#")
+		if idx < 0 {
+			t.Fatalf("输出行缺少国家标记: %q", line)
+		}
+		count++
+		cc := line[idx+1:]
+		gi := slices.Index(wantSeq, cc)
+		if gi < 0 {
+			t.Fatalf("输出包含非目标国家 %q: %q", cc, line)
+		}
+		if gi < prev {
+			t.Fatalf("输出未按规则顺序分组：%s 出现在 %s 之后", wantSeq[gi], wantSeq[prev])
+		}
+		prev = gi
+	}
+	if count != 50 {
+		t.Fatalf("输出行数应为 50, 实际 %d", count)
+	}
+}

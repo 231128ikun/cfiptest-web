@@ -57,6 +57,7 @@ func NewRunner(rc RunnerConfig) (*Runner, error) {
 	if err != nil {
 		return nil, err
 	}
+	RegisterCountryNames(locations)
 
 	asnDB, err := loadASN(rc.DataDir, asnSources)
 	if err != nil {

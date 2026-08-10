@@ -18,6 +18,8 @@ var (
 
 	reIPv4CIDRPort        = regexp.MustCompile(`^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/\d{1,2})[:：](\d+)$`)
 	reIPv6BracketCIDRPort = regexp.MustCompile(`^\[([0-9a-fA-F:]+/\d{1,3})\]:(\d+)$`)
+
+	reCountryTag = regexp.MustCompile(`^[A-Za-z]{2,3}$`) // 远程库行尾 "IP:端口#US" 的国家标记
 )
 
 // ParseTargets 将原始文本（每行一个条目）解析为去重后的 Target 切片。
@@ -92,7 +94,7 @@ func CollectCIDRs(raw string) []string {
 //   - "2606:4700::/32"       → 443（IPv6 段，冒号属于地址本身）
 //   - "[2606:4700::/32]:80"  → 80
 func normalizeCIDRLine(line string) (string, int, bool) {
-	line = stripComment(line)
+	line, _ = splitComment(line)
 	if line == "" || !strings.Contains(line, "/") {
 		return "", 0, false
 	}
@@ -133,27 +135,70 @@ func normalizeCIDRLine(line string) (string, int, bool) {
 	return "", 0, false
 }
 
-// stripComment 去掉整行注释与行内注释，并修剪空白。
-func stripComment(line string) string {
+// splitComment 分离行内注释与国家标记：
+//   - "1.2.3.4:443#US"        → ("1.2.3.4:443", "US")
+//   - "1.2.3.4:443 # 香港节点" → ("1.2.3.4:443", "")
+//   - "# 整行注释"             → ("", "")
+//
+// # 后为 2~3 位 ASCII 字母视为国家标记保留（如远程库 all.txt 的 #NL/#US），
+// 其余 # 内容一律视为注释丢弃。
+func splitComment(line string) (string, string) {
 	line = strings.TrimSpace(line)
 	if line == "" || strings.HasPrefix(line, "#") {
-		return ""
+		return "", ""
 	}
-	if idx := strings.Index(line, "#"); idx > 0 {
+	if idx := strings.Index(line, "#"); idx >= 0 {
+		suffix := strings.TrimSpace(line[idx+1:])
+		if code, ok := countryFromTag(suffix); ok {
+			return strings.TrimSpace(line[:idx]), code
+		}
 		line = strings.TrimSpace(line[:idx])
 	}
-	return line
+	return line, ""
+}
+
+// countryFromTag 识别行尾 # 标记 / CSV 国家列中的国家标识：
+// 2~3 位 ASCII 字母（#US/#nl 等，保持旧行为）或可识别的中文/英文国家名
+// （#香港 / #美国 / #Hong Kong / #usa 等）→ 大写二字码。
+func countryFromTag(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", false
+	}
+	if reCountryTag.MatchString(s) {
+		return NormalizeCountry(s), true
+	}
+	if _, ok := countryByName[countryKey(s)]; ok {
+		return NormalizeCountry(s), true
+	}
+	return "", false
 }
 
 // normalizeLine 把单行文本规范化为一个 Target；无法识别时返回 false。
 // CIDR 行不由本函数处理（见 normalizeCIDRLine）。
 func normalizeLine(line string) (Target, bool) {
-	line = stripComment(line)
+	line, country := splitComment(line)
+	if line == "" {
+		return Target{}, false
+	}
+	t, ok := normalizeLineCore(line)
+	if !ok {
+		return Target{}, false
+	}
+	if country != "" {
+		t.CountryCode = country
+	}
+	return t, true
+}
+
+// normalizeLineCore 把单行文本规范化成一个 Target（不含行尾 # 国家标记的处理）；
+// 无法识别时返回 false。CIDR 行不由本函数处理（见 normalizeCIDRLine）。
+func normalizeLineCore(line string) (Target, bool) {
 	if line == "" {
 		return Target{}, false
 	}
 
-	// CSV 行优先识别 IP、端口两列；若第二列不是端口，则保持兼容并只解析首列。
+	// CSV 行优先识别 IP、端口、国家列；若第二列不是端口，则保持兼容并只解析首列。
 	if fields := parseCSVFields(line); len(fields) > 1 {
 		target, ok := normalizeLine(strings.TrimSpace(fields[0]))
 		if !ok {
@@ -163,6 +208,9 @@ func normalizeLine(line string) (Target, bool) {
 			if csvPort, valid := parsePort(fields[1]); valid {
 				target.Port = csvPort
 			}
+		}
+		if target.CountryCode == "" {
+			target.CountryCode = csvCountry(fields)
 		}
 		return target, true
 	}
@@ -223,6 +271,23 @@ func normalizeLine(line string) (Target, bool) {
 	}
 
 	return Target{}, false
+}
+
+// csvCountry 从 CSV 字段中提取国家代码：
+//   - "1.2.3.4:443,US,AS13335" → US（第 2 列）
+//   - "1.2.3.4,443,US"         → US（第 3 列）
+//
+// 识别 2~3 位 ASCII 字母或可识别的中文/英文国家名，其余内容忽略。
+func csvCountry(fields []string) string {
+	for _, idx := range []int{2, 1} {
+		if idx >= len(fields) {
+			continue
+		}
+		if code, ok := countryFromTag(fields[idx]); ok {
+			return code
+		}
+	}
+	return ""
 }
 
 func parseCSVFields(line string) []string {

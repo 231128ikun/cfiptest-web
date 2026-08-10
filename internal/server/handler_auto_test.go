@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"iptest-web/internal/cloud"
 	"iptest-web/internal/config"
 	"iptest-web/internal/engine"
 	"iptest-web/internal/library"
@@ -20,7 +22,7 @@ import (
 func autoServer(t *testing.T) *Server {
 	t.Helper()
 	dir := t.TempDir()
-	return &Server{dataDir: dir, log: NewLogger(dir, false)}
+	return &Server{dataDir: dir, log: NewLogger(dir, false), cloudStore: cloud.NewStore(dir)}
 }
 
 func doJSON(t *testing.T, handler http.HandlerFunc, method, target string, body any) *httptest.ResponseRecorder {
@@ -39,6 +41,68 @@ func doJSON(t *testing.T, handler http.HandlerFunc, method, target string, body 
 	rec := httptest.NewRecorder()
 	handler(rec, req)
 	return rec
+}
+
+func TestSyncOutputToCloud(t *testing.T) {
+	dir := t.TempDir()
+	var gotPath, gotAuth, gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	s := &Server{dataDir: dir, log: NewLogger(dir, false), cloudStore: cloud.NewStore(dir)}
+	cfg, err := s.cloudStore.Create(cloud.Config{
+		Name: "test-cloud", Channel: cloud.ChannelEdgeOne, BaseURL: srv.URL, Token: "secret-token",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputPath := filepath.Join(dir, "out", "final.txt")
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outputPath, []byte("1.2.3.4:443\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	task := subscription.Task{Name: "云同步任务", Output: subscription.TaskOutput{Cloud: cfg.ID, CloudKey: "exported/final.txt"}}
+	gotURL, err := s.syncOutputToCloud(task, outputPath)
+	if err != nil {
+		t.Fatalf("指定云端路径上传失败: %v", err)
+	}
+	if gotURL != srv.URL+"/exported/final.txt" || gotPath != "/exported/final.txt" {
+		t.Fatalf("上传 URL/path 异常: url=%q path=%q", gotURL, gotPath)
+	}
+	if gotAuth != "Bearer secret-token" || gotBody != "1.2.3.4:443\n" {
+		t.Fatalf("上传请求异常: auth=%q body=%q", gotAuth, gotBody)
+	}
+
+	task.Output.CloudKey = ""
+	gotURL, err = s.syncOutputToCloud(task, filepath.Join(dir, "out", "default.txt"))
+	if err == nil || gotURL != "" {
+		t.Fatalf("缺失默认输出文件应报错: url=%q err=%v", gotURL, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "out", "default.txt"), []byte("ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gotURL, err = s.syncOutputToCloud(task, filepath.Join(dir, "out", "default.txt"))
+	if err != nil || gotURL != srv.URL+"/default.txt" || gotPath != "/default.txt" {
+		t.Fatalf("默认文件名上传异常: url=%q path=%q err=%v", gotURL, gotPath, err)
+	}
+
+	missing := task
+	missing.Output.Cloud = "missing-config"
+	if _, err := s.syncOutputToCloud(missing, outputPath); err == nil || !strings.Contains(err.Error(), "云端配置不存在") {
+		t.Fatalf("缺失云端配置应报错: %v", err)
+	}
+	if _, err := s.syncOutputToCloud(task, filepath.Join(dir, "not-found.txt")); err == nil || !strings.Contains(err.Error(), "读取输出文件失败") {
+		t.Fatalf("缺失输出文件应报错: %v", err)
+	}
 }
 
 func TestTasksSaveGetRoundTrip(t *testing.T) {

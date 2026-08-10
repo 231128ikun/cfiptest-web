@@ -742,6 +742,17 @@ table.results .empty-row td { padding: 34px 0; text-align: center; color: var(--
 .template-add-button { width: var(--control-h); min-width: var(--control-h); padding: 0; border-color: var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--primary); font-size: 21px; line-height: 1; }
 .template-add-button:hover:not(:disabled), .template-add-button[aria-expanded="true"] { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
 .export-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: auto; }
+.export-delivery { display: grid; gap: 8px; margin-top: auto; padding-top: 12px; border-top: 1px solid var(--border-light); }
+.export-delivery-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.export-methods { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.export-methods button { min-width: 0; }
+.cloud-export-options { display: grid; grid-template-columns: minmax(130px, .85fr) minmax(150px, 1fr); gap: 8px; padding: 10px; border: 1px solid var(--border-light); border-radius: var(--radius-md); background: var(--surface); }
+.cloud-export-options input, .cloud-export-options select { min-width: 0; }
+.cloud-export-result { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; font-size: 12px; }
+.cloud-export-result a { color: var(--primary); word-break: break-all; min-width: 0; }
+.cloud-export-note { grid-column: 1 / -1; font-size: 11px; color: var(--text-tertiary); }
+.export-secondary-actions { display: flex; align-items: center; gap: 10px; padding-top: 2px; font-size: 11px; }
+.export-secondary-actions .hint { flex: 1; min-width: 0; }
 .template-editor { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border-light); }
 .template-editor[hidden], .custom-export-actions[hidden] { display: none; }
 .template-main { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; }
@@ -772,6 +783,7 @@ table.results .empty-row td { padding: 34px 0; text-align: center; color: var(--
 .csv-preview-empty { padding: 30px 0; text-align: center; color: var(--text-secondary); }
 .csv-preview-empty[hidden] { display: none; }
 .export-actions-right { justify-content: flex-end; }
+.cloud-export-result[hidden] { display: none; }
 .export-lib-field { flex: 1 1 100%; flex-direction: row; align-items: center; gap: 6px; }
 .export-lib-field select { flex: 1; min-width: 130px; }
 .direct-export { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-light); }
@@ -924,6 +936,18 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 .list-editor-rows { display: grid; gap: 8px; }
 .list-editor-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .list-editor-row input { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 12px; }
+.cloud-config-list { display: grid; gap: 8px; padding: 10px 0; }
+.cloud-config-item { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--border-light); border-radius: var(--radius-sm); background: var(--surface-soft); }
+.cloud-config-item-main { flex: 1; min-width: 220px; display: grid; gap: 2px; }
+.cloud-config-item-name { font-size: 13px; font-weight: 650; color: var(--text); }
+.cloud-config-item-meta { font-size: 11px; color: var(--text-secondary); font-family: var(--font-mono); word-break: break-all; }
+.cloud-config-item-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.cloud-config-editor { padding: 10px 12px; border: 1px dashed var(--border-light); border-radius: var(--radius-sm); }
+.cloud-config-editor > summary { cursor: pointer; font-size: 13px; font-weight: 650; color: var(--primary); list-style: none; }
+.cloud-config-editor > summary::-webkit-details-marker { display: none; }
+.cloud-config-editor[open] > summary { margin-bottom: 8px; }
+.cloud-config-form { display: grid; gap: 2px; }
+.cloud-config-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 
 /* ---------- 18. Toast ---------- */
 #toast { position: fixed; left: 50%; bottom: 24px; z-index: 100; padding: 10px 16px; border: 1px solid var(--hairline); border-radius: var(--pill); background: var(--glass-strong); -webkit-backdrop-filter: blur(18px) saturate(1.8); backdrop-filter: blur(18px) saturate(1.8); color: var(--text-strong); box-shadow: var(--shadow-lg); opacity: 0; pointer-events: none; transform: translate(-50%, 70px); transition: opacity .25s ease, transform .25s ease; font-size: 13px; }
@@ -1003,6 +1027,24 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 .task-output-dir-field { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .task-output-dir-field input { flex: 1; min-width: 200px; max-width: 420px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: 13px; font-family: var(--font-mono); }
 .task-output-dir-field input:focus { outline: 2px solid var(--primary); outline-offset: -1px; border-color: var(--primary); }
+/* 任务同步到云端 */
+.task-cloud-sync { margin: 0 0 8px; }
+.task-cloud-sync > summary { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: var(--radius-sm); background: var(--surface-soft); border: 1px solid var(--border-light); cursor: pointer; font-size: 12px; font-weight: 500; color: var(--text-tertiary); transition: color .15s ease, background .15s ease; list-style: none; }
+.task-cloud-sync > summary:hover { color: var(--text-secondary); background: var(--surface-strong); }
+.task-cloud-sync > summary::-webkit-details-marker { display: none; }
+.task-cloud-sync[open] > summary { margin-bottom: 8px; }
+.task-cloud-sync-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.task-cloud-sync-form select { min-width: 200px; }
+.task-cloud-sync-form input { flex: 1; min-width: 200px; max-width: 420px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: 13px; font-family: var(--font-mono); }
+.task-cloud-sync .hint { display: block; margin-top: 6px; font-size: 11px; }
+.task-cloud-badge { color: var(--primary); font-size: 11px; font-weight: 600; }
+.cloud-config-empty { font-size: 12px; color: var(--text-tertiary); margin: 4px 0; }
+/* Export mode single select */
+.task-export-row { grid-template-columns: minmax(160px, 1fr) auto; align-items: end; }
+.task-export-row .task-export-hint { font-size: 11px; color: var(--text-tertiary); align-self: center; }
+.task-export-panel { margin: 0 0 8px; padding: 8px 10px; border: 1px solid var(--border-light); border-radius: var(--radius-sm); background: var(--surface-soft); }
+.task-export-panel .hint { display: block; margin-top: 6px; font-size: 11px; }
+.task-export-panel[hidden] { display: none; }
 
 .task-rules-section { margin: 0 0 8px; }
 .task-rules-section > summary { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: var(--radius-sm); background: var(--surface-soft); border: 1px solid var(--border-light); cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text-secondary); transition: background .15s ease; list-style: none; }
@@ -1254,7 +1296,10 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
     .result-view-controls > * { width: 100%; }
     .sort-bar { justify-content: space-between; }
     .sort-bar select { flex: 1; }
-    .export-toolbar, .export-actions { grid-template-columns: 1fr; }
+    .export-toolbar, .export-actions, .export-methods { grid-template-columns: 1fr; }
+    .cloud-export-options { grid-template-columns: 1fr; }
+    .cloud-export-result, .cloud-export-note { grid-column: auto; }
+    .export-secondary-actions { align-items: stretch; flex-direction: column; }
     .template-main { grid-template-columns: 1fr; }
     .threshold-grid { grid-template-columns: 1fr; }
     .threshold-range { grid-template-columns: 58px minmax(0, 1fr) minmax(116px, auto); }
@@ -1328,3 +1373,13 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
     .list-editor-head { flex-direction: column; align-items: stretch; gap: 6px; }
     .list-add { align-self: flex-start; }
 }
+
+
+/* 云端任务：路径输入 + 问号说明 + 打开按钮 */
+.task-cloud-key-field { display: flex; flex: 1; align-items: center; gap: 6px; min-width: 220px; max-width: 440px; }
+.task-cloud-key-field input { flex: 1; min-width: 0; max-width: none; }
+.task-cloud-key-field .rules-help-icon { margin-left: 0; }
+.task-cloud-key-help { flex: none; }
+#btn-task-cloud-open { flex: none; white-space: nowrap; }
+.task-cloud-link { color: var(--primary); font-weight: 600; text-decoration: none; white-space: nowrap; }
+.task-cloud-link:hover { text-decoration: underline; }

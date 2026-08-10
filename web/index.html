@@ -319,11 +319,32 @@
                         <div class="custom-field-options" id="custom-field-options"></div>
                     </details>
                 </div>
-                <div class="export-actions export-actions-right">
-                    <button id="btn-import-lib">导入到 IP 库</button>
-                    <span class="result-actions-divider" aria-hidden="true"></span>
-                    <button id="btn-copy" class="primary">复制到粘贴板</button>
-                    <button id="btn-download">下载文件</button>
+                <div class="export-delivery">
+                    <div class="export-delivery-head">
+                        <div>
+                            <div class="export-config-label">导出方式</div>
+                            <span class="hint">三种方式互相独立，可按需分别执行</span>
+                        </div>
+                    </div>
+                    <div class="export-methods" role="group" aria-label="导出方式">
+                        <button id="btn-download" type="button">下载到本地</button>
+                        <button id="btn-export-cloud" type="button">上传至云端</button>
+                        <button id="btn-copy" type="button" class="primary">复制到剪贴板</button>
+                    </div>
+                    <div class="cloud-export-options" id="cloud-export-options">
+                        <select id="export-cloud-config" aria-label="云端配置"></select>
+                        <input type="text" id="export-cloud-key" placeholder="云端路径，留空 = 使用导出文件名" spellcheck="false" autocomplete="off">
+                        <div class="cloud-export-result" id="cloud-export-result" hidden>
+                            <span id="cloud-export-status" class="hint" aria-live="polite"></span>
+                            <a id="cloud-export-url" href="#" target="_blank" rel="noopener noreferrer"></a>
+                            <button type="button" id="btn-cloud-export-copy" class="small">复制链接</button>
+                        </div>
+                        <div class="cloud-export-note" id="cloud-export-note"></div>
+                    </div>
+                </div>
+                <div class="export-secondary-actions">
+                    <span class="hint">不是导出：将当前范围写入本机 IP 库</span>
+                    <button id="btn-import-lib" type="button">导入到 IP 库</button>
                 </div>
             </div>
             <div class="export-preview">
@@ -455,7 +476,7 @@
                                         <button type="button" id="task-tpl-save" class="small" hidden title="保存为我的模板（与导出页共用）">存为模板</button>
                                     </span>
                                 </label>
-                                <label title="输出文件内条目的排列顺序；速度排序时未测速条目排在最后">输出排序<select id="task-sort"><option value="latencyAsc">延迟升序（默认）</option><option value="latencyDesc">延迟降序</option><option value="speedDesc">速度降序</option><option value="speedAsc">速度升序</option><option value="ipAsc">IP 地址升序</option><option value="countryAsc">国家/地区升序</option></select></label>
+                                <label title="输出始终按规则顺序分组（规则里先写的国家排前面），组内按所选排序排列；速度排序时未测速条目排在最后">输出排序<select id="task-sort"><option value="latencyAsc">延迟升序（组内默认）</option><option value="latencyDesc">延迟降序</option><option value="speedDesc">速度降序</option><option value="speedAsc">速度升序</option><option value="ipAsc">IP 地址升序</option><option value="countryAsc">国家/地区升序</option></select></label>
                                 <label>总数限制<span class="input-with-unit"><input type="number" id="task-limit" min="0" placeholder="0 = 不限" value="200"><span class="unit">条</span></span><span class="hint">各规则会持续检测，直到规则数量满足或候选耗尽。</span></label>
                             </div>
                             <div class="task-speed-row">
@@ -466,14 +487,36 @@
                                 </label>
                                 <span class="hint task-speed-hint">开启后，各规则可选择速度范围进行筛选。</span>
                             </div>
-                            <details class="task-output-dir">
-                                <summary class="task-output-dir-summary">输出位置 <span class="hint">默认自动生成，可手动指定</span></summary>
+                                                        <div class="task-form-row task-export-row">
+                                <label>导出方式
+                                    <select id="task-export-mode" aria-label="导出方式">
+                                        <option value="local">导出到本地（默认）</option>
+                                        <option value="cloud">导出至云端</option>
+                                    </select>
+                                </label>
+                                <span class="hint task-export-hint">二选一：结果写入本地文件，或直接上传到已配置的云端存储。</span>
+                            </div>
+                            <div class="task-export-panel" data-export-mode="local">
                                 <div class="task-output-dir-field">
                                     <input type="text" id="task-output" placeholder="留空自动生成（如 out/abc、C:/out/abc）" spellcheck="false" autocomplete="off">
                                     <button type="button" id="btn-task-output-pick" class="small">选择文件夹…</button>
                                 </div>
                                 <span class="hint task-output-dir-hint">通过本机系统对话框选择输出目录；留空时按模板自动生成到 data/out/。</span>
-                            </details>
+                            </div>
+                            <div class="task-export-panel" data-export-mode="cloud" hidden>
+                                <div class="task-cloud-sync-form">
+                                    <select id="task-cloud-select" aria-label="云端配置"></select>
+                                    <div class="task-cloud-key-field">
+                                    <input type="text" id="task-cloud-key" placeholder="云端文件名/路径，留空自动" spellcheck="false" autocomplete="off">
+                                    <span class="rules-help task-cloud-key-help" tabindex="0" role="button" aria-label="云端路径填写说明">
+                                        <span class="rules-help-icon">?</span>
+                                        <span class="rules-help-pop"><b>云端路径/文件名（= 云端 key）</b><br>· 留空 → 自动用输出文件名（如 test.txt）<br>· test.txt → 根目录 https://…/test.txt<br>· iptest/test.txt → 子文件夹 https://…/iptest/test.txt<br>· 同名上传即覆盖更新；单个文件 ≤ 1MB</span>
+                                    </span>
+                                    <button type="button" id="btn-task-cloud-open" class="small" disabled>打开 ↗</button>
+                                </div>
+                                </div>
+                                <span class="hint">站点在「设置 → 云端存储」中配置；单文件 ≤ 1MB，路径建议使用字母/数字/下划线/点/斜杠。</span>
+                            </div>
                             <details class="task-rules-section" open>
                                 <summary class="task-rules-summary"><span>规则 <span class="rules-help" tabindex="0" role="button" aria-label="规则用法示例"><span class="rules-help-icon">?</span><span class="rules-help-pop">每条规则 = 一组筛选条件（国家 / 城市 / 端口 / ASN 等），字段多值=或、多字段=交集，每个组合取前 N 条。<br><b>示例：</b><br>· 国家:日本,新加坡 → 日本或新加坡<br>· 国家:日本 ＋ 端口:443 → 日本且 443 端口<br>· 每个组合取前 10 条 → 每组最多保留 10 条</span></span>（可选）</span><span class="task-rules-hint">字段多值=或、多字段=交集；每个组合取前 N 条</span></summary>
                                 <div class="task-rules-body">
@@ -737,6 +780,46 @@
                     <label>测速时长 <span class="input-with-unit"><input type="number" id="auto-spd-duration" min="1" max="120" step="1" placeholder="默认 5"><span class="unit">秒</span></span></label>
                 </div>
                 <p class="settings-note">详细说明见「使用说明 · 设置」；这些参数是新建维护任务时的全局默认值。</p>
+            </div>
+        </div>
+        <div class="settings-card">
+            <div class="settings-card-head">
+                <div>
+                    <h3>云端存储</h3>
+                    <p>配置上传站点（EdgeOne Blob 等）与 Token，供「导出至云端」与维护任务输出同步使用；Token 只保存在本机 data/clouds.json。</p>
+                </div>
+            </div>
+            <div class="settings-card-body">
+                <div id="cloud-config-list" class="cloud-config-list"></div>
+                <details class="cloud-config-editor" id="cloud-config-editor">
+                    <summary class="cloud-config-editor-summary">＋ 添加 / 编辑配置</summary>
+                    <div class="cloud-config-form">
+                        <input type="hidden" id="cloud-config-id">
+                        <div class="settings-row">
+                            <label class="settings-label" for="cloud-config-name">配置名称</label>
+                            <div class="settings-control"><input type="text" id="cloud-config-name" maxlength="32" placeholder="如：主存储"></div>
+                        </div>
+                        <div class="settings-row">
+                            <label class="settings-label" for="cloud-config-channel">渠道</label>
+                            <div class="settings-control"><select id="cloud-config-channel"></select></div>
+                        </div>
+                        <div class="settings-row">
+                            <label class="settings-label" for="cloud-config-base-url">站点地址</label>
+                            <div class="settings-control"><input type="text" id="cloud-config-base-url" placeholder="https://files.example.com" spellcheck="false" autocomplete="off"></div>
+                        </div>
+                        <div class="settings-row">
+                            <label class="settings-label" for="cloud-config-token">Token</label>
+                            <div class="settings-control"><input type="password" id="cloud-config-token" placeholder="新配置必填；编辑时留空表示不修改" spellcheck="false" autocomplete="off"></div>
+                        </div>
+                        <div class="cloud-config-actions">
+                            <button type="button" id="btn-cloud-test">测试连接</button>
+                            <button type="button" id="btn-cloud-save" class="primary">保存配置</button>
+                            <button type="button" id="btn-cloud-cancel">取消</button>
+                            <span id="cloud-config-status" class="hint" aria-live="polite"></span>
+                        </div>
+                    </div>
+                </details>
+                <p class="settings-note">渠道当前支持 EdgeOne Blob，单文件 ≤ 1MB；接口返回时 Token 已打码，完整 Token 仅落盘 data/clouds.json。</p>
             </div>
         </div>
 

@@ -97,6 +97,38 @@ func TestTaskValidateErrors(t *testing.T) {
 	}
 }
 
+func TestTaskValidateNormalizesCountryValues(t *testing.T) {
+	task := Task{
+		Name: "\u591a\u56fd5\u5730",
+		Rules: []TaskRule{{Name: "r", Limit: 10, Conditions: []Condition{
+			{Field: "country", Values: []string{"\u9999\u6e2f\uff1b\u65e5\u672c\uff1b\u97e9\u56fd\uff1b\u65b0\u52a0\u5761\uff1b\u7f8e\u56fd", "us,usa"}},
+		}}},
+	}
+	if err := task.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	got := task.Rules[0].Conditions[0].Values
+	want := []string{"HK", "JP", "KR", "SG", "US"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("\u56fd\u5bb6\u5f52\u4e00\u5316\u9519\u8bef: %v", got)
+	}
+	groups, err := expandTaskRules(task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(groups) != len(want) {
+		t.Fatalf("\u5e94\u5c55\u5f00\u4e3a %d \u4e2a\u5206\u7ec4, \u5f97\u5230 %d: %+v", len(want), len(groups), groups)
+	}
+	for i, code := range want {
+		if groups[i].CountryCode != code {
+			t.Fatalf("\u7b2c %d \u4e2a\u5206\u7ec4\u56fd\u5bb6\u7801\u5e94\u4e3a %s, \u5f97\u5230 %s", i, code, groups[i].CountryCode)
+		}
+	}
+	if groups[0].Count != 10 {
+		t.Fatalf("\u5206\u7ec4\u914d\u989d\u5e94\u4e3a 10, \u5f97\u5230 %d", groups[0].Count)
+	}
+}
+
 func TestExpandTaskRules(t *testing.T) {
 	task := Task{
 		Name: "x",
@@ -219,7 +251,7 @@ func TestRunTaskTotalLimit(t *testing.T) {
 	}
 }
 
-func TestRunTaskChecksAllCandidatesUntilQuota(t *testing.T) {
+func TestRunTaskSingleRoundBudgetStopsAndReportsShortage(t *testing.T) {
 	dir := t.TempDir()
 	fake := newFake()
 	lib, _ := library.Open(filepath.Join(dir, library.FileName))
@@ -228,16 +260,21 @@ func TestRunTaskChecksAllCandidatesUntilQuota(t *testing.T) {
 		lib.Upsert(library.Entry{IP: ip, Port: 443, CountryCode: "US", Status: library.StatusActive, TCPLatencyMs: int64(100 + i*10)})
 		fake.add(ip, 443, "US", i >= 3, 0)
 	}
-	task := Task{Name: "检测全部候选", Limit: 2, Rules: []TaskRule{{Name: "美国", Limit: 2, Conditions: []Condition{{Field: "country", Values: []string{"US"}}}}}, Output: TaskOutput{Path: "out/t.txt", Template: "{ip}:{port}"}}
-	report, err := RunTask(context.Background(), fake, lib, task, RunOptions{MaxPerGroup: 1, RemoveAfterFailures: 1}, nil)
+	task := Task{Name: "单轮预算检测", Limit: 2, Rules: []TaskRule{{Name: "美国", Limit: 2, Conditions: []Condition{{Field: "country", Values: []string{"US"}}}}}, Output: TaskOutput{Path: "out/t.txt", Template: "{ip}:{port}"}}
+	// 新语义：单轮预算 = MaxPerGroup 4，只检测 4 条候选（前 3 条失败、第 4 条通过），
+	// 不再无限补测整个候选池；配额未满如实报告缺口。
+	report, err := RunTask(context.Background(), fake, lib, task, RunOptions{MaxPerGroup: 4, RemoveAfterFailures: 1}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.TotalLines != 2 {
-		t.Fatalf("应凑够 2 条，实际 %d", report.TotalLines)
+	if report.TotalLines != 1 {
+		t.Fatalf("单轮预算内应产出 1 条（仅第 4 条通过），实际 %d", report.TotalLines)
 	}
-	if len(fake.latencyCalled) != 5 {
-		t.Fatalf("应持续检测至凑够结果或候选耗尽，实际 %d: %v", len(fake.latencyCalled), fake.latencyCalled)
+	if len(fake.latencyCalled) != 4 {
+		t.Fatalf("应只检测单轮预算内的 4 条候选，实际 %d: %v", len(fake.latencyCalled), fake.latencyCalled)
+	}
+	if len(report.Groups) != 1 || report.Groups[0].Shortage != 1 {
+		t.Fatalf("配额缺口应如实报告: %+v", report.Groups)
 	}
 }
 
