@@ -745,23 +745,6 @@ func groupMatches(g Group, e library.Entry) bool {
 	return true
 }
 
-// freshForGroup 从本次延迟通过的条目中，按分组实测约束筛选并排序。
-func freshForGroup(fresh map[string]library.Entry, g Group) []library.Entry {
-	pool := make([]library.Entry, 0)
-	for _, e := range fresh {
-		if groupMatches(g, e) {
-			pool = append(pool, e)
-		}
-	}
-	sort.Slice(pool, func(i, j int) bool {
-		if pool[i].TCPLatencyMs != pool[j].TCPLatencyMs {
-			return pool[i].TCPLatencyMs < pool[j].TCPLatencyMs
-		}
-		return pool[i].Key() < pool[j].Key()
-	})
-	return pool
-}
-
 // applyResult 把一次延迟检测结果回写到条目，返回（更新后的条目，是否有数据变化）。
 // 国家/城市/ASN/延迟等以最新检测为准整体覆盖。
 func applyResult(e library.Entry, res engine.Result, now time.Time) (library.Entry, bool) {
