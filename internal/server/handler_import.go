@@ -196,7 +196,7 @@ type autoInputUploadResponse struct {
 }
 
 func sanitizeInputFileName(name string) string {
-	name = filepath.Base(strings.TrimSpace(name))
+	name = filepath.Base(strings.ReplaceAll(strings.TrimSpace(name), "\\", "/")) // \ 在 Linux/Android 不是分隔符，统一按 / 剥离避免结果随平台变化
 	name = strings.Map(func(r rune) rune {
 		if r < 32 || strings.ContainsRune(`<>:"/\|?*`, r) {
 			return '_'
