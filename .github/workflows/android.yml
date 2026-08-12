@@ -130,7 +130,6 @@ jobs:
           mkdir -p release_assets
           target="release_assets/iptest-web-android-arm64-${{ steps.version.outputs.value }}-${kind}.apk"
           cp "$source" "$target"
-          sha256sum "$target" > "$target.sha256"
           echo "path=$target" >> "$GITHUB_OUTPUT"
 
       - name: Build Windows executable
@@ -141,8 +140,6 @@ jobs:
         run: |
           go build -trimpath -ldflags "-s -w" \
             -o "release_assets/iptest-web-${{ steps.version.outputs.value }}.exe" .
-          sha256sum "release_assets/iptest-web-${{ steps.version.outputs.value }}.exe" \
-            > "release_assets/iptest-web-${{ steps.version.outputs.value }}.exe.sha256"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

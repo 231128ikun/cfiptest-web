@@ -202,29 +202,15 @@ public final class MainActivity extends Activity {
         ioExecutor.execute(() -> {
             try {
                 File nativeBinary = new File(getApplicationInfo().nativeLibraryDir, "libiptest.so");
-                File binDir = new File(getFilesDir(), "bin");
-                if (!binDir.exists() && !binDir.mkdirs()) {
-                    throw new IOException("无法创建可执行目录");
-                }
-                File binary = new File(binDir, "iptest");
-                copyFile(nativeBinary, binary);
-                if (!binary.setExecutable(true, false)) {
-                    throw new IOException("无法设置可执行权限");
+                if (!nativeBinary.exists()) {
+                    throw new IOException("未找到后端程序: " + nativeBinary.getAbsolutePath());
                 }
                 File dataDir = new File(getFilesDir(), "data");
                 if (!dataDir.exists() && !dataDir.mkdirs()) {
                     throw new IOException("无法创建应用数据目录");
                 }
                 backendLogFile = new File(getLogDir(), "backend.log");
-                ProcessBuilder builder = new ProcessBuilder(
-                        binary.getAbsolutePath(),
-                        "-port", "18080",
-                        "-no-browser",
-                        "-strict-port",
-                        "-data-dir", dataDir.getAbsolutePath());
-                builder.directory(getFilesDir());
-                builder.redirectErrorStream(true);
-                Process process = builder.start();
+                Process process = startProcess(nativeBinary, dataDir);
                 backendProcess = process;
                 if (destroyed) {
                     process.destroy();
@@ -240,17 +226,38 @@ public final class MainActivity extends Activity {
         });
     }
 
-    private void copyFile(File source, File target) throws IOException {
-        try (InputStream in = new FileInputStream(source);
-             OutputStream out = new FileOutputStream(target)) {
-            byte[] buffer = new byte[65536];
-            int read;
-            while ((read = in.read(buffer)) >= 0) {
-                out.write(buffer, 0, read);
+    private Process startProcess(File binary, File dataDir) throws IOException {
+        String[] args = {
+                binary.getAbsolutePath(),
+                "-port", "18080",
+                "-no-browser",
+                "-strict-port",
+                "-data-dir", dataDir.getAbsolutePath()
+        };
+        try {
+            ProcessBuilder builder = new ProcessBuilder(args);
+            builder.directory(getFilesDir());
+            builder.redirectErrorStream(true);
+            return builder.start();
+        } catch (IOException directError) {
+            // Android W^X: 应用私有目录禁止直接执行，nativeLibraryDir 也受限时改走系统 linker 通道。
+            writeCrash("directExecFailed", directError);
+            File linker = new File("/system/bin/linker64");
+            if (!linker.exists()) {
+                linker = new File("/system/bin/linker");
             }
+            if (!linker.exists()) {
+                throw directError;
+            }
+            String[] linkerArgs = new String[args.length + 1];
+            linkerArgs[0] = linker.getAbsolutePath();
+            System.arraycopy(args, 0, linkerArgs, 1, args.length);
+            ProcessBuilder builder = new ProcessBuilder(linkerArgs);
+            builder.directory(getFilesDir());
+            builder.redirectErrorStream(true);
+            return builder.start();
         }
     }
-
     private void drainProcessOutput(InputStream input) {
         ioExecutor.execute(() -> {
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8));
