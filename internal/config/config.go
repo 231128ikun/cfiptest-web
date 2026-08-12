@@ -50,7 +50,7 @@ func Default() Config {
 // executable directory when no managed copy exists yet.
 func PrepareDataDir(exeDir string) (string, error) {
 	dataDir := filepath.Join(exeDir, "data")
-	if err := os.MkdirAll(dataDir, 0755); err != nil {
+	if err := PrepareDataDirAt(dataDir); err != nil {
 		return "", err
 	}
 	for _, name := range []string{
@@ -71,6 +71,15 @@ func PrepareDataDir(exeDir string) (string, error) {
 		}
 	}
 	return dataDir, nil
+}
+
+// PrepareDataDirAt creates an explicit writable data directory. Android uses
+// this path because the packaged native-library directory is read-only.
+func PrepareDataDirAt(dataDir string) error {
+	if strings.TrimSpace(dataDir) == "" {
+		return fmt.Errorf("数据目录不能为空")
+	}
+	return os.MkdirAll(filepath.Clean(dataDir), 0755)
 }
 
 func Load(dataDir string) Config {

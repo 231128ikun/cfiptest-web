@@ -6,6 +6,8 @@ import (
 	"net"
 	"net/http"
 	"time"
+
+	"iptest-web/internal/netutil"
 )
 
 // testSingleSpeed 对单个目标执行下载测速，返回速度（kB/s）。
@@ -46,11 +48,11 @@ func testSingleSpeed(ctx context.Context, target Target, opts SpeedOptions) floa
 	defer stopWatch()
 
 	client := &http.Client{
-		Transport: &http.Transport{
+		Transport: netutil.Transport(&http.Transport{
 			DialContext: func(context.Context, string, string) (net.Conn, error) {
 				return conn, nil
 			},
-		},
+		}),
 		Timeout: timeout, // 单 IP 测速最长时间
 	}
 

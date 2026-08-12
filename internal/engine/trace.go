@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"iptest-web/internal/netutil"
 )
 
 // DefaultTraceURL 是验证 Cloudflare 节点用的 trace 接口（不含协议头）。
@@ -122,7 +124,7 @@ func fetchTrace(ctx context.Context, target Target, scheme, traceURL string, tim
 	}
 	defer conn.Close()
 	client := &http.Client{
-		Transport: &http.Transport{DialContext: func(context.Context, string, string) (net.Conn, error) { return conn, nil }},
+		Transport: netutil.Transport(&http.Transport{DialContext: func(context.Context, string, string) (net.Conn, error) { return conn, nil }}),
 		Timeout:   timeout,
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, scheme+traceURL, nil)
@@ -200,7 +202,7 @@ func queryIPAPI(ctx context.Context, endpoint, ip string) string {
 	if err != nil {
 		return ""
 	}
-	client := &http.Client{Timeout: 2 * time.Second}
+	client := &http.Client{Timeout: 2 * time.Second, Transport: netutil.Transport(nil)}
 	resp, err := client.Do(req)
 	if err != nil {
 		return ""

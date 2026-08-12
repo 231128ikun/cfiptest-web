@@ -129,6 +129,16 @@ sh build.sh 2026.07.31-14.30
 
 依赖仅 [geoip2-golang](https://github.com/oschwald/geoip2-golang)，前端为原生 ES Modules（无构建步骤），经 `embed.FS` 打进二进制。
 
+## Android 客户端
+
+仓库提供独立的 Android WebView 客户端，目录为 [`android/`](android/)。它会把 ARM64 Go 后端打包为 APK 内的 `libiptest.so`，启动时在应用私有目录 `files/data/` 运行后端，再由 WebView 加载 `127.0.0.1:18080`。
+
+- Android 8.0（API 26）及以上
+- 仅支持 ARM64（`arm64-v8a`）
+- 不做后台常驻；Activity 退出时停止本地后端
+- 移动端导出通过系统文件保存器完成；任意系统目录选择仅保留 Windows 能力
+- 本机构建与 GitHub Actions 说明见 [`android/README.md`](android/README.md)
+- GitHub Actions 普通 push/PR 构建 debug APK；`v*` Tag 或手动 release 构建使用签名 Secrets 并上传 Release
 ## 验证
 
 提交前运行：

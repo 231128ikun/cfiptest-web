@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"iptest-web/internal/engine"
+	"iptest-web/internal/netutil"
 )
 
 const (
@@ -68,6 +69,7 @@ func (s *Server) handleOfficialRanges(w http.ResponseWriter, r *http.Request) {
 //   - IPv4：Cloudflare 官方 JSON（cfIPsAPIResponse）；
 //   - IPv6：baipiao 活跃 /48 列表（纯文本，每行一个 CIDR），
 //     远程失败时用内置活跃 /48 列表兜底（不再读旧版聚合缓存）。
+//
 // refresh=true 时强制拉取远端并按族更新缓存；false 时优先读本地缓存。
 func (s *Server) officialRanges(refresh bool) *officialRangesResponse {
 	s.rangesMu.Lock()
@@ -253,7 +255,7 @@ func fetchOfficialRanges(urls []string) ([]string, error) {
 	if len(urls) == 0 {
 		return nil, fmt.Errorf("未配置官方 IPv4 段获取地址")
 	}
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := &http.Client{Timeout: 15 * time.Second, Transport: netutil.Transport(nil)}
 	var lastErr error
 	for _, sourceURL := range urls {
 		req, err := http.NewRequest(http.MethodGet, sourceURL, nil)
@@ -292,7 +294,7 @@ func fetchOfficialIPv6Ranges(urls []string) ([]string, error) {
 	if len(urls) == 0 {
 		return nil, fmt.Errorf("未配置 IPv6 活跃段获取地址")
 	}
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := &http.Client{Timeout: 15 * time.Second, Transport: netutil.Transport(nil)}
 	var lastErr error
 	for _, sourceURL := range urls {
 		req, err := http.NewRequest(http.MethodGet, sourceURL, nil)

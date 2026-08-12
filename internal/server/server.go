@@ -27,6 +27,7 @@ type Server struct {
 	version         string
 	cfg             config.Config
 	dataDir         string
+	platform        string
 	shutdownHandler func()
 	configMu        sync.RWMutex
 	rangesMu        sync.Mutex
@@ -66,7 +67,7 @@ type Server struct {
 }
 
 // New 创建 Server 并注册全部路由。assets 为嵌入的前端静态资源。
-func New(runner *engine.Runner, assets fs.FS, version string, cfg config.Config, dataDir string) *Server {
+func New(runner *engine.Runner, assets fs.FS, version string, cfg config.Config, dataDir, platform string) *Server {
 	speedDefaults := engine.DefaultSpeedOptions()
 	if cfg.SpeedTestURL != "" {
 		speedDefaults.DownloadURL = cfg.SpeedTestURL
@@ -83,6 +84,7 @@ func New(runner *engine.Runner, assets fs.FS, version string, cfg config.Config,
 		version:         version,
 		cfg:             cfg,
 		dataDir:         dataDir,
+		platform:        platform,
 		latencyDefaults: engine.DefaultLatencyOptions(),
 		speedDefaults:   speedDefaults,
 		sseClients:      make(map[chan engine.Event]struct{}),

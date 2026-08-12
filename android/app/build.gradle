@@ -1,0 +1,52 @@
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "com.cfiptest.web"
+    compileSdk 35
+
+    signingConfigs {
+        release {
+            def storeFilePath = System.getenv("ANDROID_KEYSTORE_FILE")
+            if (storeFilePath) {
+                storeFile file(storeFilePath)
+                storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
+    defaultConfig {
+        applicationId "com.cfiptest.web"
+        minSdk 26
+        targetSdk 35
+        versionCode Integer.parseInt(System.getenv("ANDROID_VERSION_CODE") ?: "1")
+        versionName System.getenv("ANDROID_VERSION_NAME") ?: "dev"
+
+        ndk {
+            abiFilters "arm64-v8a"
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (System.getenv("ANDROID_KEYSTORE_FILE")) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging true
+        }
+    }
+}

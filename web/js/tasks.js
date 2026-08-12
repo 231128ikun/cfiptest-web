@@ -48,6 +48,15 @@ function scheduleLabel(schedule) {
 
 
 export function initTasks({ toast }) {
+    function setCapabilities(capabilities = {}) {
+        const canPickDirectory = capabilities.pickDirectory !== false;
+        const button = $('btn-task-output-pick');
+        if (button) button.hidden = !canPickDirectory;
+        const hint = document.querySelector('.task-output-dir-hint');
+        if (hint && !canPickDirectory) {
+            hint.textContent = '留空时自动保存到应用数据目录；移动端不支持选择任意系统文件夹。';
+        }
+    }
     const state = {
         tasks: [],
         libraries: [],
@@ -127,10 +136,12 @@ export function initTasks({ toast }) {
                 }
                 outputHtml = '☁ 云端 · ' + escapeHTML(cloudLabel)
                     + (cloudHref ? ' <a class="task-cloud-link" href="' + escapeHTML(cloudHref) + '" target="_blank" rel="noopener" title="打开云端链接">打开 ↗</a>' : '');
+            } else if (task.output?.path) {
+                const displayPath = isServerAbsolutePath(task.output.path)
+                    ? task.output.path.replace(/\\/g, '/') : 'data/' + task.output.path;
+                outputHtml = `<a class="task-output-download" href="${escapeHTML(api.autoOutputUrl(task.output.path))}" title="下载输出文件">${escapeHTML(displayPath)}</a>`;
             } else {
-                outputHtml = escapeHTML(task.output?.path
-                    ? (isServerAbsolutePath(task.output.path) ? task.output.path.replace(/\\/g, '/') : 'data/' + task.output.path)
-                    : '保存后自动生成（本地）');
+                outputHtml = '保存后自动生成（本地）';
             }
             const outputSort = ({ latencyAsc: '延迟升序', latencyDesc: '延迟降序', speedDesc: '速度降序', speedAsc: '速度升序', ipAsc: 'IP 升序', countryAsc: '国家/地区升序' })[task.output?.sort] || '延迟升序';
             const schedule = scheduleLabel(task.schedule);
@@ -748,5 +759,5 @@ export function initTasks({ toast }) {
     fetchSettingsTemplates();
     loadAll();
 
-    return { onAuto, onDone, isAutoRunning: () => state.running, refreshLibrary: () => {} };
+    return { onAuto, onDone, isAutoRunning: () => state.running, refreshLibrary: () => {}, setCapabilities };
 }

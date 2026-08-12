@@ -202,6 +202,7 @@ check('serialize 不写 BOM —— BOM 属于投递层', () => {
     assert.equal(serialize([ROW], 'csv', { columns: COLS3 }).charCodeAt(0) === 0xFEFF, false);
 });
 
+
 console.log('投递层（downloadAsCSV / download）:');
 
 // 最小桩：triggerDownload 的顺序是 new Blob → createElement → click，
@@ -225,6 +226,18 @@ globalThis.document = {
     }),
     body: { appendChild() {} },
 };
+console.log('Android 原生桥接:');
+check('Android 下载交给原生保存且不创建 Blob', () => {
+    let saved = null;
+    globalThis.iptestAndroid = {
+        saveTextFile(name, content, type) { saved = { name, content, type }; },
+    };
+    pendingBlob = null;
+    download('android', 'result.txt', 'text/plain;charset=utf-8');
+    assert.deepEqual(saved, { name: 'result.txt', content: 'android', type: 'text/plain;charset=utf-8' });
+    assert.equal(pendingBlob, null);
+    delete globalThis.iptestAndroid;
+});
 
 check('CSV 带 UTF-8 BOM（Excel 打开中文不乱码）', () => {
     captured.length = 0;
@@ -271,6 +284,13 @@ check('downloadAsCSV 默认 enableTLS=true', () => {
 });
 
 console.log('剪贴板错误处理:');
+await checkAsync('Android 剪贴板回退调用原生桥接', async () => {
+    let copied = '';
+    globalThis.iptestAndroid = { copyText(text) { copied = text; } };
+    await copyToClipboard('android-copy');
+    assert.equal(copied, 'android-copy');
+    delete globalThis.iptestAndroid;
+});
 const originalClipboard = globalThis.navigator.clipboard;
 delete globalThis.navigator.clipboard;
 await checkAsync('不支持剪贴板 API 时给出可操作错误', async () => {

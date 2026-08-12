@@ -1754,6 +1754,10 @@ function bindPageNav() {
         try {
             await fetch('/api/shutdown', { method: 'POST' });
         } catch { /* 服务已停止 */ }
+        if (window.iptestAndroid?.closeApp) {
+            window.iptestAndroid.closeApp();
+            return;
+        }
         // 用 exit-overlay 本身展示成功状态
         const dialog = document.querySelector('.exit-dialog');
         if (dialog) {
@@ -2161,6 +2165,8 @@ async function init() {
     try {
         const config = await api.fetchConfig();
         defaults = config.defaults;
+        document.documentElement.dataset.platform = config.platform || 'unknown';
+        tasksPage?.setCapabilities?.(config.capabilities || {});
         $('app-version').textContent = `版本号：${config.version || 'dev'}`;
         const status = $('res-status');
         status.textContent = `位置 ${config.locationCount} · ASN ${config.asnLoaded ? '就绪' : '未加载'}`;

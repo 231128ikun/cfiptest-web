@@ -36,16 +36,26 @@ var webFS embed.FS
 
 // version 是当前版本号（形如 2026.07.31-22.06），随每次代码修改更新为当前时间。
 // build.bat / build.sh 直接读取此值命名产物，不再另行生成。
-var version = "2026.08.10-23.18"
+var version = "2026.08.12-22.41"
 
 func main() {
 	port := flag.Int("port", 18080, "HTTP 服务监听端口")
 	noBrowser := flag.Bool("no-browser", false, "启动后不自动打开浏览器")
+	dataDirFlag := flag.String("data-dir", "", "数据目录（留空时使用程序同级 data）")
+	strictPort := flag.Bool("strict-port", false, "仅监听指定端口，不自动顺延")
 	flag.Parse()
 
 	// 若已有 iptest-web 实例占用端口：先自动停止旧实例（先请求网页停止接口优雅退出，
 	// 超时后 Windows 上按端口找到进程并强制结束），再由本实例接管端口。
-	if existing := findExistingInstance(*port); existing != "" {
+	existing := ""
+	if *strictPort {
+		if isIptestWeb(*port) {
+			existing = fmt.Sprintf("http://127.0.0.1:%d/", *port)
+		}
+	} else {
+		existing = findExistingInstance(*port)
+	}
+	if existing != "" {
 		fmt.Printf("检测到旧实例：%s，正在停止…\n", existing)
 		if stopExistingInstance(existing) {
 			fmt.Println("旧实例已停止，本实例继续启动。")
@@ -59,7 +69,14 @@ func main() {
 	}
 
 	executableDir := exeDir()
-	dataDir, err := config.PrepareDataDir(executableDir)
+	var dataDir string
+	var err error
+	if strings.TrimSpace(*dataDirFlag) == "" {
+		dataDir, err = config.PrepareDataDir(executableDir)
+	} else {
+		dataDir = filepath.Clean(*dataDirFlag)
+		err = config.PrepareDataDirAt(dataDir)
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "创建数据目录失败: %v\n", err)
 		os.Exit(1)
@@ -88,7 +105,7 @@ func main() {
 		runner.LocationCount(), map[bool]string{true: "已加载", false: "后台加载中"}[runner.ASNLoaded()])
 
 	shutdownCh := make(chan struct{}, 1)
-	srv := server.New(runner, sub, version, cfg, dataDir)
+	srv := server.New(runner, sub, version, cfg, dataDir, runtime.GOOS)
 	srv.SetShutdownHandler(func() {
 		select {
 		case shutdownCh <- struct{}{}:
@@ -96,19 +113,26 @@ func main() {
 		}
 	})
 
-	addr, ln, existingURL, err := listenOnPort(*port)
-	if err != nil {
-		if existingURL != "" && stopExistingInstance(existingURL) {
-			addr, ln, existingURL, err = listenOnPort(*port)
+	listen := listenOnPort
+	if *strictPort {
+		listen = listenOnExactPort
+	}
+	addr, ln, existingURL, err := listen(*port)
+	if existingURL != "" {
+		if !stopExistingInstance(existingURL) {
+			handleExistingInstance(existingURL, *noBrowser)
+			return
 		}
+		addr, ln, existingURL, err = listen(*port)
 	}
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "端口 %d-%d 均无法使用: %v\n", *port, *port+20, err)
+		if *strictPort {
+			fmt.Fprintf(os.Stderr, "端口 %d 无法使用: %v\n", *port, err)
+		} else {
+			fmt.Fprintf(os.Stderr, "端口 %d-%d 均无法使用: %v\n", *port, *port+20, err)
+		}
 		fmt.Fprintln(os.Stderr, "请关闭已有 iptest-web 实例，或使用 -port 指定其他端口。")
 		os.Exit(1)
-	}
-	if handleExistingInstance(existingURL, *noBrowser) {
-		return
 	}
 	httpServer := &http.Server{
 		Addr:              addr,
@@ -177,6 +201,19 @@ func listenOnPort(port int) (string, net.Listener, string, error) {
 		}
 	}
 	return "", nil, "", lastErr
+}
+
+// listenOnExactPort 仅监听指定端口，供固定访问地址的 Android WebView 使用。
+func listenOnExactPort(port int) (string, net.Listener, string, error) {
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	ln, err := net.Listen("tcp", addr)
+	if err == nil {
+		return addr, ln, "", nil
+	}
+	if isIptestWeb(port) {
+		return "", nil, fmt.Sprintf("http://127.0.0.1:%d/", port), nil
+	}
+	return "", nil, "", err
 }
 
 // findExistingInstance 探测端口范围内是否已有 iptest-web 实例，返回其首页地址（未找到返回空串）。

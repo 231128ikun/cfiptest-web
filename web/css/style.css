@@ -404,6 +404,7 @@ button.danger:hover:not(:disabled) { background: var(--danger-soft); }
 button.active { color: var(--primary); background: var(--primary-soft); border-color: var(--primary); }
 button:disabled { opacity: .42; cursor: not-allowed; }
 button.small { min-height: 30px; padding: 4px 12px; font-size: 12px; }
+#btn-task-output-pick[hidden] { display: none; }
 button:active:not(:disabled) { transform: translateY(1px); }
 .secondary-button { color: var(--primary); border-color: var(--primary); background: transparent; }
 .text-button { min-height: 0; padding: 2px 0; border: 0; color: var(--accent); background: transparent; font-size: 12px; }

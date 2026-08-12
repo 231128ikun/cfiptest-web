@@ -24,6 +24,10 @@ function triggerDownload(blob, filename) {
 
 /** 投递任意文本为文件；TXT/CSV 都从这一条路走，未来上传云也复用同一份 content。 */
 export function download(content, filename, type = 'text/plain;charset=utf-8') {
+    if (globalThis.iptestAndroid?.saveTextFile) {
+        globalThis.iptestAndroid.saveTextFile(filename, String(content ?? ''), type);
+        return;
+    }
     triggerDownload(new Blob([content], { type }), filename);
 }
 
@@ -58,6 +62,10 @@ export function downloadAsCSV(results, columns, { enableTLS = true, filename = '
 }
 
 export async function copyToClipboard(text) {
+    if (globalThis.iptestAndroid?.copyText) {
+        globalThis.iptestAndroid.copyText(String(text ?? ''));
+        return;
+    }
     if (!navigator.clipboard?.writeText) {
         throw new Error('当前浏览器不支持剪贴板写入，请手动复制预览内容');
     }

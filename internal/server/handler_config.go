@@ -8,13 +8,15 @@ import (
 
 // configResponse 对应 GET /api/config 的响应。
 type configResponse struct {
-	Version         string         `json:"version"`
-	LocationsLoaded bool           `json:"locationsLoaded"`
-	LocationCount   int            `json:"locationCount"`
-	ASNLoaded       bool           `json:"asnLoaded"`
-	Defaults        map[string]any `json:"defaults"`
-	Config          config.Config  `json:"config"`
-	Settings        map[string]any `json:"settings"`
+	Version         string          `json:"version"`
+	LocationsLoaded bool            `json:"locationsLoaded"`
+	LocationCount   int             `json:"locationCount"`
+	ASNLoaded       bool            `json:"asnLoaded"`
+	Defaults        map[string]any  `json:"defaults"`
+	Config          config.Config   `json:"config"`
+	Settings        map[string]any  `json:"settings"`
+	Platform        string          `json:"platform"`
+	Capabilities    map[string]bool `json:"capabilities"`
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
@@ -34,6 +36,10 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		},
 		Config:   cfg,
 		Settings: config.LoadSettings(s.dataDir),
+		Platform: s.platform,
+		Capabilities: map[string]bool{
+			"pickDirectory": s.platform == "windows",
+		},
 	})
 }
 

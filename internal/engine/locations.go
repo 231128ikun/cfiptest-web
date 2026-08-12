@@ -12,6 +12,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"iptest-web/internal/netutil"
 )
 
 // DefaultLocationSources 是地理位置数据的默认下载源，按顺序尝试。
@@ -145,12 +147,12 @@ func downloadFirst(urls []string, timeout time.Duration) ([]byte, error) {
 func downloadFile(url string, timeout time.Duration) ([]byte, error) {
 	client := &http.Client{
 		Timeout: timeout,
-		Transport: &http.Transport{
+		Transport: netutil.Transport(&http.Transport{
 			// 导入端点与外下载共用安全拨号：远程 IP 列表和位置/ASN 数据
 			// 都必须是公网地址，防止恶意源把本地服务变成内网探测跳板。
 			DialContext:         SafeDialContext,
 			TLSHandshakeTimeout: 10 * time.Second,
-		},
+		}),
 	}
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {

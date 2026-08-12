@@ -50,3 +50,19 @@ func TestPrepareDataDirMigratesLegacyFiles(t *testing.T) {
 		t.Fatalf("body=%q err=%v", body, err)
 	}
 }
+
+func TestPrepareDataDirAtCreatesExplicitDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "android", "data")
+	if err := PrepareDataDirAt(dir); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		t.Fatalf("dir not created: info=%v err=%v", info, err)
+	}
+}
+
+func TestPrepareDataDirAtRejectsEmptyPath(t *testing.T) {
+	if err := PrepareDataDirAt("  "); err == nil {
+		t.Fatal("expected empty path error")
+	}
+}

@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"iptest-web/internal/netutil"
 )
 
 const (
@@ -48,7 +50,7 @@ var client = &http.Client{
 	// EdgeOne 边缘防护拦截写请求返回 545 后，同一 keep-alive 连接会被“污染”，
 	// 后续复用该连接的请求会持续 545；因此云端请求不复用连接，每次新建连接，
 	// 再配合 5xx 自动重试（maxCloudAttempts），确保上传成功率。
-	Transport: &http.Transport{DisableKeepAlives: true},
+	Transport: netutil.Transport(&http.Transport{DisableKeepAlives: true}),
 }
 
 // validateContent 校验内容大小（edgeone 单文件 ≤ 1MB）。

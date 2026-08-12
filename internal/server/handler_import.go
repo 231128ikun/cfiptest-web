@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"iptest-web/internal/engine"
+	"iptest-web/internal/netutil"
 )
 
 // importRemoteRequest 对应 POST /api/import/remote。
@@ -280,10 +281,10 @@ func fetchTextFile(rawURL string) (string, string, error) {
 	client := &http.Client{
 		Timeout: importTimeout,
 		// 自定义 DialContext 与 engine 数据下载共用同一套内网拦截；换掉 Transport 时别丢了它。
-		Transport: &http.Transport{
+		Transport: netutil.Transport(&http.Transport{
 			DialContext:         engine.SafeDialContext,
 			TLSHandshakeTimeout: 10 * time.Second,
-		},
+		}),
 		// 重定向同样受 safeDialContext 约束，这里只额外限制跳数，
 		// 避免 302 链把 20 秒超时耗在无意义的跳转上。
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
