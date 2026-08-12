@@ -36,8 +36,31 @@ var webFS embed.FS
 
 // version 是当前版本号（形如 2026.07.31-22.06），随每次代码修改更新为当前时间。
 // build.bat / build.sh 直接读取此值命名产物，不再另行生成。
-var version = "2026.08.13-00.33"
+var version = "2026.08.13-00.37"
 
+// initAndroidDNS 在 Android 上使用公共 DNS 直连解析域名。
+// Android 应用子进程读不到系统 DNS 配置，纯 Go 解析器会回退到
+// [::1]:53 导致 lookup 失败；这里显式指定公共 DNS 兜底。
+func initAndroidDNS() {
+	if runtime.GOOS != "android" {
+		return
+	}
+	net.DefaultResolver = &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			servers := []string{"119.29.29.29:53", "223.5.5.5:53", "8.8.8.8:53", "1.1.1.1:53"}
+			var lastErr error
+			for _, server := range servers {
+				conn, err := (&net.Dialer{Timeout: 3 * time.Second}).DialContext(ctx, "udp", server)
+				if err == nil {
+					return conn, nil
+				}
+				lastErr = err
+			}
+			return nil, lastErr
+		},
+	}
+}
 func main() {
 	port := flag.Int("port", 18080, "HTTP 服务监听端口")
 	noBrowser := flag.Bool("no-browser", false, "启动后不自动打开浏览器")
