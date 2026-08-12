@@ -27,10 +27,14 @@ import android.widget.Toast;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.OutputStreamWriter;
+import java.io.PrintWriter;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -55,13 +59,51 @@ public final class MainActivity extends Activity {
     private PendingFile pendingFile;
     private long startupDeadline;
     private volatile boolean destroyed;
+    private volatile File backendLogFile;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        buildLayout();
-        configureWebView();
-        startBackend();
+        installCrashHandler();
+        try {
+            buildLayout();
+            configureWebView();
+            startBackend();
+        } catch (Throwable error) {
+            writeCrash("onCreate", error);
+            showStartupError("初始化失败：" + error.getMessage());
+        }
+    }
+
+    private void installCrashHandler() {
+        final Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
+            try {
+                writeCrash("uncaught@" + thread.getName(), throwable);
+            } catch (Throwable ignored) {
+            }
+            if (previous != null) {
+                previous.uncaughtException(thread, throwable);
+            } else {
+                android.os.Process.killProcess(android.os.Process.myPid());
+            }
+        });
+    }
+
+    private void writeCrash(String tag, Throwable throwable) {
+        File log = new File(getLogDir(), "crash.log");
+        try (OutputStream out = new FileOutputStream(log, true);
+             PrintWriter writer = new PrintWriter(new OutputStreamWriter(out, StandardCharsets.UTF_8))) {
+            writer.println("==== " + tag + " @ " + new java.util.Date() + " ====");
+            throwable.printStackTrace(writer);
+            writer.flush();
+        } catch (IOException ignored) {
+        }
+    }
+
+    private File getLogDir() {
+        File external = getExternalFilesDir(null);
+        return external != null ? external : getFilesDir();
     }
 
     private void buildLayout() {
@@ -159,11 +201,21 @@ public final class MainActivity extends Activity {
     private void startBackend() {
         ioExecutor.execute(() -> {
             try {
-                File binary = new File(getApplicationInfo().nativeLibraryDir, "libiptest.so");
+                File nativeBinary = new File(getApplicationInfo().nativeLibraryDir, "libiptest.so");
+                File binDir = new File(getFilesDir(), "bin");
+                if (!binDir.exists() && !binDir.mkdirs()) {
+                    throw new IOException("无法创建可执行目录");
+                }
+                File binary = new File(binDir, "iptest");
+                copyFile(nativeBinary, binary);
+                if (!binary.setExecutable(true, false)) {
+                    throw new IOException("无法设置可执行权限");
+                }
                 File dataDir = new File(getFilesDir(), "data");
                 if (!dataDir.exists() && !dataDir.mkdirs()) {
                     throw new IOException("无法创建应用数据目录");
                 }
+                backendLogFile = new File(getLogDir(), "backend.log");
                 ProcessBuilder builder = new ProcessBuilder(
                         binary.getAbsolutePath(),
                         "-port", "18080",
@@ -181,18 +233,33 @@ public final class MainActivity extends Activity {
                 drainProcessOutput(process.getInputStream());
                 startupDeadline = System.currentTimeMillis() + STARTUP_TIMEOUT_MS;
                 mainHandler.post(this::pollBackend);
-            } catch (Exception error) {
+            } catch (Throwable error) {
+                writeCrash("startBackend", error);
                 showStartupError("本地服务启动失败：" + error.getMessage());
             }
         });
     }
 
+    private void copyFile(File source, File target) throws IOException {
+        try (InputStream in = new FileInputStream(source);
+             OutputStream out = new FileOutputStream(target)) {
+            byte[] buffer = new byte[65536];
+            int read;
+            while ((read = in.read(buffer)) >= 0) {
+                out.write(buffer, 0, read);
+            }
+        }
+    }
+
     private void drainProcessOutput(InputStream input) {
         ioExecutor.execute(() -> {
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(input, StandardCharsets.UTF_8))) {
-                while (reader.readLine() != null) {
-                    // Keep the process pipe drained. Runtime diagnostics are available in-app.
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8));
+                 OutputStream out = new FileOutputStream(backendLogFile, false);
+                 PrintWriter writer = new PrintWriter(new OutputStreamWriter(out, StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    writer.println(line);
+                    writer.flush();
                 }
             } catch (IOException ignored) {
             }
@@ -228,9 +295,9 @@ public final class MainActivity extends Activity {
                     }
                 });
             } else if (backendProcess != null && !backendProcess.isAlive()) {
-                showStartupError("本地服务已意外退出，请重新打开应用。");
+                showStartupError("本地服务已意外退出，请重新打开应用。\n日志目录: Android/data/com.cfiptest.web/files/");
             } else if (System.currentTimeMillis() >= startupDeadline) {
-                showStartupError("本地服务启动超时，请重试或检查设备安全设置。");
+                showStartupError("本地服务启动超时，请重试或检查设备安全设置。\n日志目录: Android/data/com.cfiptest.web/files/");
             } else {
                 mainHandler.postDelayed(this::pollBackend, 250);
             }
@@ -278,7 +345,7 @@ public final class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        if (webView.canGoBack()) {
+        if (webView != null && webView.canGoBack()) {
             webView.goBack();
         } else {
             super.onBackPressed();
@@ -351,7 +418,9 @@ public final class MainActivity extends Activity {
     }
 
     private static String fileNameFromDisposition(String disposition) {
-        if (disposition == null) return null;
+        if (disposition == null) {
+            return null;
+        }
         for (String part : disposition.split(";")) {
             String value = part.trim();
             if (value.toLowerCase().startsWith("filename=")) {
@@ -425,8 +494,10 @@ public final class MainActivity extends Activity {
             fileChooserCallback = null;
         }
         mainHandler.removeCallbacksAndMessages(null);
-        webView.removeJavascriptInterface("iptestAndroid");
-        webView.destroy();
+        if (webView != null) {
+            webView.removeJavascriptInterface("iptestAndroid");
+            webView.destroy();
+        }
         ioExecutor.shutdown();
         super.onDestroy();
     }
