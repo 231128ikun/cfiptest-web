@@ -251,30 +251,25 @@ func TestRunTaskTotalLimit(t *testing.T) {
 	}
 }
 
-func TestRunTaskSingleRoundBudgetStopsAndReportsShortage(t *testing.T) {
+func TestRunTaskFunnelContinuesUntilQuotaThenStops(t *testing.T) {
 	dir := t.TempDir()
 	fake := newFake()
 	lib, _ := library.Open(filepath.Join(dir, library.FileName))
-	ips := []string{"1.0.0.11", "1.0.0.12", "1.0.0.13", "1.0.0.14", "1.0.0.15"}
+	ips := []string{"1.0.0.11", "1.0.0.12", "1.0.0.13", "1.0.0.14", "1.0.0.15", "1.0.0.16"}
 	for i, ip := range ips {
 		lib.Upsert(library.Entry{IP: ip, Port: 443, CountryCode: "US", Status: library.StatusActive, TCPLatencyMs: int64(100 + i*10)})
 		fake.add(ip, 443, "US", i >= 3, 0)
 	}
-	task := Task{Name: "单轮预算检测", Limit: 2, Rules: []TaskRule{{Name: "美国", Limit: 2, Conditions: []Condition{{Field: "country", Values: []string{"US"}}}}}, Output: TaskOutput{Path: "out/t.txt", Template: "{ip}:{port}"}}
-	// 新语义：单轮预算 = MaxPerGroup 4，只检测 4 条候选（前 3 条失败、第 4 条通过），
-	// 不再无限补测整个候选池；配额未满如实报告缺口。
-	report, err := RunTask(context.Background(), fake, lib, task, RunOptions{MaxPerGroup: 4, RemoveAfterFailures: 1}, nil)
+	task := Task{Name: "漏斗按需检测", Limit: 2, Rules: []TaskRule{{Name: "美国", Limit: 2, Conditions: []Condition{{Field: "country", Values: []string{"US"}}}}}, Output: TaskOutput{Path: "out/t.txt", Template: "{ip}:{port}"}}
+	report, err := RunTask(context.Background(), fake, lib, task, RunOptions{RemoveAfterFailures: 1}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.TotalLines != 1 {
-		t.Fatalf("单轮预算内应产出 1 条（仅第 4 条通过），实际 %d", report.TotalLines)
+	if report.TotalLines != 2 || report.Groups[0].Shortage != 0 {
+		t.Fatalf("应继续检测到配额满足: %+v", report)
 	}
-	if len(fake.latencyCalled) != 4 {
-		t.Fatalf("应只检测单轮预算内的 4 条候选，实际 %d: %v", len(fake.latencyCalled), fake.latencyCalled)
-	}
-	if len(report.Groups) != 1 || report.Groups[0].Shortage != 1 {
-		t.Fatalf("配额缺口应如实报告: %+v", report.Groups)
+	if len(fake.latencyCalled) != 5 {
+		t.Fatalf("前 3 条失败、第 4/5 条通过后应停止，第 6 条不检测；实际 %d: %v", len(fake.latencyCalled), fake.latencyCalled)
 	}
 }
 

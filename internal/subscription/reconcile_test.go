@@ -167,16 +167,16 @@ func TestRunFillsAndWritesOutput(t *testing.T) {
 	if len(lines) != 2 || !strings.Contains(lines[0], "#美国") {
 		t.Fatalf("输出内容错误: %q", lines)
 	}
-	// 库中状态全部 active，未测条目已回写国家
+	// 漏斗达到 2 条配额后立即停止，第 3 条不应被无意义检测。
 	got, _ := lib.Get("1.0.0.13", 443)
-	if got.Status != library.StatusActive || got.CountryCode != "US" || got.TCPLatencyMs == 0 {
-		t.Fatalf("未测条目未回写: %+v", got)
+	if got.Status != library.StatusNew || got.CountryCode != "" || got.TCPLatencyMs != 0 {
+		t.Fatalf("配额达标后的候选不应被检测或回写: %+v", got)
 	}
-	if report.Groups[0].New != 0 {
-		t.Fatalf("候选均已在库，New 应为 0: %+v", report.Groups[0])
+	if len(fake.latencyCalled) != 2 || report.Tested != 2 || report.Candidates != 3 {
+		t.Fatalf("漏斗应检测 2/3 条后停止: called=%v report=%+v", fake.latencyCalled, report)
 	}
-	if report.Groups[0].Updated < 3 {
-		t.Fatalf("应记录至少 3 条结果回写（延迟/国家变化）: %+v", report.Groups[0])
+	if report.LibraryUpdated != 2 {
+		t.Fatalf("库更新应按唯一实际检测条目计数: %+v", report)
 	}
 }
 
@@ -233,8 +233,8 @@ func TestRunUpdatesChangedCountry(t *testing.T) {
 	if got.CountryCode != "JP" {
 		t.Fatalf("国家应更新为 JP: %+v", got)
 	}
-	if report.Groups[0].Updated == 0 && report.Groups[1].Updated == 0 {
-		t.Fatalf("应记录回写更新: %+v", report.Groups)
+	if report.LibraryUpdated == 0 {
+		t.Fatalf("应记录唯一条目级库更新: %+v", report)
 	}
 	if report.Groups[1].Filled != 1 {
 		t.Fatalf("日本组应被更新的条目填满: %+v", report.Groups[1])
@@ -250,9 +250,9 @@ func TestRunSpeedFailureKeepsEntry(t *testing.T) {
 		library.Entry{IP: "1.0.0.41", Port: 443, CountryCode: "US", Status: library.StatusActive},
 		library.Entry{IP: "1.0.0.42", Port: 443, CountryCode: "US", Status: library.StatusActive},
 	)
-	// 41 测速通过，42 测速失败（延迟通过）
-	fake.add("1.0.0.41", 443, "US", true, 5000)
-	fake.add("1.0.0.42", 443, "US", true, -1)
+	// 41 测速失败后漏斗继续，42 测速通过后立即达标停止。
+	fake.add("1.0.0.41", 443, "US", true, -1)
+	fake.add("1.0.0.42", 443, "US", true, 5000)
 
 	sub := testRun{Name: "x", EnableSpeed: true, Groups: []Group{{
 		Name: "美国", CountryCode: "US", Count: 1, MinSpeedKBs: 1000, RequireSpeed: true,
@@ -262,7 +262,7 @@ func TestRunSpeedFailureKeepsEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 测速失败的条目保留在库中，仅 SpeedValid=false
-	got, ok := lib.Get("1.0.0.42", 443)
+	got, ok := lib.Get("1.0.0.41", 443)
 	if !ok {
 		t.Fatal("测速失败的条目不应从库移除")
 	}

@@ -891,8 +891,16 @@ function sideLogFromAuto(message) {
     }
     if (p.stage === 'report' && p.report) {
         const r = p.report;
-        const shortage = (r.shortages || []).length ? `，缺口 ${r.shortages.length} 项` : '';
-        sideLog(`任务「${r.subscription || ''}」完成：输出 ${r.totalLines ?? 0} 行，移除失效 ${r.removedDead ?? 0}，标记保留 ${r.markedFailed ?? 0}，回写 ${(r.groups || []).reduce((s, g) => s + (g.updated || 0), 0)}${shortage}`, 'ok');
+        const shortage = (r.shortageTotal ?? 0) > 0
+            ? `，缺少 ${r.shortageTotal} 条（${(r.shortages || []).length} 个规则）`
+            : '';
+        const speed = (r.speedTested ?? 0) > 0
+            ? `，测速 ${r.speedTested}，有效 ${r.speedPassed ?? 0}，失败 ${r.speedFailed ?? 0}`
+            : '';
+        const library = (r.libraryUpdated ?? 0) > 0 || (r.removedDead ?? 0) > 0 || (r.retainedFailed ?? 0) > 0
+            ? `，库更新 ${r.libraryUpdated ?? 0}，移除 ${r.removedDead ?? 0}，失败留库 ${r.retainedFailed ?? 0}`
+            : '';
+        sideLog(`任务「${r.subscription || ''}」完成：输出 ${r.totalLines ?? 0} 行，延迟检测 ${r.tested ?? 0}/${r.candidates ?? 0}，通过 ${r.passed ?? 0}，失败 ${r.failed ?? 0}${speed}${library}${shortage}`, 'ok');
         return;
     }
     if (p.log) sideLog(`[${p.group || '维护'}] ${p.log}`);

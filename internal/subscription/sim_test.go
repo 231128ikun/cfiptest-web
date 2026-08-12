@@ -40,7 +40,8 @@ func (f *simTester) RunSpeedTest(_ context.Context, targets []engine.Target, opt
 
 // buildRemoteSim 构造 200 条“未知地区”候选（模拟远程 URL 库，库内无国家元数据）：
 // cluster=false 时五国交错（i%5），true 时按国家聚类（每 40 条一个地区）；
-// 每条 ~60% 概率延迟通过，通过后回填对应国家码。
+// 每条 ~60% 概率延迟通过，通过后回填对应国家码。漏斗按缺口取候选、达标即停，
+// 因此随机通过率下检测量不确定，只断言“填满后提前停止”，不断言固定条数。
 func buildRemoteSim(t *testing.T, cluster bool) (*simTester, *library.Store) {
 	sim := &simTester{countries: map[string]string{}, pass: map[string]bool{}}
 	rng := rand.New(rand.NewSource(1))
@@ -83,55 +84,49 @@ func runRemoteSim(t *testing.T, sim *simTester, lib *library.Store, count int) *
 }
 
 func TestSimulateRemoteRounds(t *testing.T) {
-	t.Run("interleaved_full_budget", func(t *testing.T) {
-		// 五国交错 + 配额 10：单组预算 40，5 组合计 200 = 全候选，逐条检测后按实测国家填满。
+	// 漏斗语义：未知国家候选按分段交错取队列，按当前缺口组成小批次检测；
+	// 某个规则填满后立即停止为它取候选，全部填满即提前结束，不检测完整候选池。
+	checkFilled := func(t *testing.T, report *Report, wantPer int, wantTotal int) {
+		t.Helper()
+		if report.TotalLines != wantTotal {
+			t.Fatalf("应共输出 %d 条，实际 %d", wantTotal, report.TotalLines)
+		}
+		for _, gr := range report.Groups {
+			if gr.Filled != wantPer || gr.Shortage != 0 {
+				t.Fatalf("group %s 应填满 %d 条且无缺口，实际 %+v", gr.Name, wantPer, gr)
+			}
+		}
+	}
+
+	t.Run("interleaved_fills_then_stops", func(t *testing.T) {
+		// 五国交错 + 配额 10：分批检测直至五国全部填满，随后立即停止；
+		// 检测量应远小于 200（不能把整个候选池都测完再挑结果）。
 		sim, lib := buildRemoteSim(t, false)
 		report := runRemoteSim(t, sim, lib, 10)
-		if len(sim.latencyCalled) != 200 {
-			t.Fatalf("交错排列、配额 10 时应全量检测 200 条，实际 %d", len(sim.latencyCalled))
-		}
-		if report.TotalLines != 50 {
-			t.Fatalf("应每国 10 条共 50 条，实际 %d", report.TotalLines)
-		}
-		for _, gr := range report.Groups {
-			if gr.Filled != 10 || gr.Shortage != 0 {
-				t.Fatalf("group %s 应填满 10 条，实际 %+v", gr.Name, gr)
-			}
+		checkFilled(t, report, 10, 50)
+		if n := len(sim.latencyCalled); n >= 200 || n < 50 {
+			t.Fatalf("漏斗应在填满后提前停止（检测 %d/%d），而不是全量检测", n, report.Candidates)
 		}
 	})
 
-	t.Run("clustered_equal_sampling", func(t *testing.T) {
-		// 按国家聚类（前 40 条全是 HK，最后 40 条是 US）+ 配额 5：单组预算 25，5 组合计 125，
-		// 等距抽样必须覆盖候选池头尾，否则 US/SG 永远测不到（旧多轮逻辑的缺陷）。
+	t.Run("clustered_reaches_tail_then_stops", func(t *testing.T) {
+		// 按国家聚类（前 40 条全是 HK，最后 40 条是 US）+ 配额 5：
+		// 分段交错必须让 US/SG 等尾部聚类也被检测到并填满，且全部填满后提前停止。
 		sim, lib := buildRemoteSim(t, true)
 		report := runRemoteSim(t, sim, lib, 5)
-		if len(sim.latencyCalled) != 125 {
-			t.Fatalf("配额 5 时应等距抽样 125 条，实际 %d", len(sim.latencyCalled))
-		}
-		if report.TotalLines != 25 {
-			t.Fatalf("等距抽样应覆盖头尾聚类，每国 5 条共 25 条，实际 %d", report.TotalLines)
-		}
-		for _, gr := range report.Groups {
-			if gr.Filled != 5 || gr.Shortage != 0 {
-				t.Fatalf("group %s 应填满 5 条，实际 %+v", gr.Name, gr)
-			}
+		checkFilled(t, report, 5, 25)
+		if n := len(sim.latencyCalled); n >= 200 || n < 25 {
+			t.Fatalf("聚类场景应覆盖尾部国家并提前停止（检测 %d/%d）", n, report.Candidates)
 		}
 	})
 
-	t.Run("interleaved_budget_sampling", func(t *testing.T) {
-		// 五国交错 + 配额 5：预算 125 抽样后每国约 15 条通过，足够填满 5 条。
+	t.Run("interleaved_small_quota_stops_early", func(t *testing.T) {
+		// 五国交错 + 配额 5：填满 25 条后停止，检测量应明显小于 200。
 		sim, lib := buildRemoteSim(t, false)
 		report := runRemoteSim(t, sim, lib, 5)
-		if len(sim.latencyCalled) != 125 {
-			t.Fatalf("配额 5 时应等距抽样 125 条，实际 %d", len(sim.latencyCalled))
-		}
-		if report.TotalLines != 25 {
-			t.Fatalf("应每国 5 条共 25 条，实际 %d", report.TotalLines)
-		}
-		for _, gr := range report.Groups {
-			if gr.Filled != 5 || gr.Shortage != 0 {
-				t.Fatalf("group %s 应填满 5 条，实际 %+v", gr.Name, gr)
-			}
+		checkFilled(t, report, 5, 25)
+		if n := len(sim.latencyCalled); n >= 200 || n < 25 {
+			t.Fatalf("小配额应提前停止（检测 %d/%d），而不是按固定预算检测", n, report.Candidates)
 		}
 	})
 }
@@ -178,8 +173,10 @@ func TestSimulateRemoteCountryPrefilter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(sim.latencyCalled) != 200 {
-		t.Fatalf("带国家标记时应仅检测目标国家候选 200 条（5 国 × 每组预算 40），实际 %d", len(sim.latencyCalled))
+	// 漏斗：每国 10 条、全部候选已知且通过，首批缺口 50 条检测后立即全部达标停止；
+	// 非目标国家候选一条都不检测。
+	if len(sim.latencyCalled) != 50 {
+		t.Fatalf("已知候选全部通过时应只检测缺口 50 条（5 国 × 10），实际 %d", len(sim.latencyCalled))
 	}
 	for _, key := range sim.latencyCalled {
 		c := sim.countries[key]
@@ -273,8 +270,10 @@ func TestSimulateUserScenarioFullChain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(sim.latencyCalled) != 60 {
-		t.Fatalf("仅应检测目标国候选 60 条, 实际 %d", len(sim.latencyCalled))
+	// 漏斗：目标国每国 12 条候选且全部通过，缺口 50 条首批检测后全部达标，第 51 条起不检测；
+	// 非目标国候选（NL/DE）完全不被检测。
+	if len(sim.latencyCalled) != 50 {
+		t.Fatalf("应只按缺口检测 50 条目标国候选并提前停止, 实际 %d", len(sim.latencyCalled))
 	}
 	if report.TotalLines != 50 {
 		t.Fatalf("应每国 10 条共 50 条, 实际 %d", report.TotalLines)
