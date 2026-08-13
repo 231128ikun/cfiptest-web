@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"iptest-web/internal/fsutil"
 )
 
 // FileName 是 IP 库文件名（位于 data/ 目录）。
@@ -264,35 +266,14 @@ func (s *Store) Save() error {
 	s.mu.RUnlock()
 	sort.Slice(entries, func(i, j int) bool { return entryLess(entries[i], entries[j]) })
 
-	tmp, err := os.CreateTemp(filepath.Dir(s.path), ".ipdb-*.tmp")
-	if err != nil {
-		return fmt.Errorf("创建临时文件失败: %w", err)
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-
-	w := bufio.NewWriter(tmp)
+	var body []byte
 	for _, e := range entries {
 		line, err := json.Marshal(e)
 		if err != nil {
-			tmp.Close()
 			return err
 		}
-		if _, err := w.Write(append(line, '\n')); err != nil {
-			tmp.Close()
-			return err
-		}
+		body = append(body, line...)
+		body = append(body, '\n')
 	}
-	if err := w.Flush(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpPath, s.path)
+	return fsutil.WriteFileAtomic(s.path, body, 0o644)
 }

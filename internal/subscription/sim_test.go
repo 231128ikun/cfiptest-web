@@ -37,6 +37,10 @@ func (f *simTester) SpeedOne(_ context.Context, _ engine.Target, _ engine.SpeedO
 	return 0
 }
 
+func (f *simTester) ResolveSpeedURL(_ context.Context, raw string, enableTLS bool) (string, string) {
+	return fakeResolveSpeedURL(raw, enableTLS)
+}
+
 // buildRemoteSim 构造 200 条“未知地区”候选（模拟远程 URL 库，库内无国家元数据）：
 // cluster=false 时五国交错（i%5），true 时按国家聚类（每 40 条一个地区）；
 // 每条 ~60% 概率延迟通过，通过后回填对应国家码。漏斗按缺口取候选、达标即停，

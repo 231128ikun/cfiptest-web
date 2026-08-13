@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"iptest-web/internal/fsutil"
 )
 
 // CloudsFile 是云端渠道配置文件（相对 data 目录）。
@@ -298,7 +300,7 @@ func (s *Store) saveLocked() error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(s.path, body)
+	return fsutil.WriteFileAtomic(s.path, body, 0o644)
 }
 
 // MaskToken 脱敏 Token：保留前 3 与后 3 字符，中间以 *** 代替；过短则整体掩码。

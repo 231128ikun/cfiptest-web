@@ -1,18 +1,19 @@
 package server
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"iptest-web/internal/engine"
-	"iptest-web/internal/netutil"
+	"iptest-web/internal/fsutil"
 )
 
 // importRemoteRequest 对应 POST /api/import/remote。
@@ -232,43 +233,17 @@ func (s *Server) handleAutoInputUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "文件中没有可识别的 IP 或 CIDR")
 		return
 	}
-	dir := filepath.Join(s.dataDir, "inputs")
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		writeError(w, http.StatusInternalServerError, "创建输入目录失败: "+err.Error())
-		return
-	}
+
+	// 随机后缀避免同毫秒上传覆盖；先写完整再原子改名，避免定时任务读到半截内容。
 	cleanName := sanitizeInputFileName(req.Name)
-	tmp, err := os.CreateTemp(dir, ".auto-input-*.tmp")
+	randomPart, err := randomHex(6)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "创建输入临时文件失败: "+err.Error())
+		writeError(w, http.StatusInternalServerError, "生成输入文件名失败: "+err.Error())
 		return
 	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-	if err := tmp.Chmod(0644); err != nil {
-		_ = tmp.Close()
-		writeError(w, http.StatusInternalServerError, "设置输入文件权限失败: "+err.Error())
-		return
-	}
-	if _, err := tmp.WriteString(req.Text); err != nil {
-		_ = tmp.Close()
-		writeError(w, http.StatusInternalServerError, "写入输入文件失败: "+err.Error())
-		return
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		writeError(w, http.StatusInternalServerError, "刷新输入文件失败: "+err.Error())
-		return
-	}
-	if err := tmp.Close(); err != nil {
-		writeError(w, http.StatusInternalServerError, "关闭输入文件失败: "+err.Error())
-		return
-	}
-	// 临时文件写完整后再原子改名，避免定时任务读到半截内容；随机后缀也避免同毫秒上传覆盖。
-	randomPart := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(tmpPath), ".auto-input-"), ".tmp")
 	name := time.Now().Format("20060102-150405.000") + "-" + randomPart + "-" + cleanName
-	abs := filepath.Join(dir, name)
-	if err := os.Rename(tmpPath, abs); err != nil {
+	abs := filepath.Join(s.dataDir, "inputs", name)
+	if err := fsutil.WriteFileAtomic(abs, []byte(req.Text), 0o644); err != nil {
 		writeError(w, http.StatusInternalServerError, "保存输入文件失败: "+err.Error())
 		return
 	}
@@ -276,26 +251,28 @@ func (s *Server) handleAutoInputUpload(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, autoInputUploadResponse{Path: rel, Name: cleanName, Bytes: len(req.Text), Targets: len(targets)})
 }
 
+// randomHex 返回 n 字节随机数的十六进制串，用于给上传文件生成唯一后缀。
+func randomHex(n int) (string, error) {
+	buf := make([]byte, n)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
+}
+
 // fetchTextFile 取回远程文本，限制大小与耗时，并拒绝解析到内网的目标。
 func fetchTextFile(rawURL string) (string, string, error) {
-	client := &http.Client{
-		Timeout: importTimeout,
-		// 自定义 DialContext 与 engine 数据下载共用同一套内网拦截；换掉 Transport 时别丢了它。
-		Transport: netutil.Transport(&http.Transport{
-			DialContext:         engine.SafeDialContext,
-			TLSHandshakeTimeout: 10 * time.Second,
-		}),
-		// 重定向同样受 safeDialContext 约束，这里只额外限制跳数，
-		// 避免 302 链把 20 秒超时耗在无意义的跳转上。
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 5 {
-				return fmt.Errorf("重定向次数过多")
-			}
-			if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
-				return fmt.Errorf("重定向到不支持的协议 %s", req.URL.Scheme)
-			}
-			return nil
-		},
+	client := engine.NewSafeHTTPClient(importTimeout)
+	// 重定向同样受安全拨号约束，这里只额外限制跳数，
+	// 避免 302 链把 20 秒超时耗在无意义的跳转上。
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 5 {
+			return fmt.Errorf("重定向次数过多")
+		}
+		if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
+			return fmt.Errorf("重定向到不支持的协议 %s", req.URL.Scheme)
+		}
+		return nil
 	}
 
 	req, err := http.NewRequest(http.MethodGet, rawURL, nil)

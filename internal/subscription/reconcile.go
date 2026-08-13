@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"iptest-web/internal/engine"
+	"iptest-web/internal/fsutil"
 	"iptest-web/internal/library"
 )
 
@@ -21,6 +22,8 @@ import (
 type Tester interface {
 	LatencyOne(ctx context.Context, target engine.Target, opts engine.LatencyOptions) (engine.Result, bool)
 	SpeedOne(ctx context.Context, target engine.Target, opts engine.SpeedOptions) float64
+	// ResolveSpeedURL 把测速源原始配置（可能为 auto）解析为实际下载 URL 与来源标签。
+	ResolveSpeedURL(ctx context.Context, raw string, enableTLS bool) (string, string)
 }
 
 var _ Tester = (*engine.Runner)(nil)
@@ -322,6 +325,21 @@ func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, 
 		ProbeCount: opts.LatencyProbes, HTTPProbeCount: opts.LatencyHTTPProbes,
 		HTTPTimeoutMs: opts.LatencyHTTPTimeoutMs, EnableTLS: enableTLS,
 	}
+	// 测速源：auto 等原始配置统一解析为实际下载 URL，并在开始日志标注实际来源，
+	// 便于排查「所有 IP 测速都卡在同一上限」时确认瓶颈在源端还是链路上。
+	// 仅当确有规则需要测速时才解析，避免无谓的运营商探测。
+	speedSourceLabel := ""
+	if enableSpeed {
+		for _, g := range groups {
+			if groupNeedsSpeed(g, enableSpeed) {
+				if resolvedURL, label := t.ResolveSpeedURL(ctx, opts.DownloadURL, enableTLS); resolvedURL != "" {
+					opts.DownloadURL = resolvedURL
+					speedSourceLabel = label
+				}
+				break
+			}
+		}
+	}
 	speedOpts := engine.SpeedOptions{
 		MaxConcurrency: opts.SpeedConcurrency, DurationSec: opts.SpeedDurationSec,
 		MinSpeedKBs: 0, EnableTLS: enableTLS, DownloadURL: opts.DownloadURL,
@@ -413,9 +431,12 @@ func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, 
 				c, report.Candidates, p, spd, spdOK, filled, maxMbps)})
 	}
 
-	_ = prog(Progress{Stage: "latency",
-		Log: fmt.Sprintf("开始漏斗检测：候选 %d 条，并发 %d（延迟并发 %d，测速并发 %d），逐条「延迟→测速→判定」",
-			report.Candidates, concurrency, opts.LatencyConcurrency, opts.SpeedConcurrency)})
+	startLog := fmt.Sprintf("开始漏斗检测：候选 %d 条，并发 %d（延迟并发 %d，测速并发 %d），逐条「延迟→测速→判定」",
+		report.Candidates, concurrency, opts.LatencyConcurrency, opts.SpeedConcurrency)
+	if speedSourceLabel != "" {
+		startLog += "；测速源：" + speedSourceLabel
+	}
+	_ = prog(Progress{Stage: "latency", Log: startLog})
 
 	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
@@ -1041,11 +1062,6 @@ func WriteOutput(dataDir string, out Output, entries []library.Entry) (string, e
 	} else {
 		path = filepath.Join(dataDir, filepath.FromSlash(out.Path))
 	}
-	if dir := filepath.Dir(path); dir != "" {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return "", err
-		}
-	}
 	var lines []string
 	if out.Format == "csv" {
 		lines = RenderCSV(entries)
@@ -1056,24 +1072,7 @@ func WriteOutput(dataDir string, out Output, entries []library.Entry) (string, e
 	if len(body) > 0 {
 		body = append(body, '\n')
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".out-*.tmp")
-	if err != nil {
-		return "", err
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-	if _, err := tmp.Write(body); err != nil {
-		tmp.Close()
-		return "", err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return "", err
-	}
-	if err := tmp.Close(); err != nil {
-		return "", err
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
+	if err := fsutil.WriteFileAtomic(path, body, 0o644); err != nil {
 		return "", err
 	}
 	return path, nil

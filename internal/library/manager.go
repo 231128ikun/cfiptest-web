@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"iptest-web/internal/fsutil"
 )
 
 // 库管理目录与索引文件名。
@@ -160,20 +162,7 @@ func (m *Manager) writeIndex(list []Info) error {
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(m.dir, ".index-*.tmp")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-	if _, err := tmp.Write(append(body, '\n')); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpPath, m.indexPath())
+	return fsutil.WriteFileAtomic(m.indexPath(), append(body, '\n'), 0o644)
 }
 
 func (m *Manager) fileOf(id string) (Info, bool, error) {

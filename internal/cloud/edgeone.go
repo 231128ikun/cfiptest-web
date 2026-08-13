@@ -8,8 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -271,26 +269,4 @@ func truncateUTF8(s string, max int) string {
 		cut = i + 1
 	}
 	return s[:cut] + "…"
-}
-
-// writeFileAtomic 先写同目录临时文件再改名，避免异常退出留下半截 JSON。
-func writeFileAtomic(path string, body []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".iptest-cloud-*.tmp")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-	if _, err := tmp.Write(body); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpPath, path)
 }

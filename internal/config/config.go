@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"iptest-web/internal/engine"
+	"iptest-web/internal/fsutil"
 )
 
 const (
@@ -110,7 +111,7 @@ func Save(dataDir string, cfg Config) error {
 	if err != nil {
 		return err
 	}
-	return writeJSONFile(filepath.Join(dataDir, FileName), body)
+	return fsutil.WriteFileAtomic(filepath.Join(dataDir, FileName), append(body, '\n'), 0o644)
 }
 
 func nonEmpty(values []string) []string {
@@ -168,31 +169,5 @@ func SaveSettings(dataDir string, settings map[string]any) error {
 	if err != nil {
 		return err
 	}
-	return writeJSONFile(filepath.Join(dataDir, SettingsName), body)
-}
-
-// writeJSONFile 先写同目录临时文件，再原子替换目标，避免异常退出留下半个 JSON。
-func writeJSONFile(path string, body []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".iptest-*.tmp")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-	if err := tmp.Chmod(0644); err != nil {
-		tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(append(body, '\n')); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpPath, path)
+	return fsutil.WriteFileAtomic(filepath.Join(dataDir, SettingsName), append(body, '\n'), 0o644)
 }

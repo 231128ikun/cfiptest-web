@@ -65,6 +65,26 @@ func (f *fakeTester) SpeedOne(_ context.Context, target engine.Target, opts engi
 	return f.speeds[key]
 }
 
+func (f *fakeTester) ResolveSpeedURL(_ context.Context, raw string, enableTLS bool) (string, string) {
+	return fakeResolveSpeedURL(raw, enableTLS)
+}
+
+// fakeResolveSpeedURL 模拟引擎的测速源解析：auto 解析为 Cloudflare 官方源，其余仅补全协议。
+func fakeResolveSpeedURL(raw string, enableTLS bool) (string, string) {
+	scheme := "https://"
+	if !enableTLS {
+		scheme = "http://"
+	}
+	v := strings.TrimSpace(raw)
+	if v == "" || strings.EqualFold(v, "auto") || v == "自动选择" {
+		return scheme + engine.CloudflareSpeedURL, "Cloudflare（自动选择）"
+	}
+	if !strings.HasPrefix(v, "http://") && !strings.HasPrefix(v, "https://") {
+		return scheme + v, "自定义"
+	}
+	return v, "自定义"
+}
+
 // countryName 返回国家码的中文名（模拟真实 locations 查表）。
 func countryName(code string) string {
 	switch code {
@@ -361,13 +381,33 @@ func TestRunSpeedProgressCalled(t *testing.T) {
 		t.Fatalf("应执行 1 条测速且有效: %+v", report)
 	}
 	joined := strings.Join(logs, "\n")
-	for _, want := range []string{"开始漏斗检测：候选 1 条，并发 5", "按需测速结束：测试 1"} {
+	for _, want := range []string{"开始漏斗检测：候选 1 条，并发 5", "按需测速结束：测试 1", "测速源："} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("维护测速进度缺少 %q：\n%s", want, joined)
 		}
 	}
 }
 
+func TestRunSpeedSourceLabelLogged(t *testing.T) {
+	fake := newFake()
+	lib := mkLib(t, library.Entry{IP: "1.0.0.73", Port: 443, CountryCode: "US", Status: library.StatusActive})
+	fake.add("1.0.0.73", 443, "US", true, 1024)
+	sub := testRun{Name: "x", EnableSpeed: true, Groups: []Group{{
+		Name: "美国", CountryCode: "US", Count: 1, MinSpeedKBs: 1, RequireSpeed: true,
+	}}, Output: Output{Path: "out/t.txt", Template: "{ip}:{port}"}}
+	var logs []string
+	_, err := runTest(context.Background(), fake, lib, sub, RunOptions{DownloadURL: "auto"}, func(p Progress) error {
+		logs = append(logs, p.Log)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(logs, "\n")
+	if !strings.Contains(joined, "测速源：Cloudflare（自动选择）") {
+		t.Fatalf("开始日志应标注自动选择的测速源：\n%s", joined)
+	}
+}
 func TestRunResolvesDefaultPort(t *testing.T) {
 	fake := newFake()
 	lib := mkLib(t, library.Entry{IP: "1.0.0.81", Port: 0, CountryCode: "US", Status: library.StatusNew})

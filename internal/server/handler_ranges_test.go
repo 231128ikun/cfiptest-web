@@ -50,7 +50,7 @@ func TestOfficialRangeCacheV6RejectsLegacy(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, officialIPv6File), []byte("2606:4700::/32\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := loadOfficialRangeCacheV6(dir); err == nil {
+	if _, _, err := loadOfficialRangeCacheFamily(dir, officialIPv6File, true); err == nil {
 		t.Fatal("旧版 IPv6 缓存（无版本标记）应被拒绝，避免继续抽样必然全失败的聚合段")
 	}
 }

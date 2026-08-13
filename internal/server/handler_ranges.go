@@ -139,7 +139,7 @@ func (s *Server) officialRangesFromCache() *officialRangesResponse {
 	updated := time.Time{}
 	source := "cache"
 
-	cached4, t4, err4 := loadOfficialRangeCacheV4(s.dataDir)
+	cached4, t4, err4 := loadOfficialRangeCacheFamily(s.dataDir, officialIPv4File, false)
 	if err4 != nil {
 		cached4 = engine.BuiltinCFRanges.IPv4
 		source = "builtin"
@@ -148,7 +148,7 @@ func (s *Server) officialRangesFromCache() *officialRangesResponse {
 		updated = t4
 	}
 
-	cached6, t6, err6 := loadOfficialRangeCacheV6(s.dataDir)
+	cached6, t6, err6 := loadOfficialRangeCacheFamily(s.dataDir, officialIPv6File, true)
 	if err6 != nil {
 		cached6 = engine.BuiltinCFRanges.IPv6
 		if source != "builtin" {
@@ -169,47 +169,31 @@ func (s *Server) officialRangesFromCache() *officialRangesResponse {
 	return resp
 }
 
-func loadOfficialRangeCacheV4(dataDir string) ([]string, time.Time, error) {
-	path := filepath.Join(dataDir, officialIPv4File)
+func loadOfficialRangeCacheFamily(dataDir, name string, wantIPv6 bool) ([]string, time.Time, error) {
+	path := filepath.Join(dataDir, name)
 	body, err := os.ReadFile(path)
 	if err != nil {
 		return nil, time.Time{}, err
 	}
-	ipv4, err := parseCIDRFile(string(body), false)
+	if wantIPv6 && !strings.HasPrefix(string(body), officialCacheMarker) {
+		return nil, time.Time{}, fmt.Errorf("%s 缺少版本标记（旧版聚合网段缓存已弃用）", name)
+	}
+	cidrs, err := parseCIDRFile(string(body), wantIPv6)
 	if err != nil {
-		return nil, time.Time{}, fmt.Errorf("%s: %w", officialIPv4File, err)
+		return nil, time.Time{}, fmt.Errorf("%s: %w", name, err)
 	}
 	if st, err := os.Stat(path); err == nil {
-		return ipv4, st.ModTime(), nil
+		return cidrs, st.ModTime(), nil
 	}
-	return ipv4, time.Time{}, nil
-}
-
-func loadOfficialRangeCacheV6(dataDir string) ([]string, time.Time, error) {
-	path := filepath.Join(dataDir, officialIPv6File)
-	body, err := os.ReadFile(path)
-	if err != nil {
-		return nil, time.Time{}, err
-	}
-	if !strings.HasPrefix(string(body), officialCacheMarker) {
-		return nil, time.Time{}, fmt.Errorf("%s 缺少版本标记（旧版聚合网段缓存已弃用）", officialIPv6File)
-	}
-	ipv6, err := parseCIDRFile(string(body), true)
-	if err != nil {
-		return nil, time.Time{}, fmt.Errorf("%s: %w", officialIPv6File, err)
-	}
-	if st, err := os.Stat(path); err == nil {
-		return ipv6, st.ModTime(), nil
-	}
-	return ipv6, time.Time{}, nil
+	return cidrs, time.Time{}, nil
 }
 
 func loadOfficialRangeCache(dataDir string) ([]string, []string, string, error) {
-	cached4, t4, err4 := loadOfficialRangeCacheV4(dataDir)
+	cached4, t4, err4 := loadOfficialRangeCacheFamily(dataDir, officialIPv4File, false)
 	if err4 != nil {
 		return nil, nil, "", err4
 	}
-	cached6, t6, err6 := loadOfficialRangeCacheV6(dataDir)
+	cached6, t6, err6 := loadOfficialRangeCacheFamily(dataDir, officialIPv6File, true)
 	if err6 != nil {
 		return nil, nil, "", err6
 	}
@@ -219,7 +203,6 @@ func loadOfficialRangeCache(dataDir string) ([]string, []string, string, error) 
 	}
 	return cached4, cached6, updated.Format(time.RFC3339), nil
 }
-
 func parseCIDRFile(body string, wantIPv6 bool) ([]string, error) {
 	var out []string
 	for _, line := range strings.Split(body, "\n") {

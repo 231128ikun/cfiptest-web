@@ -40,3 +40,29 @@ func TestSpeedSubMillisecondDownloadIsNotZero(t *testing.T) {
 		}
 	}
 }
+
+// TestSpeedOneResolvesExplicitURLAndWorks 回归：SpeedOne（漏斗按需测速入口）必须先解析测速源再测速。
+// 带完整协议的显式 URL 应幂等透传并正常返回速度；避免把 "auto" 等原始配置直接交给 testSingleSpeed
+// （否则会请求到无效主机名，全部测速返回 0）。
+func TestSpeedOneResolvesExplicitURLAndWorks(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(make([]byte, 64*1024))
+	}))
+	defer srv.Close()
+
+	u := strings.TrimPrefix(srv.URL, "http://")
+	host, portStr, _ := net.SplitHostPort(u)
+	port, _ := strconv.Atoi(portStr)
+
+	opts := DefaultSpeedOptions()
+	opts.EnableTLS = false
+	opts.DownloadURL = u + "/down"
+	opts.DurationSec = 3
+
+	r := &Runner{}
+	for i := 0; i < 10; i++ {
+		if spd := r.SpeedOne(context.Background(), Target{IP: host, Port: port}, opts); spd <= 0 {
+			t.Fatalf("第 %d 次 SpeedOne 返回 %v，显式 URL 应正常测速", i, spd)
+		}
+	}
+}

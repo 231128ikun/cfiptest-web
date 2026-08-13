@@ -398,6 +398,10 @@ func (r *Runner) LatencyOne(ctx context.Context, target Target, opts LatencyOpti
 
 // SpeedOne 对单个目标测速，返回 kB/s；失败或取消返回 0。
 func (r *Runner) SpeedOne(ctx context.Context, target Target, opts SpeedOptions) float64 {
+	// 按需测速（漏斗/维护）直接携带原始配置，可能是 "auto"；
+	// 这里统一解析为实际下载 URL（已解析/带协议的 URL 幂等保留），否则会请求到无效主机名。
+	resolvedURL, _ := r.ResolveSpeedURL(ctx, opts.DownloadURL, opts.EnableTLS)
+	opts.DownloadURL = resolvedURL
 	return testSingleSpeed(ctx, target, opts)
 }
 

@@ -144,8 +144,10 @@ func downloadFirst(urls []string, timeout time.Duration) ([]byte, error) {
 	return nil, fmt.Errorf("全部 %d 个源均失败:\n  %s", len(urls), strings.Join(errs, "\n  "))
 }
 
-func downloadFile(url string, timeout time.Duration) ([]byte, error) {
-	client := &http.Client{
+// NewSafeHTTPClient 返回用于下载外部文本/数据的 http.Client，统一复用安全拨号
+// （拒绝内网地址）、TLS 握手超时与内置根证书，避免各下载点各写一套。
+func NewSafeHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
 		Timeout: timeout,
 		Transport: netutil.Transport(&http.Transport{
 			// 导入端点与外下载共用安全拨号：远程 IP 列表和位置/ASN 数据
@@ -154,6 +156,10 @@ func downloadFile(url string, timeout time.Duration) ([]byte, error) {
 			TLSHandshakeTimeout: 10 * time.Second,
 		}),
 	}
+}
+
+func downloadFile(url string, timeout time.Duration) ([]byte, error) {
+	client := NewSafeHTTPClient(timeout)
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err

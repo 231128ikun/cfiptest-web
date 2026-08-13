@@ -1,11 +1,6 @@
 // Package subscription 实现自动维护任务的规则展开、候选检测与结果输出。
 package subscription
 
-import (
-	"os"
-	"path/filepath"
-)
-
 // Group 是编排器内部的一个分组约束：满足该约束的 IP 保留 Count 条。
 // 由任务规则（TaskRule）展开得到；字段与前端规则编辑器一一对应。
 type Group struct {
@@ -49,25 +44,3 @@ const DefaultTemplate = "{ip}:{port}#{country}"
 
 // SubscriptionsFile 是旧版订阅器定义文件名，仅用于一次性迁移到 tasks.json。
 const SubscriptionsFile = "subscriptions.json"
-
-// writeFileAtomic 先写同目录临时文件再改名，避免异常退出留下半截 JSON。
-func writeFileAtomic(path string, body []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".iptest-*.tmp")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-	if _, err := tmp.Write(body); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpPath, path)
-}

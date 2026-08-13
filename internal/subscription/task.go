@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"iptest-web/internal/engine"
+	"iptest-web/internal/fsutil"
 	"iptest-web/internal/library"
 )
 
@@ -523,7 +524,7 @@ func SaveTasks(dataDir string, tasks []Task) error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(filepath.Join(dataDir, TasksFile), append(body, '\n'))
+	return fsutil.WriteFileAtomic(filepath.Join(dataDir, TasksFile), append(body, '\n'), 0o644)
 }
 
 // legacySubscription 仅用于把 subscriptions.json 一次性迁移为任务；运行时不再使用旧订阅器模型。
