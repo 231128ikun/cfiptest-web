@@ -6,6 +6,8 @@
 
 ### 新增
 
+- 全站响应增加安全头（严格 CSP / X-Content-Type-Options / X-Frame-Options / Referrer-Policy）；前端内联脚本迁移为独立文件、虚拟滚动占位行改走 CSSOM，以支持无 `unsafe-inline` 的 script-src / style-src。
+- 仓库落地 GPL-3.0 许可证（上游 Kwisma/iptest 与 XIU2/CloudflareSpeedTest 均为 GPL-3.0）。
 - 测速源预设与自动选择：设置页测速地址支持「自动选择（按运营商）/ Cloudflare 官方 / 移动（CM提供）/ 移动专属 / 手动输入」预设；auto 模式用本地 ASN 库识别本机运营商（中国移动自动选用移动测速源，其余回退 Cloudflare 官方），识别失败不阻塞任务；URL 省略协议时按 TLS 开关自动补全，并在侧边日志与完成消息记录本次实际使用的测速源。旧配置里保存的具体测速地址继续原样使用。
 
 - 三步式候选准备、检测规则、检测及结果工作流。
@@ -27,6 +29,8 @@
 
 ### 修复
 
+- CI 补跑 speed_units 前端回归测试；新增 gofmt 检查与 `go test -race`；Windows/Linux 构建产物增加「启动 → 访问 /api/config → 断言版本号」冒烟验证。
+- 修正 README 构建说明与脚本现状对齐：版本号以 `main.go` 为准，构建脚本不再接受版本号参数、也不再重复注入 `-X main.version`。
 - 对当前展示/勾选结果「补充测速」不再套用「最低下载速度」和「达到数量后停止」：改为对选中 IP 逐一回填真实速度，失败显示“失败”，避免低于阈值或被提前停止的 IP 一直停留在“未测”造成误解。
 
 - 数字输入框（ms / 秒 / kB/s / 个 / 次 / 条）统一将单位后缀收进框内，视觉与主流配置界面一致；清理一次性验证脚本与预览截图。

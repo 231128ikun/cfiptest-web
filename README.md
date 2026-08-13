@@ -112,21 +112,20 @@ CGNAT / 云厂商 metadata 端点如 `169.254.169.254`）。校验发生在 TCP 
 
 ## 构建
 
+版本号在 `main.go` 的 `var version` 中维护（格式 `yyyy.MM.dd-HH.mm`，如 `2026.08.13-17.38`），
+构建脚本读取它命名产物并注入程序，不再接受版本号参数：
+
 ```bash
-# 推荐：自动以构建时刻为版本号（Windows）
+# Windows
 build.bat
 
-# 发布构建：显式指定时间版本号
-build.bat 2026.07.31-14.30
-
-# 或（Git Bash / Linux / macOS）
+# Linux / macOS（Git Bash 也可用于 Windows）
 sh build.sh
-sh build.sh 2026.07.31-14.30
 ```
 
-版本号格式为 `yyyy.MM.dd-HH.mm`。构建脚本会将它注入程序，并在 `release/` 下按版本建独立文件夹输出：
-`release/iptest-web-2026.07.31-14.30/iptest-web-2026.07.31-14.30.exe`；前端右上角显示 `版本号：2026.07.31-14.30`。
-直接执行 `go build` 且不注入时，版本号仍为 `dev`。
+产物输出到 `release/iptest-web-<版本号>/iptest-web-<版本号>.exe`（Windows）或
+`release/iptest-web-<版本号>/iptest-web-<版本号>-<os>-<arch>`（Linux / macOS）；
+前端右上角显示 `版本号：<版本号>`。
 
 依赖仅 [geoip2-golang](https://github.com/oschwald/geoip2-golang)，前端为原生 ES Modules（无构建步骤），经 `embed.FS` 打进二进制。
 
@@ -147,13 +146,17 @@ sh build.sh 2026.07.31-14.30
 ```bash
 go test ./...
 go vet ./...
+gofmt -l .
 node scripts/store_test.mjs
 node scripts/table_test.mjs
 node scripts/export_test.mjs
 node scripts/dom_test.mjs
+node scripts/api_test.mjs
+node scripts/validation_test.mjs
+node scripts/speed_units_test.mjs
 ```
 
-GitHub Actions 会在每次推送和拉取请求时执行同一组检查。
+GitHub Actions 会在每次推送和拉取请求时执行同一组检查（另含 `go test -race` 与构建产物冒烟验证）。
 
 版本变化记录见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -205,13 +208,14 @@ scripts/                前端模块的 Node 校验脚本（状态、表格、�
 参数均可缺省，后端回落到默认值（与 CLI 版默认值一致）。
 `options.maxResults` 显式传 `0` 表示不限制，与「不传」等价。
 
-## 致谢
+## 致谢与许可证
 
-核心测试逻辑源自 [Kwisma/iptest](https://github.com/Kwisma/iptest)（基于 XIU2 的源码修改）；
+核心测试逻辑源自 [Kwisma/iptest](https://github.com/Kwisma/iptest)（基于
+[XIU2/CloudflareSpeedTest](https://github.com/XIU2/CloudflareSpeedTest) 修改）；
 输入整理与筛选 DSL 移植自 DDNS-cf-proxyip 项目前端。
 
-> 公开发布前必须核对并保留上述上游项目的许可证与署名要求；在完成核对前，
-> 本仓库不应自行声明一个可能与上游不兼容的许可证。
+上游两个主要项目均为 **GPL-3.0**，本仓库因此采用 **GPL-3.0** 开源许可证（见 [LICENSE](LICENSE)），
+并保留上述署名。
 
 ## 自动化维护（任务 → IP 库 → 运行记录）
 
