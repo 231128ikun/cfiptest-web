@@ -370,9 +370,13 @@ export class ResultTable {
         // 这样滚动位置、拖动手感都和全量渲染时一样，只是 DOM 里只有一屏行。
         const span = this.columns.length;
         this.tbody.innerHTML =
-            (padTop ? `<tr class="pad" style="height:${padTop}px"><td colspan="${span}"></td></tr>` : '')
+            (padTop ? `<tr class="pad" data-pad="top"><td colspan="${span}"></td></tr>` : '')
             + rows
-            + (padBottom ? `<tr class="pad" style="height:${padBottom}px"><td colspan="${span}"></td></tr>` : '');
+            + (padBottom ? `<tr class="pad" data-pad="bottom"><td colspan="${span}"></td></tr>` : '');
+        // 高度走 CSSOM（element.style）而非内联 style 属性：严格 CSP（style-src 'self'）
+        // 只拦内联样式字符串，不拦 CSSOM，虚拟滚动占位高度不受影响。
+        if (padTop) this.tbody.querySelector('tr[data-pad="top"]').style.height = padTop + 'px';
+        if (padBottom) this.tbody.querySelector('tr[data-pad="bottom"]').style.height = padBottom + 'px';
 
         // 量一次真实行高，之后的窗口计算就准了（首帧用估值，误差只影响一帧）
         if (!this._rowH && this.wrap) {

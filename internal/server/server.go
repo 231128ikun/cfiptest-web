@@ -98,9 +98,23 @@ func New(runner *engine.Runner, assets fs.FS, version string, cfg config.Config,
 	return s
 }
 
+// securityHeaders 是本地 Web 应用的安全响应头。页面为内嵌静态资源 + 同源 API，
+// 无第三方脚本/样式/字体，因此可以启用严格 CSP（无 'unsafe-inline'）：
+// 前端已无内联脚本（见 web/js/platform-detect.js），虚拟滚动占位行高度走 CSSOM
+// （table.js），不受 style-src 'self' 限制。
+var securityHeaders = map[string]string{
+	"Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+	"X-Content-Type-Options":  "nosniff",
+	"X-Frame-Options":         "DENY",
+	"Referrer-Policy":         "no-referrer",
+}
+
 // Handler 返回根 http.Handler。
 func (s *Server) Handler() http.Handler {
 	return s.observeHTTP(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for k, v := range securityHeaders {
+			w.Header().Set(k, v)
+		}
 		if !isLocalHost(r.Host) {
 			s.log.Log("warn", "reject non-local Host: method=%s host=%q remote=%q", r.Method, r.Host, r.RemoteAddr)
 			writeError(w, http.StatusForbidden, "仅允许通过本机地址访问")
