@@ -732,7 +732,12 @@ async function startSupplementalSpeed(useVisible) {
     const results = useVisible ? table.getAllResults() : table.getSelectedResults();
     if (!results.length) { toast(useVisible ? '当前没有展示结果' : '请先勾选结果'); return; }
     try {
-        const response = await api.startSpeedTest(results.map(r => ({ ip: r.ip, port: r.port })), speedOptions());
+        // 补充测速只回填每个 IP 的真实速度，不再套用「最低下载速度」与「达到数量后停止」：
+        // 否则低于阈值/被提前停止的 IP 会保持“未测”，看起来像没测到。
+        const options = speedOptions();
+        options.minSpeedKBs = 0;
+        options.maxResults = 0;
+        const response = await api.startSpeedTest(results.map(r => ({ ip: r.ip, port: r.port })), options);
         currentTaskId = response.taskId;
         setRunning(true, 'speed');
         $('progress-label').textContent = `补充测速 0/${response.totalTargets}`;
