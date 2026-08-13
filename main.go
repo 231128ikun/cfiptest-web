@@ -36,11 +36,11 @@ var webFS embed.FS
 
 // version 是当前版本号（形如 2026.07.31-22.06），随每次代码修改更新为当前时间。
 // build.bat / build.sh 直接读取此值命名产物，不再另行生成。
-var version = "2026.08.13-00.37"
+var version = "2026.08.13-10.15"
 
-// initAndroidDNS 在 Android 上使用公共 DNS 直连解析域名。
+// initAndroidDNS 在 Android 上把 DNS 解析切换为公共 DNS 直连。
 // Android 应用子进程读不到系统 DNS 配置，纯 Go 解析器会回退到
-// [::1]:53 导致 lookup 失败；这里显式指定公共 DNS 兜底。
+// [::1]:53 导致 lookup 失败；这里用公共 DNS 兜底（UDP 失败自动切 TCP）。
 func initAndroidDNS() {
 	if runtime.GOOS != "android" {
 		return
@@ -51,17 +51,25 @@ func initAndroidDNS() {
 			servers := []string{"119.29.29.29:53", "223.5.5.5:53", "8.8.8.8:53", "1.1.1.1:53"}
 			var lastErr error
 			for _, server := range servers {
-				conn, err := (&net.Dialer{Timeout: 3 * time.Second}).DialContext(ctx, "udp", server)
+				conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, network, server)
 				if err == nil {
 					return conn, nil
 				}
 				lastErr = err
+				if network == "udp" {
+					conn, err = (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, "tcp", server)
+					if err == nil {
+						return conn, nil
+					}
+					lastErr = err
+				}
 			}
 			return nil, lastErr
 		},
 	}
 }
 func main() {
+	initAndroidDNS()
 	port := flag.Int("port", 18080, "HTTP 服务监听端口")
 	noBrowser := flag.Bool("no-browser", false, "启动后不自动打开浏览器")
 	dataDirFlag := flag.String("data-dir", "", "数据目录（留空时使用程序同级 data）")
