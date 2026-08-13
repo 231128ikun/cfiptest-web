@@ -40,7 +40,9 @@ func Default() Config {
 			OfficialRanges:         append([]string(nil), engine.DefaultOfficialRangeSources...),
 			ActiveIPv6RangeSources: append([]string(nil), engine.DefaultActiveIPv6RangeSources...),
 		},
-		SpeedTestURL: engine.DefaultSpeedOptions().DownloadURL,
+		// 默认测速源为 auto：按本机运营商自动选择（识别失败回退 Cloudflare）。
+		// 旧配置里保存的具体 URL 仍被保留并原样使用（仅补全协议），无需迁移。
+		SpeedTestURL: engine.AutoSpeedURLValue,
 		TraceURL:     engine.DefaultTraceURL,
 		IPSTypeURL:   engine.DefaultIPSTypeURL,
 	}

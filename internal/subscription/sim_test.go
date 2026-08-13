@@ -7,6 +7,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"iptest-web/internal/engine"
@@ -15,27 +16,25 @@ import (
 
 // simTester mimics a remote list with unknown geo until tested.
 type simTester struct {
+	mu            sync.Mutex
 	countries     map[string]string
 	pass          map[string]bool
 	latencyCalled []string
 }
 
-func (f *simTester) RunLatencyTest(_ context.Context, targets []engine.Target, opts engine.LatencyOptions, cb engine.EventCallback) ([]engine.Result, error) {
-	var out []engine.Result
-	for _, t := range targets {
-		key := library.Key(t.IP, t.Port)
-		f.latencyCalled = append(f.latencyCalled, key)
-		if !f.pass[key] {
-			continue
-		}
-		out = append(out, engine.Result{IP: t.IP, Port: t.Port, TCPLatencyMs: 100, CountryCode: f.countries[key], Country: f.countries[key]})
-		cb(engine.Event{Type: engine.EventResult, Result: &out[len(out)-1]})
+func (f *simTester) LatencyOne(_ context.Context, target engine.Target, _ engine.LatencyOptions) (engine.Result, bool) {
+	key := library.Key(target.IP, target.Port)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.latencyCalled = append(f.latencyCalled, key)
+	if !f.pass[key] {
+		return engine.Result{}, false
 	}
-	return out, nil
+	return engine.Result{IP: target.IP, Port: target.Port, TCPLatencyMs: 100, CountryCode: f.countries[key], Country: f.countries[key]}, true
 }
 
-func (f *simTester) RunSpeedTest(_ context.Context, targets []engine.Target, opts engine.SpeedOptions, cb engine.EventCallback) error {
-	return nil
+func (f *simTester) SpeedOne(_ context.Context, _ engine.Target, _ engine.SpeedOptions) float64 {
+	return 0
 }
 
 // buildRemoteSim 构造 200 条“未知地区”候选（模拟远程 URL 库，库内无国家元数据）：
@@ -174,9 +173,9 @@ func TestSimulateRemoteCountryPrefilter(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 漏斗：每国 10 条、全部候选已知且通过，首批缺口 50 条检测后立即全部达标停止；
-	// 非目标国家候选一条都不检测。
-	if len(sim.latencyCalled) != 50 {
-		t.Fatalf("已知候选全部通过时应只检测缺口 50 条（5 国 × 10），实际 %d", len(sim.latencyCalled))
+	// 非目标国家候选一条都不检测；流水线并发在途允许少量超额检测。
+	if n := len(sim.latencyCalled); n < 50 || n > 100 {
+		t.Fatalf("应只按缺口检测 50 条目标国候选（并发在途允许略多），实际 %d", n)
 	}
 	for _, key := range sim.latencyCalled {
 		c := sim.countries[key]
@@ -270,10 +269,10 @@ func TestSimulateUserScenarioFullChain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 漏斗：目标国每国 12 条候选且全部通过，缺口 50 条首批检测后全部达标，第 51 条起不检测；
-	// 非目标国候选（NL/DE）完全不被检测。
-	if len(sim.latencyCalled) != 50 {
-		t.Fatalf("应只按缺口检测 50 条目标国候选并提前停止, 实际 %d", len(sim.latencyCalled))
+	// 漏斗：目标国每国 12 条候选且全部通过；非目标国候选（NL/DE）完全不被检测。
+	// 流水线并发在途允许少量超额检测。
+	if n := len(sim.latencyCalled); n < 50 || n > 100 {
+		t.Fatalf("应只按缺口检测 50 条目标国候选并提前停止（并发在途允许略多），实际 %d", n)
 	}
 	if report.TotalLines != 50 {
 		t.Fatalf("应每国 10 条共 50 条, 实际 %d", report.TotalLines)

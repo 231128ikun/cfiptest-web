@@ -486,7 +486,7 @@
                                     <input type="checkbox" id="task-speed">
                                     <span class="toggle-track"></span>
                                 </label>
-                                <span class="hint task-speed-hint">开启后，各规则可选择速度范围进行筛选。</span>
+                                <span class="hint task-speed-hint">开启后，各规则使用常见的 Mbps 设置速度范围；旧任务会自动换算，不改变原有门槛。</span>
                             </div>
                                                         <div class="task-form-row task-export-row">
                                 <label>导出方式
@@ -709,10 +709,17 @@
                     </div>
                 </div>
                 <div class="settings-row">
-                    <label class="settings-label" for="advanced-speed-url">测速地址</label>
+                    <label class="settings-label" for="advanced-speed-url-preset">测速地址</label>
                     <div class="settings-control">
+                        <select id="advanced-speed-url-preset" class="speed-url-preset" title="预设测速源；「自动选择」按本机运营商挑选，识别失败回退 Cloudflare">
+                            <option value="auto">自动选择（按运营商）</option>
+                            <option value="speed.cloudflare.com/__down?bytes=500000000">Cloudflare 官方</option>
+                            <option value="cf.090227.xyz/__down?bytes=99999999">移动（CM提供）</option>
+                            <option value="speed.okl.abrdns.com">移动专属</option>
+                            <option value="custom">手动输入</option>
+                        </select>
                         <input type="text" id="advanced-speed-url" placeholder="如 speed.cloudflare.com/__down?bytes=500000000">
-                        <button type="button" class="row-action" data-clear="advanced-speed-url" title="清空并恢复默认" aria-label="清空测速地址">×</button>
+                        <button type="button" class="row-action" data-clear="advanced-speed-url" title="恢复自动选择" aria-label="恢复自动选择">↺</button>
                     </div>
                 </div>
 
@@ -899,7 +906,7 @@
 <p><b>结果范围筛选</b>：填「100~500」为区间；延迟只填一个数为上限（小于该值），速度只填一个数为下限（大于该值）。</p>
 <p><b>官方 IP 模式</b>：IPv4 按每个 /24 抽样，避免直接检测百万级地址；可选择 Cloudflare 支持的 HTTP/HTTPS 端口。</p>
                 <h4>② 自动维护</h4>
-<p>新建任务 → 绑定 IP 库，设<b>规则</b>：字段（国家/城市/端口）多值=或、多字段=交集，每个组合取前 N 条；延迟/速度范围（测速总开关开启后可用）；总数限制。保存并勾选「启用」后，点顶部「一键维护」依次执行；输出按模板写入 data/out/（输出文件名留空时使用独立默认路径，不会覆盖初始化文件）。</p>
+<p>新建任务 → 绑定 IP 库，设<b>规则</b>：字段（国家/城市/端口）多值=或、多字段=交集，每个组合取前 N 条；延迟/速度范围（测速总开关开启后可用，速度按 Mbps 填写）；总数限制。保存并勾选「启用」后，点顶部「一键维护」依次执行；输出按模板写入 data/out/（输出文件名留空时使用独立默认路径，不会覆盖初始化文件）。</p>
 <p><b>漏斗维护</b>：按当前规则缺口取候选，依次经过延迟检测、条件过滤和必要的测速；规则达到配额后立即停止为它检测，只有未达标规则继续。全部规则达标、任务总数达到上限或候选耗尽时结束，候选耗尽才报告实际缺少条数。</p>
 <p><b>维护来源</b>：本地库会更新实际检测结果；延迟连续失败达到阈值后才移除，未达阈值或测速失败时留库待复检。官方 IP 段与远程 URL 为只读候选，不写回、不删除来源。</p>
                 <h4>③ IP 库</h4>

@@ -150,7 +150,7 @@ type SpeedOptions struct {
 	DurationSec    int     `json:"durationSec"`    // 单 IP 测速时限（秒），默认 5
 	MinSpeedKBs    float64 `json:"minSpeedKBs"`    // 速度过滤阈值，0=不过滤
 	MaxResults     int     `json:"maxResults"`     // 达到该数量的达标结果即停止，0=不限制
-	DownloadURL    string  `json:"downloadURL"`    // 测速文件地址（不含协议头）
+	DownloadURL    string  `json:"downloadURL"`    // 测速文件地址；auto=自动选择，省略协议时按 EnableTLS 补全
 	EnableTLS      bool    `json:"enableTLS"`
 }
 

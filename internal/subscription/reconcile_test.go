@@ -44,38 +44,25 @@ func (f *fakeTester) add(ip string, port int, country string, latencyOK bool, sp
 	}
 }
 
-func (f *fakeTester) RunLatencyTest(_ context.Context, targets []engine.Target, opts engine.LatencyOptions, cb engine.EventCallback) ([]engine.Result, error) {
+func (f *fakeTester) LatencyOne(_ context.Context, target engine.Target, opts engine.LatencyOptions) (engine.Result, bool) {
+	key := library.Key(target.IP, target.Port)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.latencyMaxConcurrency = opts.MaxConcurrency
-	var out []engine.Result
-	for _, t := range targets {
-		key := library.Key(t.IP, t.Port)
-		f.latencyCalled = append(f.latencyCalled, key)
-		if !f.latencyOK[key] {
-			continue
-		}
-		out = append(out, engine.Result{IP: t.IP, Port: t.Port, TCPLatencyMs: latencyOf(t.IP), CountryCode: f.countries[key], Country: countryName(f.countries[key])})
-		cb(engine.Event{Type: engine.EventResult, Result: &out[len(out)-1]})
+	f.latencyCalled = append(f.latencyCalled, key)
+	if !f.latencyOK[key] {
+		return engine.Result{}, false
 	}
-	return out, nil
+	return engine.Result{IP: target.IP, Port: target.Port, TCPLatencyMs: latencyOf(target.IP), CountryCode: f.countries[key], Country: countryName(f.countries[key])}, true
 }
 
-func (f *fakeTester) RunSpeedTest(_ context.Context, targets []engine.Target, opts engine.SpeedOptions, cb engine.EventCallback) error {
+func (f *fakeTester) SpeedOne(_ context.Context, target engine.Target, opts engine.SpeedOptions) float64 {
+	key := library.Key(target.IP, target.Port)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.speedMaxConcurrency = opts.MaxConcurrency
-	for _, t := range targets {
-		key := library.Key(t.IP, t.Port)
-		f.speedCalled = append(f.speedCalled, key)
-		spd := f.speeds[key]
-		if spd <= 0 {
-			cb(engine.Event{Type: engine.EventSpeed, Result: &engine.Result{IP: t.IP, Port: t.Port, DownloadSpeedKBs: -1}})
-			continue
-		}
-		cb(engine.Event{Type: engine.EventSpeed, Result: &engine.Result{IP: t.IP, Port: t.Port, DownloadSpeedKBs: spd}})
-	}
-	return nil
+	f.speedCalled = append(f.speedCalled, key)
+	return f.speeds[key]
 }
 
 // countryName 返回国家码的中文名（模拟真实 locations 查表）。
@@ -167,16 +154,15 @@ func TestRunFillsAndWritesOutput(t *testing.T) {
 	if len(lines) != 2 || !strings.Contains(lines[0], "#美国") {
 		t.Fatalf("输出内容错误: %q", lines)
 	}
-	// 漏斗达到 2 条配额后立即停止，第 3 条不应被无意义检测。
-	got, _ := lib.Get("1.0.0.13", 443)
-	if got.Status != library.StatusNew || got.CountryCode != "" || got.TCPLatencyMs != 0 {
-		t.Fatalf("配额达标后的候选不应被检测或回写: %+v", got)
+	// 流水线并发检测：候选可能在途被多测（数据有效），但不会超配额选中输出。
+	if got := len(fake.latencyCalled); got < 2 || got > 3 {
+		t.Fatalf("应只检测 2~3 条候选: called=%v report=%+v", fake.latencyCalled, report)
 	}
-	if len(fake.latencyCalled) != 2 || report.Tested != 2 || report.Candidates != 3 {
-		t.Fatalf("漏斗应检测 2/3 条后停止: called=%v report=%+v", fake.latencyCalled, report)
+	if report.Tested != len(fake.latencyCalled) || report.Candidates != 3 {
+		t.Fatalf("Tested 应与实际检测一致: called=%v report=%+v", fake.latencyCalled, report)
 	}
-	if report.LibraryUpdated != 2 {
-		t.Fatalf("库更新应按唯一实际检测条目计数: %+v", report)
+	if report.LibraryUpdated != len(fake.latencyCalled) {
+		t.Fatalf("库更新应按唯一实际检测条目计数: called=%v report=%+v", fake.latencyCalled, report)
 	}
 }
 
@@ -333,19 +319,52 @@ func TestRunProgressCalled(t *testing.T) {
 	fake.add("1.0.0.71", 443, "US", true, 0)
 
 	var stages []string
+	var logs []string
 	sub := testRun{Name: "x", Groups: []Group{usGroup(1)},
 		Output: Output{Path: "out/t.txt", Template: "{ip}:{port}"}}
 	_, err := runTest(context.Background(), fake, lib, sub, RunOptions{}, func(p Progress) error {
 		stages = append(stages, p.Stage)
+		logs = append(logs, p.Log)
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	joined := strings.Join(logs, "\n")
+	for _, want := range []string{"开始漏斗检测", "延迟+测速进行中", "累计 1/1"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("维护进度缺少 %q：\n%s", want, joined)
+		}
+	}
 	sort.Strings(stages)
-	want := "gather,latency,output"
-	if got := strings.Join(stages, ","); got != want {
-		t.Fatalf("进度阶段应为 %s，实际 %s", want, got)
+	if got := strings.Join(stages, ","); got != "gather,latency,latency,latency,output" {
+		t.Fatalf("进度阶段不完整，实际 %s", got)
+	}
+}
+
+func TestRunSpeedProgressCalled(t *testing.T) {
+	fake := newFake()
+	lib := mkLib(t, library.Entry{IP: "1.0.0.72", Port: 443, CountryCode: "US", Status: library.StatusActive})
+	fake.add("1.0.0.72", 443, "US", true, 2048)
+	sub := testRun{Name: "x", EnableSpeed: true, Groups: []Group{{
+		Name: "美国", CountryCode: "US", Count: 1, MinSpeedKBs: 1, RequireSpeed: true,
+	}}, Output: Output{Path: "out/t.txt", Template: "{ip}:{port}"}}
+	var logs []string
+	report, err := runTest(context.Background(), fake, lib, sub, RunOptions{}, func(p Progress) error {
+		logs = append(logs, p.Log)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.SpeedTested != 1 || report.SpeedPassed != 1 {
+		t.Fatalf("应执行 1 条测速且有效: %+v", report)
+	}
+	joined := strings.Join(logs, "\n")
+	for _, want := range []string{"开始漏斗检测：候选 1 条，并发 5", "按需测速结束：测试 1"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("维护测速进度缺少 %q：\n%s", want, joined)
+		}
 	}
 }
 

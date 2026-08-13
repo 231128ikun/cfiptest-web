@@ -915,6 +915,7 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 .settings-label { font-size: 12px; font-weight: 650; color: var(--text-secondary); }
 .settings-control { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .settings-control input { flex: 1; min-width: 0; }
+.speed-url-preset { flex: none; width: 158px; font-size: 12px; }
 .settings-hint { margin-top: 3px; color: var(--text-tertiary); font-size: 11px; }
 .settings-note { margin: 8px 0 0; color: var(--text-tertiary); font-size: 12px; line-height: 1.55; }
 

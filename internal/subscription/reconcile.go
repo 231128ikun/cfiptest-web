@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"iptest-web/internal/engine"
@@ -17,8 +19,8 @@ import (
 
 // Tester 抽象检测能力，便于测试替换；*engine.Runner 满足该接口。
 type Tester interface {
-	RunLatencyTest(ctx context.Context, targets []engine.Target, opts engine.LatencyOptions, cb engine.EventCallback) ([]engine.Result, error)
-	RunSpeedTest(ctx context.Context, targets []engine.Target, opts engine.SpeedOptions, cb engine.EventCallback) error
+	LatencyOne(ctx context.Context, target engine.Target, opts engine.LatencyOptions) (engine.Result, bool)
+	SpeedOne(ctx context.Context, target engine.Target, opts engine.SpeedOptions) float64
 }
 
 var _ Tester = (*engine.Runner)(nil)
@@ -50,7 +52,7 @@ type RunOptions struct {
 	LatencyConcurrency   int             // 延迟检测并发，默认 50；维护场景过高并发易漏测/误判
 	SpeedDurationSec     int             // 单 IP 测速时长（秒），默认 5
 	SpeedConcurrency     int             // 测速并发，默认 5
-	DownloadURL          string          // 测速文件地址（不含协议头），默认 engine 默认值
+	DownloadURL          string          // 测速文件地址；auto=按运营商自动选择，省略协议时自动补全，默认 engine 默认值
 	InputTargets         []engine.Target `json:"-"`                  // 服务端已解析的初始化来源目标（远程 URL），不参与 JSON
 	InputSource          string          `json:"-"`                  // 初始化来源标签，用于进度日志
 	RemoteLibrary        bool            `json:"-"`                  // 维护来源为远程库（官方/URL）：失效不删本地库、结果不落盘
@@ -313,9 +315,50 @@ func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, 
 	limitReached := func() bool {
 		return totalLimit > 0 && len(selected) >= totalLimit
 	}
-	pickNext := func() (string, bool) {
+
+	enableTLS := opts.Protocol != "http"
+	latOpts := engine.LatencyOptions{
+		MaxConcurrency: opts.LatencyConcurrency, TimeoutMs: opts.LatencyTimeoutMs,
+		ProbeCount: opts.LatencyProbes, HTTPProbeCount: opts.LatencyHTTPProbes,
+		HTTPTimeoutMs: opts.LatencyHTTPTimeoutMs, EnableTLS: enableTLS,
+	}
+	speedOpts := engine.SpeedOptions{
+		MaxConcurrency: opts.SpeedConcurrency, DurationSec: opts.SpeedDurationSec,
+		MinSpeedKBs: 0, EnableTLS: enableTLS, DownloadURL: opts.DownloadURL,
+	}
+	stoppedByQuota := false
+	var lastLogged int64
+	var progressLogMu sync.Mutex
+
+	// 并发数：需要同时测速时按测速工作台规则取 min(延迟并发, 测速并发)，
+	// 每个候选走“延迟 → 测速 → 判定”流水线，够数即停。
+	concurrency := opts.LatencyConcurrency
+	if enableSpeed {
+		for _, g := range groups {
+			if groupNeedsSpeed(g, true) {
+				if opts.SpeedConcurrency < concurrency {
+					concurrency = opts.SpeedConcurrency
+				}
+				break
+			}
+		}
+	}
+	if concurrency < 1 {
+		concurrency = 1
+	}
+
+	var (
+		mu          sync.Mutex
+		completed   int64
+		passed      int64
+		maxSpeedKBs float64
+	)
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	pickNext := func() (string, []int, bool) {
 		if len(groups) == 0 {
-			return "", false
+			return "", nil, false
 		}
 		for attempt := 0; attempt < len(groups); attempt++ {
 			gi := (nextGroup + attempt) % len(groups)
@@ -331,117 +374,82 @@ func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, 
 			key := queues[gi][queuePos[gi]]
 			queuePos[gi]++
 			nextGroup = (gi + 1) % len(groups)
-			return key, true
-		}
-		return "", false
-	}
-
-	enableTLS := opts.Protocol != "http"
-	latOpts := engine.LatencyOptions{
-		MaxConcurrency: opts.LatencyConcurrency, TimeoutMs: opts.LatencyTimeoutMs,
-		ProbeCount: opts.LatencyProbes, HTTPProbeCount: opts.LatencyHTTPProbes,
-		HTTPTimeoutMs: opts.LatencyHTTPTimeoutMs, EnableTLS: enableTLS,
-	}
-	speedOpts := engine.SpeedOptions{
-		MaxConcurrency: opts.SpeedConcurrency, DurationSec: opts.SpeedDurationSec,
-		MinSpeedKBs: 0, EnableTLS: enableTLS, DownloadURL: opts.DownloadURL,
-	}
-	stoppedByQuota := false
-
-	remainingBatchSize := func() int {
-		remaining := 0
-		unlimited := false
-		for gi, g := range groups {
-			if g.Count <= 0 {
-				unlimited = true
-				continue
-			}
-			if gap := g.Count - report.Groups[gi].Filled; gap > 0 {
-				remaining += gap
-			}
-		}
-		if unlimited || remaining <= 0 {
-			remaining = opts.LatencyConcurrency
-		}
-		if remaining > opts.LatencyConcurrency {
-			remaining = opts.LatencyConcurrency
-		}
-		// 任务总数也是漏斗出口：只取填满剩余输出所需的候选，
-		// 避免总数限制很小时仍先并发检测一大批。
-		if totalLimit > 0 {
-			remainingTotal := totalLimit - len(selected)
-			if remaining > remainingTotal {
-				remaining = remainingTotal
-			}
-		}
-		if remaining < 1 {
-			remaining = 1
-		}
-		return remaining
-	}
-
-	for !limitReached() {
-		if err := ctx.Err(); err != nil {
-			report.LibraryUpdated = len(updatedKeys)
-			_ = lib.Save()
-			return report, err
-		}
-		if allLimitedGroupsFilled() {
-			stoppedByQuota = true
-			break
-		}
-
-		batchKeys := make([]string, 0, remainingBatchSize())
-		for len(batchKeys) < cap(batchKeys) {
-			key, ok := pickNext()
-			if !ok {
-				break
-			}
 			testedKeys[key] = true
-			batchKeys = append(batchKeys, key)
-		}
-		if len(batchKeys) == 0 {
-			break
-		}
-
-		batchGroups := make(map[string][]int, len(batchKeys))
-		targets := make([]engine.Target, 0, len(batchKeys))
-		for _, key := range batchKeys {
 			c := candidateByKey[key]
-			for gi, g := range groups {
-				if needsMore(gi) && g.CandidatePriority(c.entry) > 0 {
-					batchGroups[key] = append(batchGroups[key], gi)
-					report.Groups[gi].Tested++
+			potential := make([]int, 0, 4)
+			for pgi, g := range groups {
+				if needsMore(pgi) && g.CandidatePriority(c.entry) > 0 {
+					potential = append(potential, pgi)
+					report.Groups[pgi].Tested++
 				}
 			}
-			targets = append(targets, engine.Target{IP: c.entry.IP, Port: c.entry.Port})
+			report.Tested++
+			return key, potential, true
 		}
+		return "", nil, false
+	}
 
-		results, err := t.RunLatencyTest(ctx, targets, latOpts, func(engine.Event) {})
-		if err != nil && ctx.Err() != nil {
-			report.LibraryUpdated = len(updatedKeys)
-			_ = lib.Save()
-			return report, ctx.Err()
+	emitPipelineProgress := func(force bool) {
+		c := atomic.LoadInt64(&completed)
+		progressLogMu.Lock()
+		if !force && c-lastLogged < int64(concurrency) {
+			progressLogMu.Unlock()
+			return
 		}
-		resultByKey := make(map[string]engine.Result, len(results))
-		for _, res := range results {
-			resultByKey[library.Key(res.IP, res.Port)] = res
-		}
-		report.Tested += len(batchKeys)
+		lastLogged = c
+		progressLogMu.Unlock()
 
-		type passedCandidate struct {
-			key       string
-			entry     library.Entry
-			matching  []int
-			needSpeed bool
-		}
-		passedBatch := make([]passedCandidate, 0, len(results))
-		for _, key := range batchKeys {
+		mu.Lock()
+		spd := report.SpeedTested
+		spdOK := report.SpeedPassed
+		filled := len(selected)
+		p := int(atomic.LoadInt64(&passed))
+		maxKBs := maxSpeedKBs
+		mu.Unlock()
+
+		maxMbps := maxKBs * 8192 / 1e6
+		_ = prog(Progress{Stage: "latency", Tested: int(c), Passed: p,
+			Log: fmt.Sprintf("延迟+测速进行中：累计 %d/%d，延迟通过 %d，测速 %d（有效 %d），已选 %d，最高 %.2f Mbps",
+				c, report.Candidates, p, spd, spdOK, filled, maxMbps)})
+	}
+
+	_ = prog(Progress{Stage: "latency",
+		Log: fmt.Sprintf("开始漏斗检测：候选 %d 条，并发 %d（延迟并发 %d，测速并发 %d），逐条「延迟→测速→判定」",
+			report.Candidates, concurrency, opts.LatencyConcurrency, opts.SpeedConcurrency)})
+
+	sem := make(chan struct{}, concurrency)
+	var wg sync.WaitGroup
+	stopRequested := false
+
+	worker := func() {
+		defer wg.Done()
+		defer func() { <-sem }()
+		for {
+			mu.Lock()
+			if stopRequested || runCtx.Err() != nil {
+				mu.Unlock()
+				return
+			}
+			key, potential, ok := pickNext()
+			if !ok {
+				mu.Unlock()
+				return
+			}
+			mu.Unlock()
+
 			c := candidateByKey[key]
-			res, passed := resultByKey[key]
-			if !passed {
+			target := engine.Target{IP: c.entry.IP, Port: c.entry.Port}
+
+			res, valid := t.LatencyOne(runCtx, target, latOpts)
+			if runCtx.Err() != nil {
+				return
+			}
+			atomic.AddInt64(&completed, 1)
+
+			if !valid {
+				mu.Lock()
 				report.Failed++
-				for _, gi := range batchGroups[key] {
+				for _, gi := range potential {
 					report.Groups[gi].Failed++
 				}
 				if !opts.RemoteLibrary {
@@ -460,11 +468,16 @@ func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, 
 						report.RetainedFailed++
 					}
 				}
+				mu.Unlock()
+				emitPipelineProgress(false)
 				continue
 			}
 
-			report.Passed++
+			atomic.AddInt64(&passed, 1)
 			updated, _ := applyResult(c.entry, res, time.Now())
+
+			mu.Lock()
+			report.Passed++
 			if !opts.RemoteLibrary {
 				if c.originalKey != key {
 					lib.RemoveKey(c.originalKey)
@@ -472,53 +485,34 @@ func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, 
 				lib.Upsert(updated)
 				updatedKeys[key] = true
 			}
-
-			pc := passedCandidate{key: key, entry: updated}
+			matching := make([]int, 0, 4)
+			needSpeed := false
 			for gi, g := range groups {
 				if !needsMore(gi) || !groupMatches(g, updated) {
 					continue
 				}
-				pc.matching = append(pc.matching, gi)
+				matching = append(matching, gi)
 				if groupNeedsSpeed(g, enableSpeed) {
-					pc.needSpeed = true
+					needSpeed = true
 				}
 			}
-			if len(pc.matching) > 0 {
-				passedBatch = append(passedBatch, pc)
-			}
-		}
+			mu.Unlock()
 
-		speedMap := make(map[string]float64)
-		speedTargets := make([]engine.Target, 0, len(passedBatch))
-		for _, pc := range passedBatch {
-			if !pc.needSpeed {
-				continue
-			}
-			speedTargets = append(speedTargets, engine.Target{IP: pc.entry.IP, Port: pc.entry.Port})
-			report.SpeedTested++
-			for _, gi := range pc.matching {
-				if groupNeedsSpeed(groups[gi], enableSpeed) {
-					report.Groups[gi].SpeedTested++
+			if needSpeed {
+				spd := t.SpeedOne(runCtx, target, speedOpts)
+				if runCtx.Err() != nil {
+					return
 				}
-			}
-		}
-		if len(speedTargets) > 0 {
-			sErr := t.RunSpeedTest(ctx, speedTargets, speedOpts, func(ev engine.Event) {
-				if ev.Type == engine.EventSpeed && ev.Result != nil {
-					speedMap[library.Key(ev.Result.IP, ev.Result.Port)] = ev.Result.DownloadSpeedKBs
+				mu.Lock()
+				if spd > maxSpeedKBs {
+					maxSpeedKBs = spd
 				}
-			})
-			if sErr != nil && ctx.Err() != nil {
-				report.LibraryUpdated = len(updatedKeys)
-				_ = lib.Save()
-				return report, ctx.Err()
-			}
-		}
-
-		for _, pc := range passedBatch {
-			updated := pc.entry
-			if pc.needSpeed {
-				spd := speedMap[pc.key]
+				report.SpeedTested++
+				for _, gi := range matching {
+					if groupNeedsSpeed(groups[gi], enableSpeed) {
+						report.Groups[gi].SpeedTested++
+					}
+				}
 				if spd > 0 {
 					updated.DownloadSpeedKBs = spd
 					updated.SpeedKBs = spd
@@ -527,7 +521,7 @@ func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, 
 				} else {
 					updated.SpeedValid = false
 					report.SpeedFailed++
-					for _, gi := range pc.matching {
+					for _, gi := range matching {
 						if groupNeedsSpeed(groups[gi], enableSpeed) {
 							report.Groups[gi].SpeedFailed++
 						}
@@ -535,11 +529,13 @@ func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, 
 				}
 				if !opts.RemoteLibrary {
 					lib.Upsert(updated)
-					updatedKeys[pc.key] = true
+					updatedKeys[key] = true
 				}
+				mu.Unlock()
 			}
 
-			for _, gi := range pc.matching {
+			mu.Lock()
+			for _, gi := range matching {
 				g := groups[gi]
 				if !needsMore(gi) {
 					continue
@@ -548,13 +544,38 @@ func runCore(ctx context.Context, t Tester, lib *library.Store, groups []Group, 
 					continue
 				}
 				report.Groups[gi].Filled++
-				if !selectedKeys[pc.key] {
-					selectedKeys[pc.key] = true
-					outGroup[pc.key] = gi
+				if !selectedKeys[key] {
+					selectedKeys[key] = true
+					outGroup[key] = gi
 					selected = append(selected, updated)
 				}
 			}
+			stopNow := allLimitedGroupsFilled() || limitReached()
+			if stopNow {
+				stopRequested = true
+				stoppedByQuota = true
+			}
+			mu.Unlock()
+
+			emitPipelineProgress(stopNow)
+			if stopNow {
+				return
+			}
 		}
+	}
+
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		sem <- struct{}{}
+		go worker()
+	}
+	wg.Wait()
+	cancel()
+
+	if ctx.Err() != nil {
+		report.LibraryUpdated = len(updatedKeys)
+		_ = lib.Save()
+		return report, ctx.Err()
 	}
 
 	report.LibraryUpdated = len(updatedKeys)

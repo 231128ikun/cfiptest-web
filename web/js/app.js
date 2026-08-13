@@ -553,9 +553,90 @@ function speedOptions(maxResults = null) {
         durationSec: readNumberField('spd-duration', { min: 1, max: 30, integer: true, optional: true }),
         minSpeedKBs: readNumberField('spd-minspeed', { min: 0, optional: true }) || 0,
         maxResults: maxResults ?? ruleMaxResults(),
-        downloadURL: $('advanced-speed-url').value.trim() || undefined,
+        downloadURL: resolveSpeedTestUrl() || undefined,
         enableTLS: $('lat-tls').checked,
     };
+}
+
+// ---- 测速源预设（移植自 CFData-WEB：auto 按运营商 / Cloudflare / 移动 / 手动） ----
+const SPEED_URL_AUTO = 'auto';
+const SPEED_URL_AUTO_LABEL = '自动选择';
+const SPEED_URL_CUSTOM = 'custom';
+
+function applySpeedUrlPreset(value) {
+    const input = $('advanced-speed-url');
+    if (!input) return;
+    input.readOnly = false;
+    if (value === SPEED_URL_CUSTOM) {
+        input.value = '';
+        input.focus();
+        return;
+    }
+    if (value === SPEED_URL_AUTO) {
+        input.value = SPEED_URL_AUTO_LABEL;
+        input.readOnly = true;
+        return;
+    }
+    input.value = value;
+}
+
+function markSpeedUrlCustom() {
+    const preset = $('advanced-speed-url-preset');
+    if (preset) preset.value = SPEED_URL_CUSTOM;
+}
+
+function syncSpeedUrlPreset() {
+    const input = $('advanced-speed-url');
+    const preset = $('advanced-speed-url-preset');
+    if (!input || !preset) return;
+    const value = input.value.trim();
+    if (value === SPEED_URL_AUTO_LABEL) {
+        preset.value = SPEED_URL_AUTO;
+        input.readOnly = true;
+        return;
+    }
+    const option = Array.from(preset.options).find(item => item.value === value);
+    preset.value = option ? value : SPEED_URL_CUSTOM;
+    input.readOnly = false;
+}
+
+function resetDefaultSpeedUrl() {
+    const input = $('advanced-speed-url');
+    const preset = $('advanced-speed-url-preset');
+    if (!input) return;
+    input.value = SPEED_URL_AUTO_LABEL;
+    input.readOnly = true;
+    if (preset) preset.value = SPEED_URL_AUTO;
+    syncSpdUrlHidden();
+}
+
+function resolveSpeedTestUrl() {
+    const preset = $('advanced-speed-url-preset');
+    if (preset && preset.value === SPEED_URL_AUTO) return SPEED_URL_AUTO;
+    const value = ($('advanced-speed-url').value || '').trim();
+    if (!value || value === SPEED_URL_AUTO_LABEL) return SPEED_URL_AUTO;
+    return value;
+}
+
+function applySpeedUrlConfig(value) {
+    const input = $('advanced-speed-url');
+    const preset = $('advanced-speed-url-preset');
+    if (!input || !preset) return;
+    const resolved = String(value || '').trim();
+    if (!resolved || resolved === SPEED_URL_AUTO || resolved === SPEED_URL_AUTO_LABEL) {
+        resetDefaultSpeedUrl();
+        return;
+    }
+    input.value = resolved;
+    input.readOnly = false;
+    syncSpeedUrlPreset();
+    syncSpdUrlHidden();
+}
+
+function syncSpdUrlHidden() {
+    const input = $('advanced-speed-url');
+    const hidden = $('spd-url');
+    if (input && hidden) hidden.value = input.value;
 }
 
 function applySpeedEnabled() {
@@ -577,7 +658,7 @@ function updateDefaultPortHint() {
 
 function resetRules() {
     const lat = defaults?.latency || { maxConcurrency: 100, timeoutMs: 3000, maxLatencyMs: 0, enableTLS: true, enableIPAPI: false };
-    const spd = defaults?.speed || { maxConcurrency: 5, durationSec: 5, minSpeedKBs: 0, downloadURL: 'speed.cloudflare.com/__down?bytes=500000000' };
+    const spd = defaults?.speed || { maxConcurrency: 5, durationSec: 5, minSpeedKBs: 0, downloadURL: 'auto' };
     $('lat-concurrency').value = lat.maxConcurrency;
     $('lat-maxlatency').value = lat.maxLatencyMs > 0 ? lat.maxLatencyMs : '';
     $('lat-tls').checked = lat.enableTLS;
@@ -587,8 +668,7 @@ function resetRules() {
     $('spd-duration').value = spd.durationSec;
     $('spd-minspeed').value = spd.minSpeedKBs > 0 ? spd.minSpeedKBs : '';
     $('rule-maxresults').value = '';
-    $('advanced-speed-url').value = spd.downloadURL;
-    $('spd-url').value = spd.downloadURL;
+    applySpeedUrlConfig(spd.downloadURL);
     $('spd-maxresults').value = 0;
     $('spd-tls').checked = lat.enableTLS;
     applySpeedEnabled();
@@ -724,7 +804,13 @@ function bindRulesAndRun() {
     });
     $('lat-ipapi').addEventListener('change', scheduleSettingsAutoSave);
     $('advanced-speed-url').addEventListener('input', () => {
-        $('spd-url').value = $('advanced-speed-url').value;
+        markSpeedUrlCustom();
+        syncSpdUrlHidden();
+        scheduleConfigAutoSave();
+    });
+    $('advanced-speed-url-preset').addEventListener('change', () => {
+        applySpeedUrlPreset($('advanced-speed-url-preset').value);
+        syncSpdUrlHidden();
         scheduleConfigAutoSave();
     });
     $('rule-maxresults').addEventListener('input', () => { $('spd-maxresults').value = ruleMaxResults(); updateRunButton(); });
@@ -768,8 +854,13 @@ function bindSettingsAutoSave() {
         btn.addEventListener('click', () => {
             const input = $(btn.dataset.clear);
             if (!input) return;
+            if (input.id === 'advanced-speed-url') {
+                resetDefaultSpeedUrl();
+                scheduleConfigAutoSave();
+                toast('已恢复为自动选择测速源');
+                return;
+            }
             input.value = '';
-            if (input.id === 'advanced-speed-url') $('spd-url').value = '';
             scheduleConfigAutoSave();
             toast('已清空，保存后将恢复默认');
         });
@@ -1160,7 +1251,7 @@ async function resetSettingsToDefaults() {
         const response = await api.resetConfig();
         fillConfigFields(response.config);
         resetMaintenanceFieldsToDefaults();
-        $('spd-url').value = $('advanced-speed-url').value;
+        syncSpdUrlHidden();
         await saveLocalSettings();
         $('settings-status').textContent = '已恢复为默认设置并保存';
         toast('已恢复全部默认设置');
@@ -1172,7 +1263,7 @@ async function resetSettingsToDefaults() {
 function fillConfigFields(config) {
     appConfig = config || {};
     const sources = appConfig.sources || {};
-    $('advanced-speed-url').value = appConfig.speedTestURL || '';
+    applySpeedUrlConfig(appConfig.speedTestURL);
     $('advanced-trace-url').value = appConfig.traceURL || '';
     $('advanced-ips-url').value = appConfig.ipsTypeURL || '';
     setListEditor('editor-locations', sources.locations);
@@ -1261,7 +1352,7 @@ function readConfigFields() {
         ...(appConfig || {}),
         traceURL: $('advanced-trace-url').value.trim(),
         ipsTypeURL: $('advanced-ips-url').value.trim(),
-        speedTestURL: $('advanced-speed-url').value.trim(),
+        speedTestURL: resolveSpeedTestUrl(),
         sources: {
             locations: getListEditor('editor-locations'),
             asnDatabase: getListEditor('editor-asn'),

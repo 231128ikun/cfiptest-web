@@ -19,6 +19,15 @@ type Runner struct {
 	asnDB      *geoip2.Reader
 	traceURL   string
 	ipsTypeURL string
+
+	// ownASN 用于测速源 auto 模式的运营商探测；默认 lookupOwnASN
+	// （本地 ASN 库 + trace 出口 IP），测试可替换为固定值。
+	ownASN func(ctx context.Context) (uint, string)
+
+	// 测速源 auto 模式的解析结果缓存（单进程首次探测后复用）。
+	autoOnce  sync.Once
+	autoURL   string
+	autoLabel string
 }
 
 // RunnerConfig 是创建 Runner 所需的外部资源配置。
@@ -65,7 +74,9 @@ func NewRunner(rc RunnerConfig) (*Runner, error) {
 		asnDB = nil
 	}
 
-	return &Runner{locations: locations, asnDB: asnDB, traceURL: traceURL, ipsTypeURL: ipsTypeURL}, nil
+	runner := &Runner{locations: locations, asnDB: asnDB, traceURL: traceURL, ipsTypeURL: ipsTypeURL}
+	runner.ownASN = runner.lookupOwnASN
+	return runner, nil
 }
 
 // Close 释放 ASN 数据库等资源。
@@ -271,6 +282,10 @@ func (r *Runner) RunSpeedTest(ctx context.Context, targets []Target, opts SpeedO
 	if opts.MaxConcurrency < 1 {
 		opts.MaxConcurrency = 1
 	}
+	// 解析测速源：auto 按本机 ISP 自动选源；自定义 URL 补全协议。记录实际使用源。
+	resolvedURL, sourceLabel := r.ResolveSpeedURL(ctx, opts.DownloadURL, opts.EnableTLS)
+	opts.DownloadURL = resolvedURL
+	cb(speedSourceEvent(sourceLabel))
 
 	total := len(targets)
 	sem := make(chan struct{}, opts.MaxConcurrency)
@@ -368,8 +383,22 @@ loop:
 		return ctx.Err()
 	}
 	cb(Event{Type: EventDone, Reason: DoneCompleted,
-		Message: fmt.Sprintf("测速完成，%d/%d 个达标", valid, total)})
+		Message: fmt.Sprintf("测速完成，%d/%d 个达标（测速源：%s）", valid, total, sourceLabel)})
 	return nil
+}
+
+// LatencyOne 检测单个目标，返回有效结果；ctx 取消或检测无效时返回 false。
+func (r *Runner) LatencyOne(ctx context.Context, target Target, opts LatencyOptions) (Result, bool) {
+	res, _ := r.testSingleIP(ctx, target, opts)
+	if res == nil || ctx.Err() != nil {
+		return Result{}, false
+	}
+	return *res, true
+}
+
+// SpeedOne 对单个目标测速，返回 kB/s；失败或取消返回 0。
+func (r *Runner) SpeedOne(ctx context.Context, target Target, opts SpeedOptions) float64 {
+	return testSingleSpeed(ctx, target, opts)
 }
 
 // RunCombinedTest 执行「延迟 → 测速」流水线：每个 IP 先测延迟，延迟合格再测速。
@@ -387,6 +416,10 @@ func (r *Runner) RunCombinedTest(ctx context.Context, targets []Target, latency 
 		speed.MaxConcurrency = 1
 	}
 	speed.EnableTLS = latency.EnableTLS
+	// 解析测速源：auto 按本机 ISP 自动选源；自定义 URL 补全协议。记录实际使用源。
+	resolvedURL, sourceLabel := r.ResolveSpeedURL(ctx, speed.DownloadURL, speed.EnableTLS)
+	speed.DownloadURL = resolvedURL
+	cb(speedSourceEvent(sourceLabel))
 
 	total := len(targets)
 	concurrency := latency.MaxConcurrency
@@ -509,7 +542,7 @@ loop:
 	switch {
 	case hitLimit.Load():
 		cb(Event{Type: EventDone, Reason: DoneLimit,
-			Message: fmt.Sprintf("已达到最大结果数，延迟+测速均达标 %d 个 IP", len(results))})
+			Message: fmt.Sprintf("已达到最大结果数，延迟+测速均达标 %d 个 IP（测速源：%s）", len(results), sourceLabel)})
 		return results, ErrResultLimitReached
 	case ctx.Err() != nil:
 		cb(Event{Type: EventDone, Reason: DoneStopped,
@@ -517,7 +550,7 @@ loop:
 		return results, ctx.Err()
 	}
 	summary := failureSummary(failTCP.Load(), failLatency.Load(), failTrace.Load(), failColo.Load())
-	msg := fmt.Sprintf("延迟+测速完成，%d/%d 个 IP 达标", len(results), total)
+	msg := fmt.Sprintf("延迟+测速完成，%d/%d 个 IP 达标（测速源：%s）", len(results), total, sourceLabel)
 	if summary != "" {
 		msg += "；" + summary
 	}

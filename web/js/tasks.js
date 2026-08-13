@@ -3,6 +3,7 @@ import { escapeHTML } from './columns.js';
 import { loadSavedTemplates, fetchSettingsTemplates as fetchSettingsTpls, persistTemplates, templateOptionFor, templateContentFor, renderTemplateSelect } from './templates.js';
 import * as api from './api.js';
 import { fillCloudSelect, loadCloudConfigsInto, cloudConfigs } from './cloud.js';
+import { formatSpeedMbps, mbpsToSpeedKBs } from './speed-units.js';
 
 const $ = id => document.getElementById(id);
 const FIELD_OPTIONS = [
@@ -77,7 +78,9 @@ export function initTasks({ toast }) {
 
     function setRunning(running) {
         state.running = running;
-        $('btn-run-all').disabled = running;
+        const btn = $('btn-run-all');
+        btn.classList.toggle('danger', running);
+        btn.textContent = running ? '停止维护' : '一键维护';
     }
 
     // ---- 加载 ----
@@ -378,7 +381,7 @@ export function initTasks({ toast }) {
                 <div class="task-rule-params">
                     <label>每个组合取前 <input type="number" min="0" class="r-limit" data-ri="${ri}" value="${rule.limit || ''}" placeholder="0=不限"> 条</label>
                     <label>延迟 <input type="number" min="0" class="r-lat-min" data-ri="${ri}" value="${rule.latencyMin || ''}" placeholder="min"> ~ <input type="number" min="0" class="r-lat-max" data-ri="${ri}" value="${rule.latencyMax || ''}" placeholder="max"> ms</label>
-                    <label>速度 <input type="number" min="0" class="r-spd-min" data-ri="${ri}" value="${rule.speedMin || ''}" placeholder="min" ${$('task-speed').checked ? '' : 'disabled'}> ~ <input type="number" min="0" class="r-spd-max" data-ri="${ri}" value="${rule.speedMax || ''}" placeholder="max" ${$('task-speed').checked ? '' : 'disabled'}> kB/s</label>
+                    <label title="按常见网络带宽单位填写；旧任务会自动换算">速度 <input type="number" min="0" step="0.000001" class="r-spd-min" data-ri="${ri}" value="${formatSpeedMbps(rule.speedMin)}" placeholder="min" ${$('task-speed').checked ? '' : 'disabled'}> ~ <input type="number" min="0" step="0.000001" class="r-spd-max" data-ri="${ri}" value="${formatSpeedMbps(rule.speedMax)}" placeholder="max" ${$('task-speed').checked ? '' : 'disabled'}> Mbps</label>
                 </div>
             </div>`).join('');
     }
@@ -453,8 +456,8 @@ export function initTasks({ toast }) {
                 limit: num('.r-limit'),
                 latencyMin: num('.r-lat-min'),
                 latencyMax: num('.r-lat-max'),
-                speedMin: task.speedEnabled ? num('.r-spd-min') : 0,
-                speedMax: task.speedEnabled ? num('.r-spd-max') : 0,
+                speedMin: task.speedEnabled ? mbpsToSpeedKBs(num('.r-spd-min')) : 0,
+                speedMax: task.speedEnabled ? mbpsToSpeedKBs(num('.r-spd-max')) : 0,
             };
             rule.conditions.forEach(c => {
                 if (c.field === 'country' || c.field === 'dataCenter') c.values = c.values.map(v => v.toUpperCase());
@@ -539,7 +542,19 @@ export function initTasks({ toast }) {
         runTaskId(state.runQueue.shift());
     }
 
-    function stop() { api.stopTask('').catch(() => {}); }
+    function stop() {
+        const btn = $('btn-run-all');
+        btn.disabled = true;
+        btn.textContent = '正在停止…';
+        api.stopTask('').then(result => {
+            // 返回 false 说明此刻没有活动任务（例如队列切换间隙），
+            // 不能等 onDone，直接恢复按钮避免卡在“正在停止…”。
+            if (!result || result.stopped !== true) setRunning(state.running);
+        }).catch(error => {
+            toast(`停止失败：${error.message}`);
+            setRunning(state.running);
+        });
+    }
 
     function onAuto(message) {
         if (!state.running || !message) return;
@@ -675,7 +690,10 @@ export function initTasks({ toast }) {
     $('btn-task-cloud-open').addEventListener('click', openCloudLink);
     $('task-save').addEventListener('click', saveTask);
     $('task-delete').addEventListener('click', deleteTask);
-    $('btn-run-all').addEventListener('click', runAll);
+    $('btn-run-all').addEventListener('click', () => {
+        if (state.running) stop();
+        else runAll();
+    });
     function updateScheduleUI() {
         const enabled = $('task-schedule-enabled').checked;
         $('task-schedule-settings').hidden = !enabled;
@@ -730,8 +748,8 @@ export function initTasks({ toast }) {
         if (cls.contains('r-limit')) rule.limit = Number(e.target.value) > 0 ? Number(e.target.value) : 0;
         else if (cls.contains('r-lat-min')) rule.latencyMin = Number(e.target.value) > 0 ? Number(e.target.value) : 0;
         else if (cls.contains('r-lat-max')) rule.latencyMax = Number(e.target.value) > 0 ? Number(e.target.value) : 0;
-        else if (cls.contains('r-spd-min')) rule.speedMin = Number(e.target.value) > 0 ? Number(e.target.value) : 0;
-        else if (cls.contains('r-spd-max')) rule.speedMax = Number(e.target.value) > 0 ? Number(e.target.value) : 0;
+        else if (cls.contains('r-spd-min')) rule.speedMin = mbpsToSpeedKBs(e.target.value);
+        else if (cls.contains('r-spd-max')) rule.speedMax = mbpsToSpeedKBs(e.target.value);
         else if (cls.contains('c-field')) {
             const ci = Number(e.target.dataset.ci);
             rule.conditions[ci].field = e.target.value;

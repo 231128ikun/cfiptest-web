@@ -21,11 +21,8 @@ func testSingleSpeed(ctx context.Context, target Target, opts SpeedOptions) floa
 		timeout = time.Duration(opts.DurationSec) * time.Second
 	}
 
-	scheme := "https://"
-	if !opts.EnableTLS {
-		scheme = "http://"
-	}
-	url := scheme + opts.DownloadURL
+	// DownloadURL 可能省略协议（预设值）或已带完整协议（手动输入）；统一补全/校验。
+	url := normalizeDownloadURL(opts.DownloadURL, schemeFor(opts.EnableTLS))
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {

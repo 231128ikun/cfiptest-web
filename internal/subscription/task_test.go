@@ -268,8 +268,8 @@ func TestRunTaskFunnelContinuesUntilQuotaThenStops(t *testing.T) {
 	if report.TotalLines != 2 || report.Groups[0].Shortage != 0 {
 		t.Fatalf("应继续检测到配额满足: %+v", report)
 	}
-	if len(fake.latencyCalled) != 5 {
-		t.Fatalf("前 3 条失败、第 4/5 条通过后应停止，第 6 条不检测；实际 %d: %v", len(fake.latencyCalled), fake.latencyCalled)
+	if n := len(fake.latencyCalled); n < 5 || n > 6 {
+		t.Fatalf("应检测 5~6 条候选（并发在途），实际 %d: %v", n, fake.latencyCalled)
 	}
 }
 

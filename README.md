@@ -46,7 +46,7 @@ iptest-web-2026.07.31-14.30.exe -port 18080 -no-browser
                        "https://cdn.jsdelivr.net/gh/P3TERX/GeoLite.mmdb@download/GeoLite2-ASN.mmdb"],
     "officialRanges": ["https://api.cloudflare.com/client/v4/ips"]
   },
-  "speedTestURL": "speed.cloudflare.com/__down?bytes=500000000",
+  "speedTestURL": "auto", // auto=按运营商自动选择；也可填具体地址（省略协议时自动补全）
   "traceURL":     "speed.cloudflare.com/cdn-cgi/trace",
   "ipsTypeURL":   "https://api.ipapi.is/?q={ip}"
 }
@@ -61,6 +61,7 @@ iptest-web-2026.07.31-14.30.exe -port 18080 -no-browser
 - **官方网段独立缓存** —— 配置只定义远程源；IPv4/IPv6 内容分别缓存为两个 TXT 文件，页面可显式更新。
 - **检测设置持久化** —— `data/settings.json` 保存延迟/测速规则、显示字段、自定义展示规则、导出格式/范围与自定义模板。
 - **IPS 地址占位符** —— `ipsTypeURL` 中的 `{ip}` 会替换为当前被测 IP。
+- **测速源预设** —— 设置页可选手动输入或预设（自动选择 / Cloudflare 官方 / 移动）；「自动选择」按本机公网 ASN 判断运营商，中国移动自动选用移动测速源，其余回退 Cloudflare 官方，识别失败不阻塞任务，实际使用的测速源会记录到侧边日志与完成消息。
 
 ## 满足条件后自动停止
 
