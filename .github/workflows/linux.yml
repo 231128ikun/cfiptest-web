@@ -43,6 +43,34 @@ jobs:
             go build -trimpath -ldflags "-s -w" \
             -o "release_assets/iptest-web-${version}-linux-amd64" .
 
+      - name: Smoke test binary
+        shell: bash
+        run: |
+          version=$(sed -n 's/^var version = "\([^"]*\)"/\1/p' main.go)
+          bin=$(ls release_assets/iptest-web-${version}* 2>/dev/null | head -n1)
+          if [ -z "$bin" ]; then
+            echo "未找到产物 release_assets/iptest-web-${version}*" >&2
+            exit 1
+          fi
+          "$bin" -port 18081 -no-browser > smoke.log 2>&1 &
+          pid=$!
+          ok=0
+          for i in $(seq 1 30); do
+            if curl -fsS "http://127.0.0.1:18081/api/config" 2>/dev/null | grep -q "\"version\":\"${version}\""; then
+              ok=1
+              break
+            fi
+            sleep 1
+          done
+          kill "$pid" 2>/dev/null || true
+          wait "$pid" 2>/dev/null || true
+          cat smoke.log
+          if [ "$ok" != "1" ]; then
+            echo "冒烟验证失败：/api/config 未返回版本号 ${version}" >&2
+            exit 1
+          fi
+          echo "冒烟验证通过：二进制返回版本号 ${version}"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:

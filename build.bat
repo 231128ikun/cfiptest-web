@@ -14,7 +14,7 @@ set "OUTDIR=release\!OUTPUT:~0,-4!"
 if not exist "%OUTDIR%" mkdir "%OUTDIR%"
 
 echo Building %OUTDIR%\%OUTPUT% ...
-go build -ldflags "-s -w -X main.version=%VER%" -o "%OUTDIR%\%OUTPUT%" .
+go build -ldflags "-s -w" -o "%OUTDIR%\%OUTPUT%" .
 if errorlevel 1 (
     echo Build failed.
     exit /b 1

@@ -24,5 +24,5 @@ else
 fi
 
 echo "Building $OUTDIR/$OUTPUT ..."
-go build -ldflags "-s -w -X main.version=$VER" -o "$OUTDIR/$OUTPUT" .
+go build -ldflags "-s -w" -o "$OUTDIR/$OUTPUT" .
 echo "Build complete: $OUTDIR/$OUTPUT"
