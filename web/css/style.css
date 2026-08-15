@@ -531,8 +531,9 @@ details > summary { color: var(--text-secondary); font-weight: 580; cursor: poin
 .official-settings { padding: 16px; border: 1px solid var(--border-light); border-radius: var(--radius-lg); background: var(--surface); }
 .official-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 15px; }
 .official-heading h3 { margin: 0; font-size: 15px; }
-.field-row { display: flex; align-items: center; gap: 15px; padding: 11px 0; border-top: 1px solid var(--border-light); flex-wrap: wrap; }
+.field-row { display: grid; grid-template-columns: 80px minmax(0, 1fr); align-items: center; gap: 12px; padding: 11px 0; border-top: 1px solid var(--border-light); }
 .field-name { min-width: 80px; color: var(--text-secondary); font-size: 12px; }
+.official-option-grid { min-width: 0; display: flex; align-items: center; gap: 15px; flex-wrap: wrap; }
 .field-row #sample-n { width: 68px; min-height: 30px; }
 .field-row label.radio .input-with-unit { width: 105px; flex: none; }
 /* 统一说明：所有辅助提示共用同一视觉（小字、次级色），避免零碎混排 */
@@ -543,7 +544,8 @@ details > summary { color: var(--text-secondary); font-weight: 580; cursor: poin
 .official-actions { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
 .estimate-box { margin-top: 10px; color: var(--text-secondary); font-size: 12px; }
 .official-candidate { padding: 16px; border: 1px solid var(--border-light); border-radius: var(--radius-lg); background: var(--surface); }
-.official-endpoint-row label { display: inline-flex; align-items: center; gap: 6px; }
+.official-endpoint-grid { min-width: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.official-endpoint-grid label { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 6px; }
 .official-endpoint-row select { min-width: 96px; }
 
 /* ---------- 10. 检测规则 ---------- */
@@ -1106,9 +1108,6 @@ td.bad-shortage { color: var(--danger); font-weight: 650; }
 .task-detection-note { margin: -4px 0 12px; }
 .task-form-row .input-with-unit { width: 100%; }
 
-.official-endpoint-row label { display: inline-flex; align-items: center; gap: 6px; }
-.official-endpoint-row select { min-width: 96px; }
-
 /* ---------- 20. IP 库 ---------- */
 .lib-layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 14px; align-items: start; }
 .lib-side .lib-item { border: 1px solid var(--border-light); background: var(--surface); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 8px; cursor: pointer; transition: border-color .15s ease, box-shadow .15s ease; }
@@ -1462,7 +1461,7 @@ html.android-app {
     .android-app .side-label { width: 100%; overflow: hidden; text-overflow: ellipsis; }
 
     .android-app .content { width: 100%; overflow-x: hidden; }
-    .android-app .page { width: 100%; padding: 16px 12px 28px; }
+    .android-app .page { width: 100%; padding: 16px 12px calc(28px + var(--android-nav-h) + env(safe-area-inset-bottom)); }
     .android-app #page-workspace { padding-top: 0; }
     .android-app .page-head { gap: 10px; margin-bottom: 14px; }
     .android-app .page-head h2 { font-size: 19px; }
@@ -1577,6 +1576,48 @@ html.android-app {
         padding: 0 10px;
         border-radius: 11px;
     }
+    .android-app .official-settings,
+    .android-app .official-candidate { padding: 13px; border-radius: var(--android-card-radius); }
+    .android-app .official-heading {
+        display: grid;
+        align-items: start;
+        justify-content: stretch;
+        gap: 4px;
+        margin-bottom: 10px;
+    }
+    .android-app .official-heading h3 { font-size: 16px; line-height: 1.35; }
+    .android-app .official-heading .hint { font-size: 12px; line-height: 1.45; }
+    .android-app .field-row {
+        grid-template-columns: 1fr;
+        align-items: stretch;
+        gap: 8px;
+        padding: 11px 0;
+    }
+    .android-app .field-name { min-width: 0; font-size: 13px; font-weight: 600; }
+    .android-app .official-option-grid { display: grid; gap: 8px; width: 100%; }
+    .android-app .official-family-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .android-app .official-sample-options { grid-template-columns: 1fr; }
+    .android-app .official-option-grid .radio {
+        min-width: 0;
+        min-height: 42px;
+        padding: 0 10px;
+        border: 1px solid var(--border-light);
+        border-radius: var(--android-control-radius);
+        background: var(--surface-soft);
+        font-size: 14px;
+        white-space: nowrap;
+    }
+
+    .android-app .official-sample-options .radio { justify-content: flex-start; }
+    .android-app .official-sample-options .input-with-unit { width: 105px; margin-left: auto; }
+    .android-app .official-endpoint-row { gap: 8px; }
+    .android-app .official-endpoint-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .android-app .official-endpoint-grid label { grid-template-columns: 1fr; gap: 5px; color: var(--text-secondary); font-size: 12px; }
+    .android-app .official-endpoint-grid select { width: 100%; min-width: 0; }
+    .android-app .official-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .android-app .official-actions > button { width: 100%; min-width: 0; }
+    .android-app .official-settings .note { margin-top: 10px; font-size: 12px; line-height: 1.55; }
+    .android-app .official-settings .estimate-box { margin-top: 10px; line-height: 1.5; }
     .android-app .import-station { padding: 11px; }
     .android-app .import-station-title { display: grid; gap: 1px; margin-bottom: 9px; }
     .android-app .compact-toolbar {

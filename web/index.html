@@ -139,20 +139,26 @@
                 <div class="official-layout">
                     <div class="official-settings">
                         <div class="official-heading"><h3>Cloudflare 官方 IP 段</h3><span id="ranges-status" class="hint">尚未加载</span></div>
-                        <div class="field-row">
+                        <div class="field-row official-option-row">
                             <span class="field-name">地址类型</span>
-                            <label class="radio"><input type="radio" name="official-family" value="ipv4" checked> 官方 IPv4</label>
-                            <label class="radio"><input type="radio" name="official-family" value="ipv6"> 官方 IPv6</label>
+                            <div class="official-option-grid official-family-options">
+                                <label class="radio"><input type="radio" name="official-family" value="ipv4" checked> 官方 IPv4</label>
+                                <label class="radio"><input type="radio" name="official-family" value="ipv6"> 官方 IPv6</label>
+                            </div>
                         </div>
-                        <div class="field-row">
+                        <div class="field-row official-option-row">
                             <span class="field-name">抽样方式</span>
-                            <label class="radio"><input type="radio" name="sample-mode" value="one" checked> 每段取 1 个</label>
-                            <label class="radio"><input type="radio" name="sample-mode" value="n"> 每段取 <span class="input-with-unit"><input type="number" id="sample-n" min="1" max="256" value="1"><span class="unit">个</span></span></label>
+                            <div class="official-option-grid official-sample-options">
+                                <label class="radio"><input type="radio" name="sample-mode" value="one" checked> 每段取 1 个</label>
+                                <label class="radio"><input type="radio" name="sample-mode" value="n"> 每段取 <span class="input-with-unit"><input type="number" id="sample-n" min="1" max="256" value="1"><span class="unit">个</span></span></label>
+                            </div>
                         </div>
                         <div class="field-row official-endpoint-row">
                             <span class="field-name">检测端点</span>
-                            <label>协议 <select id="official-protocol"><option value="https">HTTPS</option><option value="http">HTTP</option></select></label>
-                            <label>端口 <select id="official-port"><option value="443">443</option></select></label>
+                            <div class="official-endpoint-grid">
+                                <label>协议 <select id="official-protocol"><option value="https">HTTPS</option><option value="http">HTTP</option></select></label>
+                                <label>端口 <select id="official-port"><option value="443">443</option></select></label>
+                            </div>
                         </div>
                         <div class="note" id="sample-hint">按每段抽样，避免直接检测百万级地址；具体方式随设置更新。</div>
                         <div class="official-actions">
